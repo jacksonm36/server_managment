@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-09T21:03:46Z",
+  "updated_at": "2026-10-09T21:07:17Z",
   "phases": [
     {
       "name": "MVP",
@@ -107,7 +107,7 @@
       "features": [
         {
           "name": "Scheduled jobs (cron)",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "Scripts library, run on many servers",

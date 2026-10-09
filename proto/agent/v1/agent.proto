@@ -109,6 +109,10 @@ enum Op {
   OP_FILES_DELETE = 36;         // params: path
   OP_FILES_RENAME = 37;         // params: from, to
   OP_FILES_CHMOD = 38;          // params: path, mode
+  OP_CRON_LIST = 39;
+  OP_CRON_SAVE = 40;            // params: id (empty = new), schedule, user, command, comment, enabled
+  OP_CRON_DELETE = 41;          // params: id
+  OP_CRON_RUN = 42;             // params: id
 }
 
 message Job {

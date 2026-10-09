@@ -250,6 +250,7 @@ func StartRenewer(ctx context.Context, log *slog.Logger) {
 			case <-t.C:
 			}
 			renewDue(ctx, log)
+			trimCronLogs()
 			t.Reset(12 * time.Hour)
 		}
 	}()

@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Activity,
   ArrowLeft,
+  Clock,
   Database,
   FolderOpen,
   Globe,
@@ -28,6 +29,7 @@ import { Updates } from "./server/Updates";
 import { Sites } from "./server/Sites";
 import { Databases } from "./server/Databases";
 import { Files } from "./server/Files";
+import { Cron } from "./server/Cron";
 import { SSHKeys } from "./server/SSHKeys";
 import { Firewall } from "./server/Firewall";
 import { Fail2ban } from "./server/Fail2ban";
@@ -128,6 +130,7 @@ export function ServerDetail({ id }: { id: string }) {
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "databases" && <Databases serverId={id} online={server.online} />}
       {tab === "files" && <Files serverId={id} online={server.online} />}
+      {tab === "cron" && <Cron serverId={id} online={server.online} />}
       {tab === "updates" && <Updates serverId={id} online={server.online} />}
       {tab === "ssh" && <SSHKeys serverId={id} online={server.online} />}
       {tab === "firewall" && <Firewall serverId={id} online={server.online} />}
@@ -142,6 +145,7 @@ const TABS = [
   { id: "sites", label: "Sites", icon: Globe },
   { id: "databases", label: "Databases", icon: Database },
   { id: "files", label: "Files", icon: FolderOpen },
+  { id: "cron", label: "Cron", icon: Clock },
   { id: "updates", label: "Updates", icon: PackageCheck },
   { id: "ssh", label: "SSH keys", icon: KeyRound },
   { id: "firewall", label: "Firewall", icon: Shield },

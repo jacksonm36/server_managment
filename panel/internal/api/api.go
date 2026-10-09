@@ -261,6 +261,10 @@ var opsByName = map[string]opSpec{
 	"files.delete":           {op: agentv1.Op_OP_FILES_DELETE, params: []string{"path"}},
 	"files.rename":           {op: agentv1.Op_OP_FILES_RENAME, params: []string{"from", "to"}},
 	"files.chmod":            {op: agentv1.Op_OP_FILES_CHMOD, params: []string{"path", "mode"}},
+	"cron.list":              {op: agentv1.Op_OP_CRON_LIST},
+	"cron.save":              {op: agentv1.Op_OP_CRON_SAVE, params: []string{"id", "schedule", "user", "command", "comment", "enabled"}},
+	"cron.delete":            {op: agentv1.Op_OP_CRON_DELETE, params: []string{"id"}},
+	"cron.run":               {op: agentv1.Op_OP_CRON_RUN, params: []string{"id"}},
 }
 
 // secretParams are forwarded to the agent but never stored in job history
@@ -289,7 +293,7 @@ func redact(p map[string]string) map[string]string {
 var readOnlyOps = map[string]bool{
 	"system.info": true, "packages.check_updates": true, "ssh_keys.list": true,
 	"firewall.status": true, "fail2ban.status": true, "web.status": true, "db.status": true,
-	"files.list": true, "files.read": true,
+	"files.list": true, "files.read": true, "cron.list": true,
 }
 
 func (s opSpec) checkParams(p map[string]string) error {

@@ -115,6 +115,10 @@ const (
 	Op_OP_FILES_DELETE           Op = 36 // params: path
 	Op_OP_FILES_RENAME           Op = 37 // params: from, to
 	Op_OP_FILES_CHMOD            Op = 38 // params: path, mode
+	Op_OP_CRON_LIST              Op = 39
+	Op_OP_CRON_SAVE              Op = 40 // params: id (empty = new), schedule, user, command, comment, enabled
+	Op_OP_CRON_DELETE            Op = 41 // params: id
+	Op_OP_CRON_RUN               Op = 42 // params: id
 )
 
 // Enum value maps for Op.
@@ -159,6 +163,10 @@ var (
 		36: "OP_FILES_DELETE",
 		37: "OP_FILES_RENAME",
 		38: "OP_FILES_CHMOD",
+		39: "OP_CRON_LIST",
+		40: "OP_CRON_SAVE",
+		41: "OP_CRON_DELETE",
+		42: "OP_CRON_RUN",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -200,6 +208,10 @@ var (
 		"OP_FILES_DELETE":           36,
 		"OP_FILES_RENAME":           37,
 		"OP_FILES_CHMOD":            38,
+		"OP_CRON_LIST":              39,
+		"OP_CRON_SAVE":              40,
+		"OP_CRON_DELETE":            41,
+		"OP_CRON_RUN":               42,
 	}
 )
 
@@ -804,7 +816,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xd5\x06\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\x9e\a\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -845,7 +857,11 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x0eOP_FILES_MKDIR\x10#\x12\x13\n" +
 	"\x0fOP_FILES_DELETE\x10$\x12\x13\n" +
 	"\x0fOP_FILES_RENAME\x10%\x12\x12\n" +
-	"\x0eOP_FILES_CHMOD\x10&2M\n" +
+	"\x0eOP_FILES_CHMOD\x10&\x12\x10\n" +
+	"\fOP_CRON_LIST\x10'\x12\x10\n" +
+	"\fOP_CRON_SAVE\x10(\x12\x12\n" +
+	"\x0eOP_CRON_DELETE\x10)\x12\x0f\n" +
+	"\vOP_CRON_RUN\x10*2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

@@ -116,6 +116,14 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = filesRename(p, logf)
 	case agentv1.Op_OP_FILES_CHMOD:
 		result, err = filesChmod(p, logf)
+	case agentv1.Op_OP_CRON_LIST:
+		result, err = cronStatus()
+	case agentv1.Op_OP_CRON_SAVE:
+		result, err = cronSave(p, logf)
+	case agentv1.Op_OP_CRON_DELETE:
+		result, err = cronDelete(p, logf)
+	case agentv1.Op_OP_CRON_RUN:
+		result, err = cronRun(ctx, p, logf)
 	case agentv1.Op_OP_SITE_TLS:
 		result, err = withSiteLock(func() (any, error) { return siteTLS(ctx, p, logf) })
 	default:
