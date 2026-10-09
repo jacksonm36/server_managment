@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-09T20:42:46Z",
+  "updated_at": "2026-10-09T20:47:38Z",
   "phases": [
     {
       "name": "MVP",
@@ -63,7 +63,11 @@
         },
         {
           "name": "TOTP two-factor login",
-          "status": "in-progress"
+          "status": "done"
+        },
+        {
+          "name": "Password change + recovery codes",
+          "status": "done"
         }
       ]
     },

@@ -92,6 +92,20 @@ type Admin struct {
 	ID           int64
 	Username     string
 	PasswordHash string
+	TOTPEnabled  bool
+	TOTPSecret   string // sealed
+	TOTPPending  string // sealed, set during setup
+}
+
+const adminCols = `a.id, a.username, a.password_hash, a.totp_enabled, COALESCE(a.totp_secret, ''), COALESCE(a.totp_pending, '')`
+
+func scanAdmin(row pgx.Row) (*Admin, error) {
+	a := &Admin{}
+	err := row.Scan(&a.ID, &a.Username, &a.PasswordHash, &a.TOTPEnabled, &a.TOTPSecret, &a.TOTPPending)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return a, err
 }
 
 func (s *Store) AdminCount(ctx context.Context) (int, error) {
@@ -106,13 +120,7 @@ func (s *Store) CreateAdmin(ctx context.Context, username, hash string) error {
 }
 
 func (s *Store) AdminByUsername(ctx context.Context, username string) (*Admin, error) {
-	a := &Admin{}
-	err := s.db.QueryRow(ctx, `SELECT id, username, password_hash FROM admins WHERE username = $1`, username).
-		Scan(&a.ID, &a.Username, &a.PasswordHash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return a, err
+	return scanAdmin(s.db.QueryRow(ctx, `SELECT `+adminCols+` FROM admins a WHERE a.username = $1`, username))
 }
 
 func (s *Store) CreateSession(ctx context.Context, tokenHash []byte, adminID int64, expires time.Time) error {
@@ -121,14 +129,9 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash []byte, adminID int
 }
 
 func (s *Store) SessionAdmin(ctx context.Context, tokenHash []byte) (*Admin, error) {
-	a := &Admin{}
-	err := s.db.QueryRow(ctx, `
-		SELECT a.id, a.username, a.password_hash FROM sessions s JOIN admins a ON a.id = s.admin_id
-		WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash).Scan(&a.ID, &a.Username, &a.PasswordHash)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	return a, err
+	return scanAdmin(s.db.QueryRow(ctx, `
+		SELECT `+adminCols+` FROM sessions s JOIN admins a ON a.id = s.admin_id
+		WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash))
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash []byte) error {

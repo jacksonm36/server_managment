@@ -163,6 +163,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		OTP      string `json:"otp"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -184,6 +185,25 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		a.audit(r, admin.Username, "auth.login", "", map[string]string{"error": "wrong password"}, false)
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
+	}
+	if admin.TOTPEnabled {
+		if strings.TrimSpace(req.OTP) == "" {
+			// The password was right; ask for the second factor without
+			// counting this as a failed attempt.
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "enter your two-factor code", "totp_required": true})
+			return
+		}
+		ok, err := a.verifySecondFactor(r, admin, req.OTP)
+		if err != nil {
+			a.internal(w, err)
+			return
+		}
+		if !ok {
+			a.limiter.failed(ip)
+			a.audit(r, admin.Username, "auth.login", "", map[string]string{"error": "wrong two-factor code"}, false)
+			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid or already used two-factor code", "totp_required": true})
+			return
+		}
 	}
 	raw, hash := randomToken()
 	if err := a.Store.CreateSession(r.Context(), hash, admin.ID, time.Now().Add(sessionTTL)); err != nil {

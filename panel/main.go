@@ -69,6 +69,11 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	secretKey, err := api.LoadOrCreateKey(dataDir + "/secret.key")
+	if err != nil {
+		return err
+	}
+
 	ca, err := pki.LoadOrCreate(dataDir + "/pki")
 	if err != nil {
 		return err
@@ -126,7 +131,7 @@ func run(log *slog.Logger) error {
 			AgentBinDir:  binDir,
 			ProgressFile: env("SM_PROGRESS_FILE", "./progress.json"),
 		},
-		Store: st, Hub: h, CA: ca, Log: log, Web: webFS,
+		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey,
 	}
 	hs := &http.Server{
 		Addr:              httpAddr,

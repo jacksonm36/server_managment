@@ -91,10 +91,13 @@ export type Progress = {
   }[];
 };
 
+export type Account = { username: string; totp_enabled: boolean; recovery_codes_left: number };
+
 export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public data: Record<string, unknown> = {},
   ) {
     super(message);
   }
@@ -112,13 +115,21 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
   if (res.status === 204) return undefined as T;
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new ApiError(res.status, data.error ?? res.statusText);
+  if (!res.ok) throw new ApiError(res.status, data.error ?? res.statusText, data);
   return data as T;
 }
 
 export const api = {
-  login: (username: string, password: string) =>
-    request<{ username: string }>("POST", "/api/v1/auth/login", { username, password }),
+  login: (username: string, password: string, otp?: string) =>
+    request<{ username: string }>("POST", "/api/v1/auth/login", otp ? { username, password, otp } : { username, password }),
+  account: () => request<Account>("GET", "/api/v1/account"),
+  changePassword: (current: string, next: string) => request<void>("POST", "/api/v1/account/password", { current, new: next }),
+  totpSetup: (password: string) =>
+    request<{ secret: string; otpauth_uri: string }>("POST", "/api/v1/account/totp/setup", { password }),
+  totpEnable: (code: string) => request<{ recovery_codes: string[] }>("POST", "/api/v1/account/totp/enable", { code }),
+  totpDisable: (password: string, code: string) => request<void>("POST", "/api/v1/account/totp/disable", { password, code }),
+  recoveryCodes: (password: string) =>
+    request<{ recovery_codes: string[] }>("POST", "/api/v1/account/recovery-codes", { password }),
   logout: () => request<void>("POST", "/api/v1/auth/logout"),
   me: () => request<{ username: string }>("GET", "/api/v1/me"),
   servers: () => request<Server[]>("GET", "/api/v1/servers"),

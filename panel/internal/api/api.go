@@ -42,6 +42,8 @@ type API struct {
 	CA    *pki.CA
 	Log   *slog.Logger
 	Web   fs.FS // built UI (web/dist), may be nil
+	// SecretKey (32 bytes) encrypts TOTP secrets at rest.
+	SecretKey []byte
 
 	limiter *loginLimiter
 }
@@ -60,6 +62,12 @@ func (a *API) Handler() http.Handler {
 	// Authenticated API.
 	authed := http.NewServeMux()
 	authed.HandleFunc("GET /api/v1/me", a.handleMe)
+	authed.HandleFunc("GET /api/v1/account", a.handleAccount)
+	authed.HandleFunc("POST /api/v1/account/password", a.handleChangePassword)
+	authed.HandleFunc("POST /api/v1/account/totp/setup", a.handleTOTPSetup)
+	authed.HandleFunc("POST /api/v1/account/totp/enable", a.handleTOTPEnable)
+	authed.HandleFunc("POST /api/v1/account/totp/disable", a.handleTOTPDisable)
+	authed.HandleFunc("POST /api/v1/account/recovery-codes", a.handleRecoveryRegenerate)
 	authed.HandleFunc("GET /api/v1/servers", a.handleListServers)
 	authed.HandleFunc("GET /api/v1/servers/{id}", a.handleGetServer)
 	authed.HandleFunc("DELETE /api/v1/servers/{id}", a.handleDeleteServer)

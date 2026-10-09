@@ -9,6 +9,7 @@ import { Servers } from "@/pages/Servers";
 import { ServerDetail } from "@/pages/ServerDetail";
 import { Progress } from "@/pages/Progress";
 import { Activity } from "@/pages/Activity";
+import { Account } from "@/pages/Account";
 
 export function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined);
@@ -55,7 +56,9 @@ export function App() {
           </nav>
           <div className="flex items-center gap-3 text-sm">
             <ConnectionDot />
-            <span className="hidden text-muted-foreground sm:inline">{user}</span>
+            <Link href="/account" className="text-muted-foreground hover:text-foreground" title="Account & security">
+              {user}
+            </Link>
             <Button variant="ghost" size="sm" onClick={logout}>
               <LogOut /> Sign out
             </Button>
@@ -66,6 +69,9 @@ export function App() {
         <Switch>
           <Route path="/">
             <Servers />
+          </Route>
+          <Route path="/account">
+            <Account />
           </Route>
           <Route path="/activity">
             <Activity />

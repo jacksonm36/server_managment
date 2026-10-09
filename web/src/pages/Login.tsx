@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Server } from "lucide-react";
-import { api } from "@/lib/api";
+import { api, ApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
@@ -10,16 +10,25 @@ export function Login({ onLogin }: { onLogin: (username: string) => void }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [needOTP, setNeedOTP] = useState(false);
+  const [otp, setOtp] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      const r = await api.login(username, password);
+      const r = await api.login(username, password, needOTP ? otp.trim() : undefined);
       onLogin(r.username);
     } catch (err) {
-      setError((err as Error).message);
+      if (err instanceof ApiError && err.data.totp_required) {
+        // First step passed; show the code field (only report an error if a code was tried).
+        if (needOTP) setError(err.message);
+        setNeedOTP(true);
+        setOtp("");
+      } else {
+        setError((err as Error).message);
+      }
     } finally {
       setBusy(false);
     }
@@ -60,6 +69,21 @@ export function Login({ onLogin }: { onLogin: (username: string) => void }) {
                 required
               />
             </div>
+            {needOTP && (
+              <div className="grid gap-2">
+                <Label htmlFor="otp">Two-factor code</Label>
+                <Input
+                  id="otp"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456 or a recovery code"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  autoFocus
+                  required
+                />
+              </div>
+            )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" variant="brand" className="w-full" disabled={busy}>
               {busy ? "Signing in…" : "Sign in"}
