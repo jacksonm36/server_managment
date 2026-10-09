@@ -90,6 +90,18 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = withSiteLock(func() (any, error) { return siteUpdate(ctx, p, logf) })
 	case agentv1.Op_OP_SITE_DELETE:
 		result, err = withSiteLock(func() (any, error) { return siteDelete(ctx, p, logf) })
+	case agentv1.Op_OP_DB_STATUS:
+		result, err = dbStatus(ctx)
+	case agentv1.Op_OP_DB_INSTALL:
+		result, err = dbInstall(ctx, logf)
+	case agentv1.Op_OP_DB_CREATE:
+		result, err = dbCreate(ctx, p, logf)
+	case agentv1.Op_OP_DB_DELETE:
+		result, err = dbDelete(ctx, p, logf)
+	case agentv1.Op_OP_DB_USER_SAVE:
+		result, err = dbUserCreate(ctx, p, logf)
+	case agentv1.Op_OP_DB_USER_DELETE:
+		result, err = dbUserDelete(ctx, p, logf)
 	case agentv1.Op_OP_SITE_TLS:
 		result, err = withSiteLock(func() (any, error) { return siteTLS(ctx, p, logf) })
 	default:

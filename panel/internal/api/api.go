@@ -245,13 +245,34 @@ var opsByName = map[string]opSpec{
 	"site.update":            {op: agentv1.Op_OP_SITE_UPDATE, params: []string{"domain", "aliases", "type", "php_version", "proxy_target", "force_https"}},
 	"site.delete":            {op: agentv1.Op_OP_SITE_DELETE, params: []string{"domain", "delete_files"}},
 	"site.tls":               {op: agentv1.Op_OP_SITE_TLS, params: []string{"domain", "mode", "email", "staging"}},
+	"db.status":              {op: agentv1.Op_OP_DB_STATUS},
+	"db.install":             {op: agentv1.Op_OP_DB_INSTALL},
+	"db.create":              {op: agentv1.Op_OP_DB_CREATE, params: []string{"name", "user", "host", "password"}},
+	"db.delete":              {op: agentv1.Op_OP_DB_DELETE, params: []string{"name", "drop_users"}},
+	"db.user_save":           {op: agentv1.Op_OP_DB_USER_SAVE, params: []string{"user", "host", "password", "databases"}},
+	"db.user_delete":         {op: agentv1.Op_OP_DB_USER_DELETE, params: []string{"user", "host"}},
+}
+
+// secretParams are forwarded to the agent but never stored in job history
+// or the audit log.
+var secretParams = []string{"password"}
+
+func redact(p map[string]string) map[string]string {
+	out := make(map[string]string, len(p))
+	for k, v := range p {
+		if slices.Contains(secretParams, k) && v != "" {
+			v = "[redacted]"
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // readOnlyOps only read state; they show up in job history but are not
 // written to the audit log, which would otherwise fill with status polls.
 var readOnlyOps = map[string]bool{
 	"system.info": true, "packages.check_updates": true, "ssh_keys.list": true,
-	"firewall.status": true, "fail2ban.status": true, "web.status": true,
+	"firewall.status": true, "fail2ban.status": true, "web.status": true, "db.status": true,
 }
 
 func (s opSpec) checkParams(p map[string]string) error {
@@ -296,7 +317,8 @@ func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if req.Params == nil {
 		req.Params = map[string]string{}
 	}
-	job := &store.Job{ID: store.NewUUID(), ServerID: serverID, Op: req.Op, Params: req.Params, Status: "queued",
+	stored := redact(req.Params)
+	job := &store.Job{ID: store.NewUUID(), ServerID: serverID, Op: req.Op, Params: stored, Status: "queued",
 		CreatedBy: adminFrom(r.Context()).Username}
 	if err := a.Store.CreateJob(r.Context(), job); err != nil {
 		a.internal(w, err)
@@ -305,12 +327,12 @@ func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	msg := &agentv1.PanelMessage{Msg: &agentv1.PanelMessage_Job{Job: &agentv1.Job{Id: job.ID, Op: spec.op, Params: req.Params}}}
 	if err := a.Hub.Send(serverID, msg); err != nil {
 		_ = a.Store.UpdateJob(r.Context(), job.ID, "failed", "", nil, err.Error(), true)
-		a.audit(r, "", "job.create", srv.Name, map[string]any{"op": req.Op, "params": req.Params, "job_id": job.ID, "error": err.Error()}, false)
+		a.audit(r, "", "job.create", srv.Name, map[string]any{"op": req.Op, "params": stored, "job_id": job.ID, "error": err.Error()}, false)
 		writeErr(w, http.StatusConflict, err.Error())
 		return
 	}
 	if !readOnlyOps[req.Op] {
-		a.audit(r, "", "job.create", srv.Name, map[string]any{"op": req.Op, "params": req.Params, "job_id": job.ID}, true)
+		a.audit(r, "", "job.create", srv.Name, map[string]any{"op": req.Op, "params": stored, "job_id": job.ID}, true)
 	}
 	a.Hub.JobChanged(serverID, job.ID)
 	writeJSON(w, http.StatusAccepted, job)

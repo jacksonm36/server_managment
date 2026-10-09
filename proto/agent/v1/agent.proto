@@ -96,6 +96,12 @@ enum Op {
   OP_SITE_UPDATE = 23;          // params: domain, aliases, type, php_version, proxy_target, force_https
   OP_SITE_DELETE = 24;          // params: domain, delete_files
   OP_SITE_TLS = 25;             // params: domain, mode (off|selfsigned|letsencrypt), email, staging
+  OP_DB_STATUS = 26;
+  OP_DB_INSTALL = 27;
+  OP_DB_CREATE = 28;            // params: name, user, host, password
+  OP_DB_DELETE = 29;            // params: name, drop_users
+  OP_DB_USER_SAVE = 30;         // params: user, host, password, databases
+  OP_DB_USER_DELETE = 31;       // params: user, host
 }
 
 message Job {

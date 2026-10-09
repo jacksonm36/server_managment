@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-09T20:54:40Z",
+  "updated_at": "2026-10-09T21:00:08Z",
   "phases": [
     {
       "name": "MVP",
@@ -89,7 +89,7 @@
         },
         {
           "name": "MariaDB / PostgreSQL databases & users",
-          "status": "todo"
+          "status": "in-progress"
         },
         {
           "name": "File manager",

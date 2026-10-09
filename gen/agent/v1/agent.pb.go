@@ -102,6 +102,12 @@ const (
 	Op_OP_SITE_UPDATE            Op = 23 // params: domain, aliases, type, php_version, proxy_target, force_https
 	Op_OP_SITE_DELETE            Op = 24 // params: domain, delete_files
 	Op_OP_SITE_TLS               Op = 25 // params: domain, mode (off|selfsigned|letsencrypt), email, staging
+	Op_OP_DB_STATUS              Op = 26
+	Op_OP_DB_INSTALL             Op = 27
+	Op_OP_DB_CREATE              Op = 28 // params: name, user, host, password
+	Op_OP_DB_DELETE              Op = 29 // params: name, drop_users
+	Op_OP_DB_USER_SAVE           Op = 30 // params: user, host, password, databases
+	Op_OP_DB_USER_DELETE         Op = 31 // params: user, host
 )
 
 // Enum value maps for Op.
@@ -133,6 +139,12 @@ var (
 		23: "OP_SITE_UPDATE",
 		24: "OP_SITE_DELETE",
 		25: "OP_SITE_TLS",
+		26: "OP_DB_STATUS",
+		27: "OP_DB_INSTALL",
+		28: "OP_DB_CREATE",
+		29: "OP_DB_DELETE",
+		30: "OP_DB_USER_SAVE",
+		31: "OP_DB_USER_DELETE",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -161,6 +173,12 @@ var (
 		"OP_SITE_UPDATE":            23,
 		"OP_SITE_DELETE":            24,
 		"OP_SITE_TLS":               25,
+		"OP_DB_STATUS":              26,
+		"OP_DB_INSTALL":             27,
+		"OP_DB_CREATE":              28,
+		"OP_DB_DELETE":              29,
+		"OP_DB_USER_SAVE":           30,
+		"OP_DB_USER_DELETE":         31,
 	}
 )
 
@@ -765,7 +783,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xd4\x04\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xc9\x05\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -793,7 +811,13 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x0eOP_SITE_CREATE\x10\x16\x12\x12\n" +
 	"\x0eOP_SITE_UPDATE\x10\x17\x12\x12\n" +
 	"\x0eOP_SITE_DELETE\x10\x18\x12\x0f\n" +
-	"\vOP_SITE_TLS\x10\x192M\n" +
+	"\vOP_SITE_TLS\x10\x19\x12\x10\n" +
+	"\fOP_DB_STATUS\x10\x1a\x12\x11\n" +
+	"\rOP_DB_INSTALL\x10\x1b\x12\x10\n" +
+	"\fOP_DB_CREATE\x10\x1c\x12\x10\n" +
+	"\fOP_DB_DELETE\x10\x1d\x12\x13\n" +
+	"\x0fOP_DB_USER_SAVE\x10\x1e\x12\x15\n" +
+	"\x11OP_DB_USER_DELETE\x10\x1f2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 
