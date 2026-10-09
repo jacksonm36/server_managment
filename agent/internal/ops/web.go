@@ -30,26 +30,31 @@ import (
 //	/etc/php/<v>/fpm/pool.d/servermgr-<domain>.conf    per-site pool, own Linux user
 //	/etc/servermgr-agent/sites/<domain>.json           site registry (source of truth)
 const (
+	acmeWebroot = "/var/lib/servermgr-agent/acme"
+	certsDir    = "/etc/servermgr-agent/certs"
+)
+
+// Variables so tests can point them at a temp dir.
+var (
 	sitesRoot    = "/srv/sites"
 	siteRegistry = "/etc/servermgr-agent/sites"
-	acmeWebroot  = "/var/lib/servermgr-agent/acme"
-	certsDir     = "/etc/servermgr-agent/certs"
 )
 
 type Site struct {
-	Domain      string    `json:"domain"`
-	Aliases     []string  `json:"aliases"`
-	Type        string    `json:"type"` // static | php | proxy
-	PHPVersion  string    `json:"php_version,omitempty"`
-	ProxyTarget string    `json:"proxy_target,omitempty"`
-	User        string    `json:"user"`
-	Root        string    `json:"root"`
-	TLS         string    `json:"tls"` // "" | selfsigned | letsencrypt
-	TLSEmail    string    `json:"tls_email,omitempty"`
-	TLSStaging  bool      `json:"tls_staging,omitempty"`
-	TLSExpires  time.Time `json:"tls_expires,omitzero"`
-	ForceHTTPS  bool      `json:"force_https"`
-	CreatedAt   time.Time `json:"created_at"`
+	Domain      string        `json:"domain"`
+	Aliases     []string      `json:"aliases"`
+	Type        string        `json:"type"` // static | php | proxy
+	PHPVersion  string        `json:"php_version,omitempty"`
+	ProxyTarget string        `json:"proxy_target,omitempty"`
+	User        string        `json:"user"`
+	Root        string        `json:"root"`
+	TLS         string        `json:"tls"` // "" | selfsigned | letsencrypt
+	TLSEmail    string        `json:"tls_email,omitempty"`
+	TLSStaging  bool          `json:"tls_staging,omitempty"`
+	TLSExpires  time.Time     `json:"tls_expires,omitzero"`
+	ForceHTTPS  bool          `json:"force_https"`
+	CreatedAt   time.Time     `json:"created_at"`
+	Backup      *BackupPolicy `json:"backup,omitempty"`
 }
 
 func (s *Site) home() string    { return filepath.Join(sitesRoot, s.Domain) }

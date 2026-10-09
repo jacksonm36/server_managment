@@ -113,6 +113,11 @@ enum Op {
   OP_CRON_SAVE = 40;            // params: id (empty = new), schedule, user, command, comment, enabled
   OP_CRON_DELETE = 41;          // params: id
   OP_CRON_RUN = 42;             // params: id
+  OP_BACKUP_LIST = 43;
+  OP_BACKUP_CREATE = 44;        // params: domain, databases
+  OP_BACKUP_DELETE = 45;        // params: domain, file
+  OP_BACKUP_RESTORE = 46;       // params: domain, file, files, databases
+  OP_BACKUP_POLICY = 47;        // params: domain, enabled, every, hour, keep, databases
 }
 
 message Job {

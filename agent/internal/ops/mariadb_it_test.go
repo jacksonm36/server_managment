@@ -42,7 +42,7 @@ func TestMariaDBIntegration(t *testing.T) {
 	if _, err := dbUserCreate(ctx, map[string]string{"user": "reporter", "host": "10.0.1.%", "password": "another-pass-123", "databases": "shop"}, logf); err != nil {
 		t.Fatal(err)
 	}
-	users := status()["users"].([]dbUser)
+	users := ours(status()["users"].([]dbUser))
 	if len(users) != 2 {
 		t.Fatalf("expected 2 users: %+v", users)
 	}
@@ -56,7 +56,7 @@ func TestMariaDBIntegration(t *testing.T) {
 	if n := len(st["databases"].([]dbInfo)); n != 0 {
 		t.Fatalf("database not dropped")
 	}
-	if n := len(st["users"].([]dbUser)); n != 0 {
+	if n := len(ours(st["users"].([]dbUser))); n != 0 {
 		t.Fatalf("users with only that database should be dropped, got %+v", st["users"])
 	}
 }
@@ -69,4 +69,15 @@ func mariadbAs(ctx context.Context, user, pw, sql string) (string, error) {
 		return "", fmt.Errorf("%v: %s", err, out)
 	}
 	return string(out), nil
+}
+
+// ours drops accounts the test did not create (the image adds healthcheck users).
+func ours(users []dbUser) []dbUser {
+	var out []dbUser
+	for _, u := range users {
+		if u.User == "shop_app" || u.User == "reporter" {
+			out = append(out, u)
+		}
+	}
+	return out
 }

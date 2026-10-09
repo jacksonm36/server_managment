@@ -119,6 +119,11 @@ const (
 	Op_OP_CRON_SAVE              Op = 40 // params: id (empty = new), schedule, user, command, comment, enabled
 	Op_OP_CRON_DELETE            Op = 41 // params: id
 	Op_OP_CRON_RUN               Op = 42 // params: id
+	Op_OP_BACKUP_LIST            Op = 43
+	Op_OP_BACKUP_CREATE          Op = 44 // params: domain, databases
+	Op_OP_BACKUP_DELETE          Op = 45 // params: domain, file
+	Op_OP_BACKUP_RESTORE         Op = 46 // params: domain, file, files, databases
+	Op_OP_BACKUP_POLICY          Op = 47 // params: domain, enabled, every, hour, keep, databases
 )
 
 // Enum value maps for Op.
@@ -167,6 +172,11 @@ var (
 		40: "OP_CRON_SAVE",
 		41: "OP_CRON_DELETE",
 		42: "OP_CRON_RUN",
+		43: "OP_BACKUP_LIST",
+		44: "OP_BACKUP_CREATE",
+		45: "OP_BACKUP_DELETE",
+		46: "OP_BACKUP_RESTORE",
+		47: "OP_BACKUP_POLICY",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -212,6 +222,11 @@ var (
 		"OP_CRON_SAVE":              40,
 		"OP_CRON_DELETE":            41,
 		"OP_CRON_RUN":               42,
+		"OP_BACKUP_LIST":            43,
+		"OP_BACKUP_CREATE":          44,
+		"OP_BACKUP_DELETE":          45,
+		"OP_BACKUP_RESTORE":         46,
+		"OP_BACKUP_POLICY":          47,
 	}
 )
 
@@ -816,7 +831,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\x9e\a\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\x8b\b\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -861,7 +876,12 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\fOP_CRON_LIST\x10'\x12\x10\n" +
 	"\fOP_CRON_SAVE\x10(\x12\x12\n" +
 	"\x0eOP_CRON_DELETE\x10)\x12\x0f\n" +
-	"\vOP_CRON_RUN\x10*2M\n" +
+	"\vOP_CRON_RUN\x10*\x12\x12\n" +
+	"\x0eOP_BACKUP_LIST\x10+\x12\x14\n" +
+	"\x10OP_BACKUP_CREATE\x10,\x12\x14\n" +
+	"\x10OP_BACKUP_DELETE\x10-\x12\x15\n" +
+	"\x11OP_BACKUP_RESTORE\x10.\x12\x14\n" +
+	"\x10OP_BACKUP_POLICY\x10/2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

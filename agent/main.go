@@ -192,6 +192,7 @@ func cmdRun(args []string, log *slog.Logger) error {
 	defer stop()
 
 	ops.StartRenewer(ctx, log)
+	ops.StartBackups(ctx, log)
 	c := &client{addr: st.GRPCAddr, tls: tlsCfg, log: log.With("server", st.ServerID), sys: sysinfo.New()}
 	c.loop(ctx)
 	return nil

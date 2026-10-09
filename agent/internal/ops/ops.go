@@ -124,6 +124,16 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = cronDelete(p, logf)
 	case agentv1.Op_OP_CRON_RUN:
 		result, err = cronRun(ctx, p, logf)
+	case agentv1.Op_OP_BACKUP_LIST:
+		result, err = backupStatus()
+	case agentv1.Op_OP_BACKUP_CREATE:
+		result, err = backupCreate(ctx, p, logf)
+	case agentv1.Op_OP_BACKUP_DELETE:
+		result, err = backupDelete(p, logf)
+	case agentv1.Op_OP_BACKUP_RESTORE:
+		result, err = withSiteLock(func() (any, error) { return backupRestore(ctx, p, logf) })
+	case agentv1.Op_OP_BACKUP_POLICY:
+		result, err = backupPolicy(p, logf)
 	case agentv1.Op_OP_SITE_TLS:
 		result, err = withSiteLock(func() (any, error) { return siteTLS(ctx, p, logf) })
 	default:

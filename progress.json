@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-09T21:07:17Z",
+  "updated_at": "2026-10-09T21:18:20Z",
   "phases": [
     {
       "name": "MVP",
@@ -97,7 +97,7 @@
         },
         {
           "name": "Site backups",
-          "status": "todo"
+          "status": "done"
         }
       ]
     },
