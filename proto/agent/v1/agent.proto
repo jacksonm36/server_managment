@@ -1,0 +1,82 @@
+syntax = "proto3";
+
+package agent.v1;
+
+option go_package = "github.com/jacksonm36/servermgr/gen/agent/v1;agentv1";
+
+// AgentService is served by the panel. Agents dial out to the panel over mTLS
+// and keep a single bidirectional stream open for their lifetime.
+service AgentService {
+  rpc Connect(stream AgentMessage) returns (stream PanelMessage);
+}
+
+// ---- agent -> panel ----
+
+message AgentMessage {
+  oneof msg {
+    Hello hello = 1;
+    Metrics metrics = 2;
+    JobUpdate job_update = 3;
+  }
+}
+
+// Hello must be the first message on every stream.
+message Hello {
+  string hostname = 1;
+  string os = 2;          // e.g. "debian"
+  string os_version = 3;  // e.g. "13 (trixie)"
+  string os_pretty = 4;
+  string kernel = 5;
+  string arch = 6;
+  string agent_version = 7;
+  uint32 cpu_count = 8;
+}
+
+message Metrics {
+  int64 ts_unix_ms = 1;
+  double cpu_percent = 2;
+  uint64 mem_total_bytes = 3;
+  uint64 mem_used_bytes = 4;
+  uint64 disk_total_bytes = 5;
+  uint64 disk_used_bytes = 6;
+  double load1 = 7;
+  double load5 = 8;
+  double load15 = 9;
+  uint64 uptime_seconds = 10;
+}
+
+enum JobStatus {
+  JOB_STATUS_UNSPECIFIED = 0;
+  JOB_STATUS_RUNNING = 1;
+  JOB_STATUS_SUCCEEDED = 2;
+  JOB_STATUS_FAILED = 3;
+}
+
+message JobUpdate {
+  string job_id = 1;
+  JobStatus status = 2;
+  repeated string log_lines = 3;
+  // JSON-encoded result, set when status is SUCCEEDED.
+  string result_json = 4;
+  string error = 5;
+}
+
+// ---- panel -> agent ----
+
+message PanelMessage {
+  oneof msg {
+    Job job = 1;
+  }
+}
+
+enum Op {
+  OP_UNSPECIFIED = 0;
+  OP_SYSTEM_INFO = 1;
+  OP_PACKAGES_CHECK_UPDATES = 2;
+}
+
+message Job {
+  string id = 1;
+  Op op = 2;
+  map<string, string> params = 3;
+}
