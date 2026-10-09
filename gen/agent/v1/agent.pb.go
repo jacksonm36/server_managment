@@ -79,19 +79,67 @@ const (
 	Op_OP_UNSPECIFIED            Op = 0
 	Op_OP_SYSTEM_INFO            Op = 1
 	Op_OP_PACKAGES_CHECK_UPDATES Op = 2
+	Op_OP_PACKAGES_UPGRADE       Op = 3 // params: packages (space-separated, optional), dist, autoremove
+	Op_OP_SYSTEM_REBOOT          Op = 4
+	Op_OP_SSH_KEYS_LIST          Op = 5 // params: user
+	Op_OP_SSH_KEY_ADD            Op = 6 // params: user, key, comment
+	Op_OP_SSH_KEY_REMOVE         Op = 7 // params: user, fingerprint
+	Op_OP_FIREWALL_STATUS        Op = 8
+	Op_OP_FIREWALL_INSTALL       Op = 9
+	Op_OP_FIREWALL_ENABLE        Op = 10
+	Op_OP_FIREWALL_DISABLE       Op = 11
+	Op_OP_FIREWALL_RULE_ADD      Op = 12 // params: action, port, proto, from, comment
+	Op_OP_FIREWALL_RULE_DELETE   Op = 13 // params: num
+	Op_OP_FAIL2BAN_STATUS        Op = 14
+	Op_OP_FAIL2BAN_INSTALL       Op = 15
+	Op_OP_FAIL2BAN_CONFIGURE     Op = 16 // params: bantime, findtime, maxretry, ignoreip
+	Op_OP_FAIL2BAN_BAN           Op = 17 // params: jail, ip
+	Op_OP_FAIL2BAN_UNBAN         Op = 18 // params: jail, ip
 )
 
 // Enum value maps for Op.
 var (
 	Op_name = map[int32]string{
-		0: "OP_UNSPECIFIED",
-		1: "OP_SYSTEM_INFO",
-		2: "OP_PACKAGES_CHECK_UPDATES",
+		0:  "OP_UNSPECIFIED",
+		1:  "OP_SYSTEM_INFO",
+		2:  "OP_PACKAGES_CHECK_UPDATES",
+		3:  "OP_PACKAGES_UPGRADE",
+		4:  "OP_SYSTEM_REBOOT",
+		5:  "OP_SSH_KEYS_LIST",
+		6:  "OP_SSH_KEY_ADD",
+		7:  "OP_SSH_KEY_REMOVE",
+		8:  "OP_FIREWALL_STATUS",
+		9:  "OP_FIREWALL_INSTALL",
+		10: "OP_FIREWALL_ENABLE",
+		11: "OP_FIREWALL_DISABLE",
+		12: "OP_FIREWALL_RULE_ADD",
+		13: "OP_FIREWALL_RULE_DELETE",
+		14: "OP_FAIL2BAN_STATUS",
+		15: "OP_FAIL2BAN_INSTALL",
+		16: "OP_FAIL2BAN_CONFIGURE",
+		17: "OP_FAIL2BAN_BAN",
+		18: "OP_FAIL2BAN_UNBAN",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
 		"OP_SYSTEM_INFO":            1,
 		"OP_PACKAGES_CHECK_UPDATES": 2,
+		"OP_PACKAGES_UPGRADE":       3,
+		"OP_SYSTEM_REBOOT":          4,
+		"OP_SSH_KEYS_LIST":          5,
+		"OP_SSH_KEY_ADD":            6,
+		"OP_SSH_KEY_REMOVE":         7,
+		"OP_FIREWALL_STATUS":        8,
+		"OP_FIREWALL_INSTALL":       9,
+		"OP_FIREWALL_ENABLE":        10,
+		"OP_FIREWALL_DISABLE":       11,
+		"OP_FIREWALL_RULE_ADD":      12,
+		"OP_FIREWALL_RULE_DELETE":   13,
+		"OP_FAIL2BAN_STATUS":        14,
+		"OP_FAIL2BAN_INSTALL":       15,
+		"OP_FAIL2BAN_CONFIGURE":     16,
+		"OP_FAIL2BAN_BAN":           17,
+		"OP_FAIL2BAN_UNBAN":         18,
 	}
 )
 
@@ -696,11 +744,28 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*K\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xcc\x03\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
-	"\x19OP_PACKAGES_CHECK_UPDATES\x10\x022M\n" +
+	"\x19OP_PACKAGES_CHECK_UPDATES\x10\x02\x12\x17\n" +
+	"\x13OP_PACKAGES_UPGRADE\x10\x03\x12\x14\n" +
+	"\x10OP_SYSTEM_REBOOT\x10\x04\x12\x14\n" +
+	"\x10OP_SSH_KEYS_LIST\x10\x05\x12\x12\n" +
+	"\x0eOP_SSH_KEY_ADD\x10\x06\x12\x15\n" +
+	"\x11OP_SSH_KEY_REMOVE\x10\a\x12\x16\n" +
+	"\x12OP_FIREWALL_STATUS\x10\b\x12\x17\n" +
+	"\x13OP_FIREWALL_INSTALL\x10\t\x12\x16\n" +
+	"\x12OP_FIREWALL_ENABLE\x10\n" +
+	"\x12\x17\n" +
+	"\x13OP_FIREWALL_DISABLE\x10\v\x12\x18\n" +
+	"\x14OP_FIREWALL_RULE_ADD\x10\f\x12\x1b\n" +
+	"\x17OP_FIREWALL_RULE_DELETE\x10\r\x12\x16\n" +
+	"\x12OP_FAIL2BAN_STATUS\x10\x0e\x12\x17\n" +
+	"\x13OP_FAIL2BAN_INSTALL\x10\x0f\x12\x19\n" +
+	"\x15OP_FAIL2BAN_CONFIGURE\x10\x10\x12\x13\n" +
+	"\x0fOP_FAIL2BAN_BAN\x10\x11\x12\x15\n" +
+	"\x11OP_FAIL2BAN_UNBAN\x10\x122M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

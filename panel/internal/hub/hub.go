@@ -39,11 +39,11 @@ func MetricFromProto(m *agentv1.Metrics) Metric {
 
 // Event is pushed to UI subscribers.
 type Event struct {
-	Type     string `json:"type"` // "status" | "metrics" | "job"
-	ServerID string `json:"server_id"`
-	Online   *bool  `json:"online,omitempty"`
+	Type     string  `json:"type"` // "status" | "metrics" | "job"
+	ServerID string  `json:"server_id"`
+	Online   *bool   `json:"online,omitempty"`
 	Metric   *Metric `json:"metric,omitempty"`
-	JobID    string `json:"job_id,omitempty"`
+	JobID    string  `json:"job_id,omitempty"`
 }
 
 type conn struct {

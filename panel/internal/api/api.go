@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -191,9 +192,44 @@ func (a *API) handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 // ---- jobs ----
 
-var opsByName = map[string]agentv1.Op{
-	"system.info":            agentv1.Op_OP_SYSTEM_INFO,
-	"packages.check_updates": agentv1.Op_OP_PACKAGES_CHECK_UPDATES,
+// opSpec is an op the UI may run and the parameters it accepts. The agent
+// validates parameter values itself; the panel only rejects unknown keys.
+type opSpec struct {
+	op     agentv1.Op
+	params []string
+}
+
+var opsByName = map[string]opSpec{
+	"system.info":            {op: agentv1.Op_OP_SYSTEM_INFO},
+	"system.reboot":          {op: agentv1.Op_OP_SYSTEM_REBOOT},
+	"packages.check_updates": {op: agentv1.Op_OP_PACKAGES_CHECK_UPDATES},
+	"packages.upgrade":       {op: agentv1.Op_OP_PACKAGES_UPGRADE, params: []string{"packages", "dist", "autoremove"}},
+	"ssh_keys.list":          {op: agentv1.Op_OP_SSH_KEYS_LIST, params: []string{"user"}},
+	"ssh_keys.add":           {op: agentv1.Op_OP_SSH_KEY_ADD, params: []string{"user", "key", "comment"}},
+	"ssh_keys.remove":        {op: agentv1.Op_OP_SSH_KEY_REMOVE, params: []string{"user", "fingerprint"}},
+	"firewall.status":        {op: agentv1.Op_OP_FIREWALL_STATUS},
+	"firewall.install":       {op: agentv1.Op_OP_FIREWALL_INSTALL},
+	"firewall.enable":        {op: agentv1.Op_OP_FIREWALL_ENABLE},
+	"firewall.disable":       {op: agentv1.Op_OP_FIREWALL_DISABLE},
+	"firewall.rule_add":      {op: agentv1.Op_OP_FIREWALL_RULE_ADD, params: []string{"action", "port", "proto", "from", "comment"}},
+	"firewall.rule_delete":   {op: agentv1.Op_OP_FIREWALL_RULE_DELETE, params: []string{"num"}},
+	"fail2ban.status":        {op: agentv1.Op_OP_FAIL2BAN_STATUS},
+	"fail2ban.install":       {op: agentv1.Op_OP_FAIL2BAN_INSTALL},
+	"fail2ban.configure":     {op: agentv1.Op_OP_FAIL2BAN_CONFIGURE, params: []string{"bantime", "findtime", "maxretry", "ignoreip"}},
+	"fail2ban.ban":           {op: agentv1.Op_OP_FAIL2BAN_BAN, params: []string{"jail", "ip"}},
+	"fail2ban.unban":         {op: agentv1.Op_OP_FAIL2BAN_UNBAN, params: []string{"jail", "ip"}},
+}
+
+func (s opSpec) checkParams(p map[string]string) error {
+	for k, v := range p {
+		if !slices.Contains(s.params, k) {
+			return fmt.Errorf("unknown parameter %q", k)
+		}
+		if len(v) > 16<<10 {
+			return fmt.Errorf("parameter %q is too long", k)
+		}
+	}
+	return nil
 }
 
 func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -205,9 +241,13 @@ func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	op, ok := opsByName[req.Op]
+	spec, ok := opsByName[req.Op]
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "unknown op")
+		return
+	}
+	if err := spec.checkParams(req.Params); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	if _, err := a.Store.GetServer(r.Context(), serverID); err != nil {
@@ -226,7 +266,7 @@ func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
-	msg := &agentv1.PanelMessage{Msg: &agentv1.PanelMessage_Job{Job: &agentv1.Job{Id: job.ID, Op: op, Params: req.Params}}}
+	msg := &agentv1.PanelMessage{Msg: &agentv1.PanelMessage_Job{Job: &agentv1.Job{Id: job.ID, Op: spec.op, Params: req.Params}}}
 	if err := a.Hub.Send(serverID, msg); err != nil {
 		_ = a.Store.UpdateJob(r.Context(), job.ID, "failed", "", nil, err.Error(), true)
 		writeErr(w, http.StatusConflict, err.Error())

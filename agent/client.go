@@ -11,9 +11,9 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 	"github.com/jacksonm36/servermgr/agent/internal/ops"
 	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
+	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 )
 
 const metricsInterval = 5 * time.Second

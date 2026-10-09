@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
+	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 )
 
 type report func(*agentv1.JobUpdate)
@@ -31,6 +31,14 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 
+	p := map[string]string{}
+	for k, v := range job.Params {
+		p[k] = v
+	}
+	if p["user"] == "" {
+		p["user"] = "root"
+	}
+
 	var result any
 	var err error
 	switch job.Op {
@@ -38,6 +46,38 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = systemInfo()
 	case agentv1.Op_OP_PACKAGES_CHECK_UPDATES:
 		result, err = checkUpdates(ctx, logf)
+	case agentv1.Op_OP_PACKAGES_UPGRADE:
+		result, err = upgradePackages(ctx, p, logf)
+	case agentv1.Op_OP_SYSTEM_REBOOT:
+		result, err = reboot(logf)
+	case agentv1.Op_OP_SSH_KEYS_LIST:
+		result, err = listSSHKeys(p)
+	case agentv1.Op_OP_SSH_KEY_ADD:
+		result, err = addSSHKey(p, logf)
+	case agentv1.Op_OP_SSH_KEY_REMOVE:
+		result, err = removeSSHKey(p, logf)
+	case agentv1.Op_OP_FIREWALL_STATUS:
+		result, err = firewallStatus(ctx)
+	case agentv1.Op_OP_FIREWALL_INSTALL:
+		result, err = firewallInstall(ctx, logf)
+	case agentv1.Op_OP_FIREWALL_ENABLE:
+		result, err = firewallEnable(ctx, logf)
+	case agentv1.Op_OP_FIREWALL_DISABLE:
+		result, err = firewallDisable(ctx, logf)
+	case agentv1.Op_OP_FIREWALL_RULE_ADD:
+		result, err = firewallRuleAdd(ctx, p, logf)
+	case agentv1.Op_OP_FIREWALL_RULE_DELETE:
+		result, err = firewallRuleDelete(ctx, p, logf)
+	case agentv1.Op_OP_FAIL2BAN_STATUS:
+		result, err = fail2banStatus(ctx)
+	case agentv1.Op_OP_FAIL2BAN_INSTALL:
+		result, err = fail2banInstall(ctx, logf)
+	case agentv1.Op_OP_FAIL2BAN_CONFIGURE:
+		result, err = fail2banConfigure(ctx, p, logf)
+	case agentv1.Op_OP_FAIL2BAN_BAN:
+		result, err = fail2banBan(ctx, p, true, logf)
+	case agentv1.Op_OP_FAIL2BAN_UNBAN:
+		result, err = fail2banBan(ctx, p, false, logf)
 	default:
 		err = fmt.Errorf("unsupported op %v", job.Op)
 	}
@@ -90,28 +130,14 @@ func checkUpdates(ctx context.Context, logf func(string, ...any)) (any, error) {
 	if _, err := exec.LookPath("apt-get"); err != nil {
 		return nil, errors.New("apt-get not found: only Debian/Ubuntu are supported for now")
 	}
-	logf("$ apt-get update")
-	cmd := exec.CommandContext(ctx, "apt-get", "update", "-q")
-	cmd.Env = append(os.Environ(), "DEBIAN_FRONTEND=noninteractive", "LC_ALL=C")
-	// apt-get update can exit 0 even when repositories were unreachable, so
-	// watch for "Err:" lines too; otherwise the result would be stale.
-	fetchErrors := 0
-	err := streamCmd(cmd, func(format string, a ...any) {
-		line := fmt.Sprintf(format, a...)
-		if strings.HasPrefix(line, "Err:") {
-			fetchErrors++
-		}
-		logf("%s", line)
-	})
-	if err != nil {
-		return nil, fmt.Errorf("apt-get update: %w", err)
-	}
-	if fetchErrors > 0 {
-		return nil, fmt.Errorf("apt-get update could not fetch %d repository index(es); package lists may be stale (check network/DNS)", fetchErrors)
+	aptMu.Lock()
+	defer aptMu.Unlock()
+	if err := aptUpdate(ctx, logf); err != nil {
+		return nil, err
 	}
 
 	logf("$ apt list --upgradable")
-	cmd = exec.CommandContext(ctx, "apt", "list", "--upgradable")
+	cmd := exec.CommandContext(ctx, "apt", "list", "--upgradable")
 	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	out, err := cmd.Output()
 	if err != nil {

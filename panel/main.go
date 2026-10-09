@@ -121,8 +121,8 @@ func run(log *slog.Logger) error {
 	_, grpcPort, _ := net.SplitHostPort(grpcAddr)
 	a := &api.API{
 		Cfg: api.Config{
-			PublicURL:   "http://" + net.JoinHostPort(publicHost, portOf(httpAddr)),
-			GRPCAddr:    net.JoinHostPort(publicHost, grpcPort),
+			PublicURL:    "http://" + net.JoinHostPort(publicHost, portOf(httpAddr)),
+			GRPCAddr:     net.JoinHostPort(publicHost, grpcPort),
 			AgentBinDir:  binDir,
 			ProgressFile: env("SM_PROGRESS_FILE", "./progress.json"),
 		},

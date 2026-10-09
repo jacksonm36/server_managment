@@ -73,6 +73,22 @@ enum Op {
   OP_UNSPECIFIED = 0;
   OP_SYSTEM_INFO = 1;
   OP_PACKAGES_CHECK_UPDATES = 2;
+  OP_PACKAGES_UPGRADE = 3;      // params: packages (space-separated, optional), dist, autoremove
+  OP_SYSTEM_REBOOT = 4;
+  OP_SSH_KEYS_LIST = 5;         // params: user
+  OP_SSH_KEY_ADD = 6;           // params: user, key, comment
+  OP_SSH_KEY_REMOVE = 7;        // params: user, fingerprint
+  OP_FIREWALL_STATUS = 8;
+  OP_FIREWALL_INSTALL = 9;
+  OP_FIREWALL_ENABLE = 10;
+  OP_FIREWALL_DISABLE = 11;
+  OP_FIREWALL_RULE_ADD = 12;    // params: action, port, proto, from, comment
+  OP_FIREWALL_RULE_DELETE = 13; // params: num
+  OP_FAIL2BAN_STATUS = 14;
+  OP_FAIL2BAN_INSTALL = 15;
+  OP_FAIL2BAN_CONFIGURE = 16;   // params: bantime, findtime, maxretry, ignoreip
+  OP_FAIL2BAN_BAN = 17;         // params: jail, ip
+  OP_FAIL2BAN_UNBAN = 18;       // params: jail, ip
 }
 
 message Job {
