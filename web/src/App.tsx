@@ -1,12 +1,13 @@
-import { useEffect, useState } from "react";
-import { Link, Route, Switch } from "wouter";
-import { LogOut, Server } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { Link, Route, Switch, useLocation } from "wouter";
+import { ListChecks, LogOut, Server } from "lucide-react";
 import { api } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Login } from "@/pages/Login";
 import { Servers } from "@/pages/Servers";
 import { ServerDetail } from "@/pages/ServerDetail";
+import { Progress } from "@/pages/Progress";
 
 export function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined);
@@ -42,6 +43,12 @@ export function App() {
             </span>
             servermgr
           </Link>
+          <nav className="mr-auto flex items-center gap-1 text-sm">
+            <NavLink href="/">Servers</NavLink>
+            <NavLink href="/progress">
+              <ListChecks className="size-4" /> Progress
+            </NavLink>
+          </nav>
           <div className="flex items-center gap-3 text-sm">
             <ConnectionDot />
             <span className="hidden text-muted-foreground sm:inline">{user}</span>
@@ -56,6 +63,9 @@ export function App() {
           <Route path="/">
             <Servers />
           </Route>
+          <Route path="/progress">
+            <Progress />
+          </Route>
           <Route path="/servers/:id">{(p) => <ServerDetail id={p.id} />}</Route>
           <Route>
             <p className="text-muted-foreground">Page not found.</p>
@@ -63,6 +73,21 @@ export function App() {
         </Switch>
       </main>
     </div>
+  );
+}
+
+function NavLink({ href, children }: { href: string; children: ReactNode }) {
+  const [loc] = useLocation();
+  const active = href === "/" ? loc === "/" || loc.startsWith("/servers") : loc.startsWith(href);
+  return (
+    <Link
+      href={href}
+      className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition-colors ${
+        active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
+      }`}
+    >
+      {children}
+    </Link>
   );
 }
 

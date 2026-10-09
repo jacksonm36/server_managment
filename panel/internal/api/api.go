@@ -29,6 +29,9 @@ type Config struct {
 	GRPCAddr string
 	// AgentBinDir holds servermgr-agent-linux-<arch> binaries for download.
 	AgentBinDir string
+	// ProgressFile is the build-progress JSON shown on /progress. It is
+	// re-read on every request.
+	ProgressFile string
 }
 
 type API struct {
@@ -65,6 +68,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/jobs/{id}", a.handleGetJob)
 	authed.HandleFunc("POST /api/v1/join-tokens", a.handleCreateJoinToken)
 	authed.HandleFunc("GET /api/v1/events", a.handleEvents)
+	authed.HandleFunc("GET /api/v1/progress", a.handleProgress)
 	mux.Handle("/api/v1/", a.requireAuth(authed))
 
 	mux.Handle("/", a.staticHandler())
@@ -252,6 +256,23 @@ func (a *API) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, j)
+}
+
+// ---- build progress ----
+
+func (a *API) handleProgress(w http.ResponseWriter, r *http.Request) {
+	b, err := os.ReadFile(a.Cfg.ProgressFile)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "progress file not found")
+		return
+	}
+	if !json.Valid(b) {
+		writeErr(w, http.StatusInternalServerError, "progress file is not valid JSON")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(b)
 }
 
 // ---- live events (SSE) ----

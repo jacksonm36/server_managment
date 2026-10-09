@@ -107,8 +107,13 @@ func run(log *slog.Logger) error {
 	}()
 
 	// HTTP (UI + API + enrollment).
+	// SM_WEB_DIR serves the UI straight from disk, so a `npm run build`
+	// is picked up without restarting the panel.
 	var webFS fs.FS
-	if sub, err := fs.Sub(web.Dist, "dist"); err == nil {
+	if dir := os.Getenv("SM_WEB_DIR"); dir != "" {
+		webFS = os.DirFS(dir)
+		log.Info("serving UI from disk", "dir", dir)
+	} else if sub, err := fs.Sub(web.Dist, "dist"); err == nil {
 		if _, err := fs.Stat(sub, "index.html"); err == nil {
 			webFS = sub
 		}
@@ -118,7 +123,8 @@ func run(log *slog.Logger) error {
 		Cfg: api.Config{
 			PublicURL:   "http://" + net.JoinHostPort(publicHost, portOf(httpAddr)),
 			GRPCAddr:    net.JoinHostPort(publicHost, grpcPort),
-			AgentBinDir: binDir,
+			AgentBinDir:  binDir,
+			ProgressFile: env("SM_PROGRESS_FILE", "./progress.json"),
 		},
 		Store: st, Hub: h, CA: ca, Log: log, Web: webFS,
 	}

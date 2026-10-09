@@ -56,6 +56,17 @@ export type LiveEvent = {
   job_id?: string;
 };
 
+export type FeatureStatus = "done" | "in-progress" | "todo";
+
+export type Progress = {
+  updated_at: string;
+  phases: {
+    name: string;
+    description?: string;
+    features: { name: string; status: FeatureStatus }[];
+  }[];
+};
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -93,5 +104,6 @@ export const api = {
   jobs: (id: string) => request<Job[]>("GET", `/api/v1/servers/${id}/jobs`),
   job: (id: string) => request<Job>("GET", `/api/v1/jobs/${id}`),
   runJob: (id: string, op: string) => request<Job>("POST", `/api/v1/servers/${id}/jobs`, { op }),
+  progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string) => request<JoinToken>("POST", "/api/v1/join-tokens", { name }),
 };
