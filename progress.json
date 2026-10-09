@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-09T20:47:38Z",
+  "updated_at": "2026-10-09T20:54:40Z",
   "phases": [
     {
       "name": "MVP",
@@ -77,15 +77,15 @@
       "features": [
         {
           "name": "Nginx sites (static, PHP, reverse proxy)",
-          "status": "todo"
+          "status": "in-progress"
         },
         {
           "name": "Let's Encrypt certificates",
-          "status": "todo"
+          "status": "in-progress"
         },
         {
           "name": "PHP-FPM versions per site",
-          "status": "todo"
+          "status": "in-progress"
         },
         {
           "name": "MariaDB / PostgreSQL databases & users",

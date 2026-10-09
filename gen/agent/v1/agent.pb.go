@@ -95,6 +95,13 @@ const (
 	Op_OP_FAIL2BAN_CONFIGURE     Op = 16 // params: bantime, findtime, maxretry, ignoreip
 	Op_OP_FAIL2BAN_BAN           Op = 17 // params: jail, ip
 	Op_OP_FAIL2BAN_UNBAN         Op = 18 // params: jail, ip
+	Op_OP_WEB_STATUS             Op = 19
+	Op_OP_WEB_INSTALL            Op = 20 // params: php (version, optional)
+	Op_OP_PHP_INSTALL            Op = 21 // params: version
+	Op_OP_SITE_CREATE            Op = 22 // params: domain, aliases, type, php_version, proxy_target
+	Op_OP_SITE_UPDATE            Op = 23 // params: domain, aliases, type, php_version, proxy_target, force_https
+	Op_OP_SITE_DELETE            Op = 24 // params: domain, delete_files
+	Op_OP_SITE_TLS               Op = 25 // params: domain, mode (off|selfsigned|letsencrypt), email, staging
 )
 
 // Enum value maps for Op.
@@ -119,6 +126,13 @@ var (
 		16: "OP_FAIL2BAN_CONFIGURE",
 		17: "OP_FAIL2BAN_BAN",
 		18: "OP_FAIL2BAN_UNBAN",
+		19: "OP_WEB_STATUS",
+		20: "OP_WEB_INSTALL",
+		21: "OP_PHP_INSTALL",
+		22: "OP_SITE_CREATE",
+		23: "OP_SITE_UPDATE",
+		24: "OP_SITE_DELETE",
+		25: "OP_SITE_TLS",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -140,6 +154,13 @@ var (
 		"OP_FAIL2BAN_CONFIGURE":     16,
 		"OP_FAIL2BAN_BAN":           17,
 		"OP_FAIL2BAN_UNBAN":         18,
+		"OP_WEB_STATUS":             19,
+		"OP_WEB_INSTALL":            20,
+		"OP_PHP_INSTALL":            21,
+		"OP_SITE_CREATE":            22,
+		"OP_SITE_UPDATE":            23,
+		"OP_SITE_DELETE":            24,
+		"OP_SITE_TLS":               25,
 	}
 )
 
@@ -744,7 +765,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xcc\x03\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xd4\x04\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -765,7 +786,14 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x13OP_FAIL2BAN_INSTALL\x10\x0f\x12\x19\n" +
 	"\x15OP_FAIL2BAN_CONFIGURE\x10\x10\x12\x13\n" +
 	"\x0fOP_FAIL2BAN_BAN\x10\x11\x12\x15\n" +
-	"\x11OP_FAIL2BAN_UNBAN\x10\x122M\n" +
+	"\x11OP_FAIL2BAN_UNBAN\x10\x12\x12\x11\n" +
+	"\rOP_WEB_STATUS\x10\x13\x12\x12\n" +
+	"\x0eOP_WEB_INSTALL\x10\x14\x12\x12\n" +
+	"\x0eOP_PHP_INSTALL\x10\x15\x12\x12\n" +
+	"\x0eOP_SITE_CREATE\x10\x16\x12\x12\n" +
+	"\x0eOP_SITE_UPDATE\x10\x17\x12\x12\n" +
+	"\x0eOP_SITE_DELETE\x10\x18\x12\x0f\n" +
+	"\vOP_SITE_TLS\x10\x192M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

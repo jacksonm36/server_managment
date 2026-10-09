@@ -28,6 +28,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jacksonm36/servermgr/agent/internal/ops"
 	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
 )
 
@@ -190,6 +191,7 @@ func cmdRun(args []string, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	ops.StartRenewer(ctx, log)
 	c := &client{addr: st.GRPCAddr, tls: tlsCfg, log: log.With("server", st.ServerID), sys: sysinfo.New()}
 	c.loop(ctx)
 	return nil

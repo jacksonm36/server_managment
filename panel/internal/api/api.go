@@ -238,13 +238,20 @@ var opsByName = map[string]opSpec{
 	"fail2ban.configure":     {op: agentv1.Op_OP_FAIL2BAN_CONFIGURE, params: []string{"bantime", "findtime", "maxretry", "ignoreip"}},
 	"fail2ban.ban":           {op: agentv1.Op_OP_FAIL2BAN_BAN, params: []string{"jail", "ip"}},
 	"fail2ban.unban":         {op: agentv1.Op_OP_FAIL2BAN_UNBAN, params: []string{"jail", "ip"}},
+	"web.status":             {op: agentv1.Op_OP_WEB_STATUS},
+	"web.install":            {op: agentv1.Op_OP_WEB_INSTALL, params: []string{"php"}},
+	"web.php_install":        {op: agentv1.Op_OP_PHP_INSTALL, params: []string{"version"}},
+	"site.create":            {op: agentv1.Op_OP_SITE_CREATE, params: []string{"domain", "aliases", "type", "php_version", "proxy_target"}},
+	"site.update":            {op: agentv1.Op_OP_SITE_UPDATE, params: []string{"domain", "aliases", "type", "php_version", "proxy_target", "force_https"}},
+	"site.delete":            {op: agentv1.Op_OP_SITE_DELETE, params: []string{"domain", "delete_files"}},
+	"site.tls":               {op: agentv1.Op_OP_SITE_TLS, params: []string{"domain", "mode", "email", "staging"}},
 }
 
 // readOnlyOps only read state; they show up in job history but are not
 // written to the audit log, which would otherwise fill with status polls.
 var readOnlyOps = map[string]bool{
 	"system.info": true, "packages.check_updates": true, "ssh_keys.list": true,
-	"firewall.status": true, "fail2ban.status": true,
+	"firewall.status": true, "fail2ban.status": true, "web.status": true,
 }
 
 func (s opSpec) checkParams(p map[string]string) error {

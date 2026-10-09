@@ -89,6 +89,13 @@ enum Op {
   OP_FAIL2BAN_CONFIGURE = 16;   // params: bantime, findtime, maxretry, ignoreip
   OP_FAIL2BAN_BAN = 17;         // params: jail, ip
   OP_FAIL2BAN_UNBAN = 18;       // params: jail, ip
+  OP_WEB_STATUS = 19;
+  OP_WEB_INSTALL = 20;          // params: php (version, optional)
+  OP_PHP_INSTALL = 21;          // params: version
+  OP_SITE_CREATE = 22;          // params: domain, aliases, type, php_version, proxy_target
+  OP_SITE_UPDATE = 23;          // params: domain, aliases, type, php_version, proxy_target, force_https
+  OP_SITE_DELETE = 24;          // params: domain, delete_files
+  OP_SITE_TLS = 25;             // params: domain, mode (off|selfsigned|letsencrypt), email, staging
 }
 
 message Job {

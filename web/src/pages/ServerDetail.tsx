@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Activity,
   ArrowLeft,
+  Globe,
   Info,
   KeyRound,
   ListTodo,
@@ -22,6 +23,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LiveChart } from "@/components/LiveChart";
 import { StatusBadge } from "./Servers";
 import { Updates } from "./server/Updates";
+import { Sites } from "./server/Sites";
 import { SSHKeys } from "./server/SSHKeys";
 import { Firewall } from "./server/Firewall";
 import { Fail2ban } from "./server/Fail2ban";
@@ -119,6 +121,7 @@ export function ServerDetail({ id }: { id: string }) {
           )}
         </>
       )}
+      {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "updates" && <Updates serverId={id} online={server.online} />}
       {tab === "ssh" && <SSHKeys serverId={id} online={server.online} />}
       {tab === "firewall" && <Firewall serverId={id} online={server.online} />}
@@ -130,6 +133,7 @@ export function ServerDetail({ id }: { id: string }) {
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
+  { id: "sites", label: "Sites", icon: Globe },
   { id: "updates", label: "Updates", icon: PackageCheck },
   { id: "ssh", label: "SSH keys", icon: KeyRound },
   { id: "firewall", label: "Firewall", icon: Shield },

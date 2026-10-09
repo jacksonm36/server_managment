@@ -78,6 +78,20 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = fail2banBan(ctx, p, true, logf)
 	case agentv1.Op_OP_FAIL2BAN_UNBAN:
 		result, err = fail2banBan(ctx, p, false, logf)
+	case agentv1.Op_OP_WEB_STATUS:
+		result, err = webStatus(ctx)
+	case agentv1.Op_OP_WEB_INSTALL:
+		result, err = webInstall(ctx, p, logf)
+	case agentv1.Op_OP_PHP_INSTALL:
+		result, err = phpInstall(ctx, p, logf)
+	case agentv1.Op_OP_SITE_CREATE:
+		result, err = withSiteLock(func() (any, error) { return siteCreate(ctx, p, logf) })
+	case agentv1.Op_OP_SITE_UPDATE:
+		result, err = withSiteLock(func() (any, error) { return siteUpdate(ctx, p, logf) })
+	case agentv1.Op_OP_SITE_DELETE:
+		result, err = withSiteLock(func() (any, error) { return siteDelete(ctx, p, logf) })
+	case agentv1.Op_OP_SITE_TLS:
+		result, err = withSiteLock(func() (any, error) { return siteTLS(ctx, p, logf) })
 	default:
 		err = fmt.Errorf("unsupported op %v", job.Op)
 	}
