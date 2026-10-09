@@ -91,15 +91,58 @@ sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT
 sudo iptables -I DOCKER-USER -o incusbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 ```
 
-## Agent ops
+## Features
 
-| op                       | what it does                                          |
-| ------------------------ | ----------------------------------------------------- |
-| `system.info`            | OS, kernel, CPU model, virtualization                 |
-| `packages.check_updates` | `apt-get update` + upgradable list, security count    |
+Per server (tabs on the server page):
 
-## Roadmap
+| Tab       | What it does                                                                                     |
+| --------- | ------------------------------------------------------------------------------------------------ |
+| Overview  | Live CPU / memory / disk / load, uptime                                                          |
+| Sites     | nginx + PHP-FPM install; static, PHP (per-site version) and reverse-proxy sites; Let's Encrypt / self-signed TLS |
+| Databases | MariaDB install and hardening; databases, users, grants, password resets                         |
+| Files     | File manager confined to `/srv/sites` (edit, upload ≤ 2 MiB, download, rename, chmod)             |
+| Cron      | Managed `/etc/cron.d` jobs with per-job output and run-now                                       |
+| Backups   | Per-site files + database dumps, schedule, retention, restore                                    |
+| Updates   | apt check / upgrade (all, selected, full-upgrade), reboot                                        |
+| SSH keys  | authorized_keys per user                                                                         |
+| Firewall  | UFW status, enable (SSH is always allowed first), rules                                          |
+| Fail2ban  | Install with an sshd jail, settings, ban / unban                                                 |
+| Tasks     | Every job run on the server, with logs                                                           |
 
-TOTP 2FA, HTTPS for the UI, package upgrades, SSH key deployment, scheduled
-automation, firewall/fail2ban hardening, web server and site management
-(nginx, PHP-FPM, TLS via ACME), databases, backups.
+Panel-wide: **Activity** (audit log + task history), **Progress** (build
+progress from `progress.json`), **Account** (TOTP 2FA, recovery codes, password).
+
+### Hosting layout on managed servers
+
+```
+/srv/sites/<domain>/{public,logs,tmp}        owner s_<domain>:www-data, public is setgid
+/etc/nginx/sites-available/servermgr-<domain>.conf
+/etc/php/<ver>/fpm/pool.d/servermgr-<domain>.conf   per-site pool and Linux user
+/etc/servermgr-agent/sites/<domain>.json      site registry (source of truth)
+/etc/servermgr-agent/certs/<domain>/          TLS certificates
+/var/backups/servermgr/<domain>/              backups
+/etc/cron.d/servermgr-<id>, /var/log/servermgr-cron/<id>.log
+```
+
+Every nginx change is checked with `nginx -t` and rolled back if it fails;
+reloads are graceful.
+
+### Secrets
+
+- Database passwords are generated in the browser and forwarded to the agent,
+  but stored as `[redacted]` in job history and the audit log. File contents
+  are stored only as their size.
+- TOTP secrets are AES-GCM encrypted with `data/secret.key`.
+
+## Development
+
+```sh
+make web panel agent             # build everything
+scripts/deploy-agents.sh         # push the agent into the Incus test containers
+go test ./agent/... ./panel/...  # unit tests
+scripts/check-nginx.sh           # validate every generated vhost with real nginx -t (docker)
+scripts/check-mariadb.sh         # DB + backup integration tests against MariaDB (docker)
+```
+
+The panel serves the UI from `SM_WEB_DIR` when set, so `npm run build` in
+`web/` goes live without a restart.
