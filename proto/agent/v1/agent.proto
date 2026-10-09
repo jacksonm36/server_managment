@@ -102,6 +102,13 @@ enum Op {
   OP_DB_DELETE = 29;            // params: name, drop_users
   OP_DB_USER_SAVE = 30;         // params: user, host, password, databases
   OP_DB_USER_DELETE = 31;       // params: user, host
+  OP_FILES_LIST = 32;           // params: path
+  OP_FILES_READ = 33;           // params: path
+  OP_FILES_WRITE = 34;          // params: path, content | content_b64, overwrite
+  OP_FILES_MKDIR = 35;          // params: path
+  OP_FILES_DELETE = 36;         // params: path
+  OP_FILES_RENAME = 37;         // params: from, to
+  OP_FILES_CHMOD = 38;          // params: path, mode
 }
 
 message Job {

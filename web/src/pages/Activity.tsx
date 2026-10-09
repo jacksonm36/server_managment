@@ -162,8 +162,13 @@ function AuditLog() {
   );
 }
 
+// Read-only ops (status checks, file browsing) are hidden by default.
+const READ_ONLY = /(\.status|\.list|\.read|^system\.info|^packages\.check_updates)$/;
+
 function JobHistory() {
-  const [rows, setRows] = useState<JobSummary[]>([]);
+  const [all, setRows] = useState<JobSummary[]>([]);
+  const [showReads, setShowReads] = useState(false);
+  const rows = showReads ? all : all.filter((j) => !READ_ONLY.test(j.op));
   const tick = useLive((s) => s.jobTick);
 
   useEffect(() => {
@@ -172,6 +177,10 @@ function JobHistory() {
 
   return (
     <Card className="overflow-hidden">
+      <label className="flex cursor-pointer items-center gap-2 border-b p-3 text-sm text-muted-foreground">
+        <input type="checkbox" className="accent-[var(--color-brand)]" checked={showReads} onChange={(e) => setShowReads(e.target.checked)} />
+        Show status checks and file browsing
+      </label>
       {rows.length === 0 ? (
         <p className="p-6 text-sm text-muted-foreground">No tasks yet.</p>
       ) : (

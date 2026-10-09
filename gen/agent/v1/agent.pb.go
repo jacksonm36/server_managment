@@ -108,6 +108,13 @@ const (
 	Op_OP_DB_DELETE              Op = 29 // params: name, drop_users
 	Op_OP_DB_USER_SAVE           Op = 30 // params: user, host, password, databases
 	Op_OP_DB_USER_DELETE         Op = 31 // params: user, host
+	Op_OP_FILES_LIST             Op = 32 // params: path
+	Op_OP_FILES_READ             Op = 33 // params: path
+	Op_OP_FILES_WRITE            Op = 34 // params: path, content | content_b64, overwrite
+	Op_OP_FILES_MKDIR            Op = 35 // params: path
+	Op_OP_FILES_DELETE           Op = 36 // params: path
+	Op_OP_FILES_RENAME           Op = 37 // params: from, to
+	Op_OP_FILES_CHMOD            Op = 38 // params: path, mode
 )
 
 // Enum value maps for Op.
@@ -145,6 +152,13 @@ var (
 		29: "OP_DB_DELETE",
 		30: "OP_DB_USER_SAVE",
 		31: "OP_DB_USER_DELETE",
+		32: "OP_FILES_LIST",
+		33: "OP_FILES_READ",
+		34: "OP_FILES_WRITE",
+		35: "OP_FILES_MKDIR",
+		36: "OP_FILES_DELETE",
+		37: "OP_FILES_RENAME",
+		38: "OP_FILES_CHMOD",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -179,6 +193,13 @@ var (
 		"OP_DB_DELETE":              29,
 		"OP_DB_USER_SAVE":           30,
 		"OP_DB_USER_DELETE":         31,
+		"OP_FILES_LIST":             32,
+		"OP_FILES_READ":             33,
+		"OP_FILES_WRITE":            34,
+		"OP_FILES_MKDIR":            35,
+		"OP_FILES_DELETE":           36,
+		"OP_FILES_RENAME":           37,
+		"OP_FILES_CHMOD":            38,
 	}
 )
 
@@ -783,7 +804,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xc9\x05\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xd5\x06\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -817,7 +838,14 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\fOP_DB_CREATE\x10\x1c\x12\x10\n" +
 	"\fOP_DB_DELETE\x10\x1d\x12\x13\n" +
 	"\x0fOP_DB_USER_SAVE\x10\x1e\x12\x15\n" +
-	"\x11OP_DB_USER_DELETE\x10\x1f2M\n" +
+	"\x11OP_DB_USER_DELETE\x10\x1f\x12\x11\n" +
+	"\rOP_FILES_LIST\x10 \x12\x11\n" +
+	"\rOP_FILES_READ\x10!\x12\x12\n" +
+	"\x0eOP_FILES_WRITE\x10\"\x12\x12\n" +
+	"\x0eOP_FILES_MKDIR\x10#\x12\x13\n" +
+	"\x0fOP_FILES_DELETE\x10$\x12\x13\n" +
+	"\x0fOP_FILES_RENAME\x10%\x12\x12\n" +
+	"\x0eOP_FILES_CHMOD\x10&2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

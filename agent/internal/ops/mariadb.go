@@ -263,4 +263,3 @@ func dbUserDelete(ctx context.Context, p map[string]string, logf func(string, ..
 	}
 	return dbStatus(ctx)
 }
-

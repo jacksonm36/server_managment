@@ -139,7 +139,8 @@ func (a *API) internal(w http.ResponseWriter, err error) {
 }
 
 func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	// 4 MiB fits a 2 MiB file upload once base64-encoded.
+	dec := json.NewDecoder(io.LimitReader(r.Body, 4<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -217,6 +218,8 @@ func (a *API) handleMetrics(w http.ResponseWriter, r *http.Request) {
 type opSpec struct {
 	op     agentv1.Op
 	params []string
+	// maxParam overrides the default 16 KiB limit per parameter value.
+	maxParam int
 }
 
 var opsByName = map[string]opSpec{
@@ -251,17 +254,30 @@ var opsByName = map[string]opSpec{
 	"db.delete":              {op: agentv1.Op_OP_DB_DELETE, params: []string{"name", "drop_users"}},
 	"db.user_save":           {op: agentv1.Op_OP_DB_USER_SAVE, params: []string{"user", "host", "password", "databases"}},
 	"db.user_delete":         {op: agentv1.Op_OP_DB_USER_DELETE, params: []string{"user", "host"}},
+	"files.list":             {op: agentv1.Op_OP_FILES_LIST, params: []string{"path"}},
+	"files.read":             {op: agentv1.Op_OP_FILES_READ, params: []string{"path"}},
+	"files.write":            {op: agentv1.Op_OP_FILES_WRITE, params: []string{"path", "content", "content_b64", "overwrite"}, maxParam: 3 << 20},
+	"files.mkdir":            {op: agentv1.Op_OP_FILES_MKDIR, params: []string{"path"}},
+	"files.delete":           {op: agentv1.Op_OP_FILES_DELETE, params: []string{"path"}},
+	"files.rename":           {op: agentv1.Op_OP_FILES_RENAME, params: []string{"from", "to"}},
+	"files.chmod":            {op: agentv1.Op_OP_FILES_CHMOD, params: []string{"path", "mode"}},
 }
 
 // secretParams are forwarded to the agent but never stored in job history
 // or the audit log.
 var secretParams = []string{"password"}
 
+// bulkyParams (file contents) are replaced by their size when stored.
+var bulkyParams = []string{"content", "content_b64"}
+
 func redact(p map[string]string) map[string]string {
 	out := make(map[string]string, len(p))
 	for k, v := range p {
-		if slices.Contains(secretParams, k) && v != "" {
+		switch {
+		case slices.Contains(secretParams, k) && v != "":
 			v = "[redacted]"
+		case slices.Contains(bulkyParams, k):
+			v = fmt.Sprintf("[%d bytes]", len(v))
 		}
 		out[k] = v
 	}
@@ -273,6 +289,7 @@ func redact(p map[string]string) map[string]string {
 var readOnlyOps = map[string]bool{
 	"system.info": true, "packages.check_updates": true, "ssh_keys.list": true,
 	"firewall.status": true, "fail2ban.status": true, "web.status": true, "db.status": true,
+	"files.list": true, "files.read": true,
 }
 
 func (s opSpec) checkParams(p map[string]string) error {
@@ -280,7 +297,11 @@ func (s opSpec) checkParams(p map[string]string) error {
 		if !slices.Contains(s.params, k) {
 			return fmt.Errorf("unknown parameter %q", k)
 		}
-		if len(v) > 16<<10 {
+		limit := 16 << 10
+		if s.maxParam > 0 {
+			limit = s.maxParam
+		}
+		if len(v) > limit {
 			return fmt.Errorf("parameter %q is too long", k)
 		}
 	}

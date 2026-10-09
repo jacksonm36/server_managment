@@ -102,6 +102,20 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = dbUserCreate(ctx, p, logf)
 	case agentv1.Op_OP_DB_USER_DELETE:
 		result, err = dbUserDelete(ctx, p, logf)
+	case agentv1.Op_OP_FILES_LIST:
+		result, err = filesList(p)
+	case agentv1.Op_OP_FILES_READ:
+		result, err = filesRead(p)
+	case agentv1.Op_OP_FILES_WRITE:
+		result, err = filesWrite(p, logf)
+	case agentv1.Op_OP_FILES_MKDIR:
+		result, err = filesMkdir(p, logf)
+	case agentv1.Op_OP_FILES_DELETE:
+		result, err = filesDelete(p, logf)
+	case agentv1.Op_OP_FILES_RENAME:
+		result, err = filesRename(p, logf)
+	case agentv1.Op_OP_FILES_CHMOD:
+		result, err = filesChmod(p, logf)
 	case agentv1.Op_OP_SITE_TLS:
 		result, err = withSiteLock(func() (any, error) { return siteTLS(ctx, p, logf) })
 	default:

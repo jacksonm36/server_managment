@@ -145,6 +145,11 @@ func (s *Store) PurgeExpired(ctx context.Context) error {
 		return err
 	}
 	_, err = s.db.Exec(ctx, `DELETE FROM join_tokens WHERE used_at IS NULL AND expires_at < now() - interval '1 day'`)
+	if err != nil {
+		return err
+	}
+	// File browsing jobs carry file contents; they are only useful briefly.
+	_, err = s.db.Exec(ctx, `DELETE FROM jobs WHERE op IN ('files.list', 'files.read') AND created_at < now() - interval '1 hour'`)
 	return err
 }
 
