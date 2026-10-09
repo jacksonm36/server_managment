@@ -103,7 +103,8 @@ export const api = {
   metrics: (id: string) => request<Metric[]>("GET", `/api/v1/servers/${id}/metrics`),
   jobs: (id: string) => request<Job[]>("GET", `/api/v1/servers/${id}/jobs`),
   job: (id: string) => request<Job>("GET", `/api/v1/jobs/${id}`),
-  runJob: (id: string, op: string) => request<Job>("POST", `/api/v1/servers/${id}/jobs`, { op }),
+  runJob: (id: string, op: string, params: Record<string, string> = {}) =>
+    request<Job>("POST", `/api/v1/servers/${id}/jobs`, { op, params }),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string) => request<JoinToken>("POST", "/api/v1/join-tokens", { name }),
 };

@@ -1,59 +1,152 @@
 {
-  "updated_at": "2026-10-09T20:29:29Z",
+  "updated_at": "2026-10-09T20:40:13Z",
   "phases": [
     {
       "name": "MVP",
       "description": "Core panel, agent and day-to-day server management",
       "features": [
-        { "name": "Go panel + PostgreSQL store", "status": "done" },
-        { "name": "Agent with mTLS gRPC (dials out on 9443)", "status": "done" },
-        { "name": "Internal CA + one-time join tokens", "status": "done" },
-        { "name": "Admin login (argon2id, rate-limited)", "status": "done" },
-        { "name": "Panel as systemd service on :8090", "status": "done" },
-        { "name": "UI served from disk (no restart for UI changes)", "status": "done" },
-        { "name": "Build progress page", "status": "done" },
-        { "name": "Agent enrollment into sm-node1 / sm-node2", "status": "done" },
-        { "name": "Live CPU / RAM / disk on server page", "status": "done" },
-        { "name": "Package updates & upgrades", "status": "in-progress" },
-        { "name": "SSH key deployment", "status": "todo" },
-        { "name": "UFW firewall management", "status": "todo" },
-        { "name": "Fail2ban management", "status": "todo" },
-        { "name": "Jobs history + audit log", "status": "todo" },
-        { "name": "TOTP two-factor login", "status": "todo" }
+        {
+          "name": "Go panel + PostgreSQL store",
+          "status": "done"
+        },
+        {
+          "name": "Agent with mTLS gRPC (dials out on 9443)",
+          "status": "done"
+        },
+        {
+          "name": "Internal CA + one-time join tokens",
+          "status": "done"
+        },
+        {
+          "name": "Admin login (argon2id, rate-limited)",
+          "status": "done"
+        },
+        {
+          "name": "Panel as systemd service on :8090",
+          "status": "done"
+        },
+        {
+          "name": "UI served from disk (no restart for UI changes)",
+          "status": "done"
+        },
+        {
+          "name": "Build progress page",
+          "status": "done"
+        },
+        {
+          "name": "Agent enrollment into sm-node1 / sm-node2",
+          "status": "done"
+        },
+        {
+          "name": "Live CPU / RAM / disk on server page",
+          "status": "done"
+        },
+        {
+          "name": "Package updates & upgrades",
+          "status": "done"
+        },
+        {
+          "name": "SSH key deployment",
+          "status": "done"
+        },
+        {
+          "name": "UFW firewall management",
+          "status": "in-progress"
+        },
+        {
+          "name": "Fail2ban management",
+          "status": "in-progress"
+        },
+        {
+          "name": "Jobs history + audit log",
+          "status": "in-progress"
+        },
+        {
+          "name": "TOTP two-factor login",
+          "status": "todo"
+        }
       ]
     },
     {
       "name": "Web hosting",
       "description": "CloudPanel / aaPanel-style site management",
       "features": [
-        { "name": "Nginx sites (static, PHP, reverse proxy)", "status": "todo" },
-        { "name": "Let's Encrypt certificates", "status": "todo" },
-        { "name": "PHP-FPM versions per site", "status": "todo" },
-        { "name": "MariaDB / PostgreSQL databases & users", "status": "todo" },
-        { "name": "File manager", "status": "todo" },
-        { "name": "Site backups", "status": "todo" }
+        {
+          "name": "Nginx sites (static, PHP, reverse proxy)",
+          "status": "todo"
+        },
+        {
+          "name": "Let's Encrypt certificates",
+          "status": "todo"
+        },
+        {
+          "name": "PHP-FPM versions per site",
+          "status": "todo"
+        },
+        {
+          "name": "MariaDB / PostgreSQL databases & users",
+          "status": "todo"
+        },
+        {
+          "name": "File manager",
+          "status": "todo"
+        },
+        {
+          "name": "Site backups",
+          "status": "todo"
+        }
       ]
     },
     {
       "name": "Automation",
       "description": "Scheduled and repeatable work across servers",
       "features": [
-        { "name": "Scheduled jobs (cron)", "status": "todo" },
-        { "name": "Scripts library, run on many servers", "status": "todo" },
-        { "name": "Unattended security updates policy", "status": "todo" },
-        { "name": "Alerts (CPU / disk / offline) by email/webhook", "status": "todo" }
+        {
+          "name": "Scheduled jobs (cron)",
+          "status": "todo"
+        },
+        {
+          "name": "Scripts library, run on many servers",
+          "status": "todo"
+        },
+        {
+          "name": "Unattended security updates policy",
+          "status": "todo"
+        },
+        {
+          "name": "Alerts (CPU / disk / offline) by email/webhook",
+          "status": "todo"
+        }
       ]
     },
     {
       "name": "Breadth",
       "description": "Extra features beyond the basics",
       "features": [
-        { "name": "Web terminal", "status": "todo" },
-        { "name": "Docker containers", "status": "todo" },
-        { "name": "Service manager (systemd units)", "status": "todo" },
-        { "name": "Log viewer", "status": "todo" },
-        { "name": "Multiple users & roles", "status": "todo" },
-        { "name": "Agent self-update", "status": "todo" }
+        {
+          "name": "Web terminal",
+          "status": "todo"
+        },
+        {
+          "name": "Docker containers",
+          "status": "todo"
+        },
+        {
+          "name": "Service manager (systemd units)",
+          "status": "todo"
+        },
+        {
+          "name": "Log viewer",
+          "status": "todo"
+        },
+        {
+          "name": "Multiple users & roles",
+          "status": "todo"
+        },
+        {
+          "name": "Agent self-update",
+          "status": "todo"
+        }
       ]
     }
   ]

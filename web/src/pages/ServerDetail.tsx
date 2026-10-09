@@ -1,6 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Info, PackageSearch, RefreshCw, Trash2 } from "lucide-react";
+import {
+  Activity,
+  ArrowLeft,
+  Info,
+  KeyRound,
+  ListTodo,
+  PackageCheck,
+  PackageSearch,
+  RefreshCw,
+  Shield,
+  ShieldBan,
+  Trash2,
+} from "lucide-react";
 import { api, type Job } from "@/lib/api";
 import { loadMetricsHistory, useLive } from "@/lib/live";
 import { formatBytes, formatUptime, pct, timeAgo } from "@/lib/utils";
@@ -9,6 +21,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LiveChart } from "@/components/LiveChart";
 import { StatusBadge } from "./Servers";
+import { Updates } from "./server/Updates";
+import { SSHKeys } from "./server/SSHKeys";
+import { Firewall } from "./server/Firewall";
+import { Fail2ban } from "./server/Fail2ban";
 
 const EMPTY: never[] = [];
 
@@ -17,6 +33,7 @@ export function ServerDetail({ id }: { id: string }) {
   const metrics = useLive((s) => s.metrics.get(id) ?? EMPTY);
   const loaded = useLive((s) => s.servers.size > 0);
   const [, navigate] = useLocation();
+  const [tab, setTab] = useTab();
 
   useEffect(() => {
     void loadMetricsHistory(id);
@@ -67,37 +84,95 @@ export function ServerDetail({ id }: { id: string }) {
         </Button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Uptime" value={m ? formatUptime(m.uptime) : "—"} />
-        <Stat
-          label="Load (1 / 5 / 15)"
-          value={m ? `${m.load1.toFixed(2)} / ${m.load5.toFixed(2)} / ${m.load15.toFixed(2)}` : "—"}
-        />
-        <Stat label="Memory" value={m ? `${formatBytes(m.mem_used)} / ${formatBytes(m.mem_total)}` : "—"} />
-        <Stat label="Disk /" value={m ? `${formatBytes(m.disk_used)} / ${formatBytes(m.disk_total)}` : "—"} />
-      </div>
+      <Tabs tab={tab} setTab={setTab} />
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <LiveChart title="CPU" points={series.cpu} detail={`${server.cpu_count} vCPU`} />
-        <LiveChart
-          title="Memory"
-          points={series.mem}
-          color="var(--color-success)"
-          detail={m ? formatBytes(m.mem_total) : undefined}
-        />
-        <LiveChart
-          title="Disk /"
-          points={series.disk}
-          color="var(--color-warning)"
-          detail={m ? formatBytes(m.disk_total) : undefined}
-        />
-      </div>
+      {tab === "overview" && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Stat label="Uptime" value={m ? formatUptime(m.uptime) : "—"} />
+            <Stat
+              label="Load (1 / 5 / 15)"
+              value={m ? `${m.load1.toFixed(2)} / ${m.load5.toFixed(2)} / ${m.load15.toFixed(2)}` : "—"}
+            />
+            <Stat label="Memory" value={m ? `${formatBytes(m.mem_used)} / ${formatBytes(m.mem_total)}` : "—"} />
+            <Stat label="Disk /" value={m ? `${formatBytes(m.disk_used)} / ${formatBytes(m.disk_total)}` : "—"} />
+          </div>
 
-      {!server.online && (
-        <p className="text-sm text-muted-foreground">Agent offline · last seen {timeAgo(server.last_seen_at)}</p>
+          <div className="grid gap-4 lg:grid-cols-3">
+            <LiveChart title="CPU" points={series.cpu} detail={`${server.cpu_count} vCPU`} />
+            <LiveChart
+              title="Memory"
+              points={series.mem}
+              color="var(--color-success)"
+              detail={m ? formatBytes(m.mem_total) : undefined}
+            />
+            <LiveChart
+              title="Disk /"
+              points={series.disk}
+              color="var(--color-warning)"
+              detail={m ? formatBytes(m.disk_total) : undefined}
+            />
+          </div>
+
+          {!server.online && (
+            <p className="text-sm text-muted-foreground">Agent offline · last seen {timeAgo(server.last_seen_at)}</p>
+          )}
+        </>
       )}
+      {tab === "updates" && <Updates serverId={id} online={server.online} />}
+      {tab === "ssh" && <SSHKeys serverId={id} online={server.online} />}
+      {tab === "firewall" && <Firewall serverId={id} online={server.online} />}
+      {tab === "fail2ban" && <Fail2ban serverId={id} online={server.online} />}
+      {tab === "tasks" && <Jobs serverId={id} online={server.online} />}
+    </div>
+  );
+}
 
-      <Jobs serverId={id} online={server.online} />
+const TABS = [
+  { id: "overview", label: "Overview", icon: Activity },
+  { id: "updates", label: "Updates", icon: PackageCheck },
+  { id: "ssh", label: "SSH keys", icon: KeyRound },
+  { id: "firewall", label: "Firewall", icon: Shield },
+  { id: "fail2ban", label: "Fail2ban", icon: ShieldBan },
+  { id: "tasks", label: "Tasks", icon: ListTodo },
+] as const;
+type TabId = (typeof TABS)[number]["id"];
+
+// The active tab lives in the URL hash so it survives reloads and can be linked.
+function useTab(): [TabId, (t: TabId) => void] {
+  const read = (): TabId => {
+    const h = window.location.hash.slice(1);
+    return (TABS.find((t) => t.id === h)?.id ?? "overview") as TabId;
+  };
+  const [tab, setTabState] = useState<TabId>(read);
+  useEffect(() => {
+    const on = () => setTabState(read());
+    window.addEventListener("hashchange", on);
+    return () => window.removeEventListener("hashchange", on);
+  }, []);
+  const setTab = (t: TabId) => {
+    history.replaceState(null, "", t === "overview" ? window.location.pathname : `#${t}`);
+    setTabState(t);
+  };
+  return [tab, setTab];
+}
+
+function Tabs({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
+  return (
+    <div role="tablist" className="-mx-1 flex gap-1 overflow-x-auto border-b px-1">
+      {TABS.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          role="tab"
+          aria-selected={tab === id}
+          onClick={() => setTab(id)}
+          className={`-mb-px flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-2 text-sm whitespace-nowrap transition-colors ${
+            tab === id ? "border-brand text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Icon className="size-4" /> {label}
+        </button>
+      ))}
     </div>
   );
 }
