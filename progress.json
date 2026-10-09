@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-09T20:40:13Z",
+  "updated_at": "2026-10-09T20:42:46Z",
   "phases": [
     {
       "name": "MVP",
@@ -59,11 +59,11 @@
         },
         {
           "name": "Jobs history + audit log",
-          "status": "in-progress"
+          "status": "done"
         },
         {
           "name": "TOTP two-factor login",
-          "status": "todo"
+          "status": "in-progress"
         }
       ]
     },

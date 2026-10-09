@@ -37,6 +37,7 @@ export type Job = {
   log: string;
   result: unknown;
   error: string;
+  created_by: string;
   created_at: string;
   finished_at: string | null;
 };
@@ -54,6 +55,29 @@ export type LiveEvent = {
   online?: boolean;
   metric?: Metric;
   job_id?: string;
+};
+
+export type AuditEntry = {
+  id: number;
+  ts: string;
+  actor: string;
+  ip: string;
+  action: string;
+  target: string;
+  detail: unknown;
+  success: boolean;
+};
+
+export type JobSummary = {
+  id: string;
+  server_id: string;
+  server_name: string;
+  op: string;
+  status: Job["status"];
+  error: string;
+  created_by: string;
+  created_at: string;
+  finished_at: string | null;
 };
 
 export type FeatureStatus = "done" | "in-progress" | "todo";
@@ -105,6 +129,14 @@ export const api = {
   job: (id: string) => request<Job>("GET", `/api/v1/jobs/${id}`),
   runJob: (id: string, op: string, params: Record<string, string> = {}) =>
     request<Job>("POST", `/api/v1/servers/${id}/jobs`, { op, params }),
+  audit: (q: { action?: string; before?: number; limit?: number } = {}) => {
+    const p = new URLSearchParams();
+    if (q.action) p.set("action", q.action);
+    if (q.before) p.set("before", String(q.before));
+    if (q.limit) p.set("limit", String(q.limit));
+    return request<AuditEntry[]>("GET", `/api/v1/audit?${p}`);
+  },
+  recentJobs: () => request<JobSummary[]>("GET", "/api/v1/jobs?limit=200"),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string) => request<JoinToken>("POST", "/api/v1/join-tokens", { name }),
 };

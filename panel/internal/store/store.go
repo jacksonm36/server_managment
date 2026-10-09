@@ -257,6 +257,7 @@ type Job struct {
 	Log        string            `json:"log"`
 	Result     json.RawMessage   `json:"result"`
 	Error      string            `json:"error"`
+	CreatedBy  string            `json:"created_by"`
 	CreatedAt  time.Time         `json:"created_at"`
 	FinishedAt *time.Time        `json:"finished_at"`
 }
@@ -264,8 +265,8 @@ type Job struct {
 func (s *Store) CreateJob(ctx context.Context, j *Job) error {
 	params, _ := json.Marshal(j.Params)
 	return s.db.QueryRow(ctx, `
-		INSERT INTO jobs (id, server_id, op, params, status) VALUES ($1, $2, $3, $4, $5) RETURNING created_at`,
-		j.ID, j.ServerID, j.Op, params, j.Status).Scan(&j.CreatedAt)
+		INSERT INTO jobs (id, server_id, op, params, status, created_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at`,
+		j.ID, j.ServerID, j.Op, params, j.Status, j.CreatedBy).Scan(&j.CreatedAt)
 }
 
 // UpdateJob appends log lines and sets status/result/error.
@@ -282,13 +283,13 @@ func (s *Store) UpdateJob(ctx context.Context, id, status string, logAppend stri
 	return err
 }
 
-const jobCols = `id::text, server_id::text, op, params, status, log, result, error, created_at, finished_at`
+const jobCols = `id::text, server_id::text, op, params, status, log, result, error, created_by, created_at, finished_at`
 
 func scanJob(row pgx.Row) (*Job, error) {
 	j := &Job{}
 	var params []byte
 	var result []byte
-	err := row.Scan(&j.ID, &j.ServerID, &j.Op, &params, &j.Status, &j.Log, &result, &j.Error, &j.CreatedAt, &j.FinishedAt)
+	err := row.Scan(&j.ID, &j.ServerID, &j.Op, &params, &j.Status, &j.Log, &result, &j.Error, &j.CreatedBy, &j.CreatedAt, &j.FinishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { ListChecks, LogOut, Server } from "lucide-react";
+import { History, ListChecks, LogOut, Server } from "lucide-react";
 import { api } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Login } from "@/pages/Login";
 import { Servers } from "@/pages/Servers";
 import { ServerDetail } from "@/pages/ServerDetail";
 import { Progress } from "@/pages/Progress";
+import { Activity } from "@/pages/Activity";
 
 export function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined);
@@ -45,6 +46,9 @@ export function App() {
           </Link>
           <nav className="mr-auto flex items-center gap-1 text-sm">
             <NavLink href="/">Servers</NavLink>
+            <NavLink href="/activity">
+              <History className="size-4" /> Activity
+            </NavLink>
             <NavLink href="/progress">
               <ListChecks className="size-4" /> Progress
             </NavLink>
@@ -62,6 +66,9 @@ export function App() {
         <Switch>
           <Route path="/">
             <Servers />
+          </Route>
+          <Route path="/activity">
+            <Activity />
           </Route>
           <Route path="/progress">
             <Progress />

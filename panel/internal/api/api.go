@@ -67,6 +67,8 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/servers/{id}/jobs", a.handleListJobs)
 	authed.HandleFunc("POST /api/v1/servers/{id}/jobs", a.handleCreateJob)
 	authed.HandleFunc("GET /api/v1/jobs/{id}", a.handleGetJob)
+	authed.HandleFunc("GET /api/v1/jobs", a.handleRecentJobs)
+	authed.HandleFunc("GET /api/v1/audit", a.handleListAudit)
 	authed.HandleFunc("POST /api/v1/join-tokens", a.handleCreateJoinToken)
 	authed.HandleFunc("GET /api/v1/events", a.handleEvents)
 	authed.HandleFunc("GET /api/v1/progress", a.handleProgress)
@@ -178,10 +180,20 @@ func (a *API) handleGetServer(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	s, err := a.Store.GetServer(r.Context(), id)
+	if errors.Is(err, store.ErrNotFound) {
+		writeErr(w, http.StatusNotFound, "server not found")
+		return
+	}
+	if err != nil {
+		a.internal(w, err)
+		return
+	}
 	if err := a.Store.DeleteServer(r.Context(), id); err != nil {
 		a.internal(w, err)
 		return
 	}
+	a.audit(r, "", "server.delete", s.Name, map[string]string{"server_id": id, "hostname": s.Hostname}, true)
 	a.Hub.Forget(id)
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -220,6 +232,13 @@ var opsByName = map[string]opSpec{
 	"fail2ban.unban":         {op: agentv1.Op_OP_FAIL2BAN_UNBAN, params: []string{"jail", "ip"}},
 }
 
+// readOnlyOps only read state; they show up in job history but are not
+// written to the audit log, which would otherwise fill with status polls.
+var readOnlyOps = map[string]bool{
+	"system.info": true, "packages.check_updates": true, "ssh_keys.list": true,
+	"firewall.status": true, "fail2ban.status": true,
+}
+
 func (s opSpec) checkParams(p map[string]string) error {
 	for k, v := range p {
 		if !slices.Contains(s.params, k) {
@@ -250,7 +269,8 @@ func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if _, err := a.Store.GetServer(r.Context(), serverID); err != nil {
+	srv, err := a.Store.GetServer(r.Context(), serverID)
+	if err != nil {
 		writeErr(w, http.StatusNotFound, "server not found")
 		return
 	}
@@ -261,7 +281,8 @@ func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	if req.Params == nil {
 		req.Params = map[string]string{}
 	}
-	job := &store.Job{ID: store.NewUUID(), ServerID: serverID, Op: req.Op, Params: req.Params, Status: "queued"}
+	job := &store.Job{ID: store.NewUUID(), ServerID: serverID, Op: req.Op, Params: req.Params, Status: "queued",
+		CreatedBy: adminFrom(r.Context()).Username}
 	if err := a.Store.CreateJob(r.Context(), job); err != nil {
 		a.internal(w, err)
 		return
@@ -269,8 +290,12 @@ func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	msg := &agentv1.PanelMessage{Msg: &agentv1.PanelMessage_Job{Job: &agentv1.Job{Id: job.ID, Op: spec.op, Params: req.Params}}}
 	if err := a.Hub.Send(serverID, msg); err != nil {
 		_ = a.Store.UpdateJob(r.Context(), job.ID, "failed", "", nil, err.Error(), true)
+		a.audit(r, "", "job.create", srv.Name, map[string]any{"op": req.Op, "params": req.Params, "job_id": job.ID, "error": err.Error()}, false)
 		writeErr(w, http.StatusConflict, err.Error())
 		return
+	}
+	if !readOnlyOps[req.Op] {
+		a.audit(r, "", "job.create", srv.Name, map[string]any{"op": req.Op, "params": req.Params, "job_id": job.ID}, true)
 	}
 	a.Hub.JobChanged(serverID, job.ID)
 	writeJSON(w, http.StatusAccepted, job)
@@ -370,6 +395,7 @@ func (a *API) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
+	a.audit(r, "", "server.join_token", req.Name, map[string]any{"expires_at": expires}, true)
 	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | sudo sh -s -- --token %s --ca-sha256 %s",
 		a.Cfg.PublicURL, raw, a.CA.Fingerprint())
 	writeJSON(w, http.StatusCreated, map[string]any{
@@ -394,6 +420,7 @@ func (a *API) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	serverID, name, err := a.Store.Enroll(r.Context(), hashToken(req.Token), req.Hostname)
 	if errors.Is(err, store.ErrNotFound) {
 		a.limiter.failed("enroll:" + ip)
+		a.audit(r, "agent", "server.enroll", req.Hostname, map[string]string{"error": "invalid or expired join token"}, false)
 		writeErr(w, http.StatusUnauthorized, "invalid or expired join token")
 		return
 	}
@@ -408,6 +435,7 @@ func (a *API) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.Log.Info("agent enrolled", "server", serverID, "name", name, "ip", ip)
+	a.audit(r, "agent", "server.enroll", name, map[string]string{"server_id": serverID, "hostname": req.Hostname}, true)
 	writeJSON(w, http.StatusOK, map[string]string{
 		"server_id": serverID, "cert_pem": string(certPEM), "ca_pem": string(a.CA.CertPEM), "grpc_addr": a.Cfg.GRPCAddr,
 	})

@@ -156,6 +156,7 @@ func (l *loginLimiter) failed(ip string) {
 func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if !a.limiter.allowed(ip) {
+		a.audit(r, "", "auth.login", "", map[string]string{"error": "rate limited"}, false)
 		writeErr(w, http.StatusTooManyRequests, "too many failed logins, try again later")
 		return
 	}
@@ -170,6 +171,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if errors.Is(err, store.ErrNotFound) {
 		VerifyPassword(req.Password, dummyHash)
 		a.limiter.failed(ip)
+		a.audit(r, truncate(req.Username, 64), "auth.login", "", map[string]string{"error": "unknown user"}, false)
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
@@ -179,6 +181,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if !VerifyPassword(req.Password, admin.PasswordHash) {
 		a.limiter.failed(ip)
+		a.audit(r, admin.Username, "auth.login", "", map[string]string{"error": "wrong password"}, false)
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
@@ -191,11 +194,22 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Name: sessionCookie, Value: raw, Path: "/", HttpOnly: true,
 		Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: int(sessionTTL.Seconds()),
 	})
+	a.audit(r, admin.Username, "auth.login", "", nil, true)
 	writeJSON(w, http.StatusOK, map[string]string{"username": admin.Username})
+}
+
+func truncate(s string, n int) string {
+	if len(s) > n {
+		return s[:n]
+	}
+	return s
 }
 
 func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil {
+		if ad, err := a.Store.SessionAdmin(r.Context(), hashToken(c.Value)); err == nil {
+			a.audit(r, ad.Username, "auth.logout", "", nil, true)
+		}
 		_ = a.Store.DeleteSession(r.Context(), hashToken(c.Value))
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
