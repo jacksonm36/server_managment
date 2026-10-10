@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { History, ListChecks, LogOut, Server, Users as UsersIcon, Workflow } from "lucide-react";
+import { History, LayoutDashboard, ListChecks, LogOut, Server, Users as UsersIcon, Workflow } from "lucide-react";
 import { api, type Role } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,8 @@ import { Activity } from "@/pages/Activity";
 import { Account } from "@/pages/Account";
 import { Automation } from "@/pages/Automation";
 import { Users } from "@/pages/Users";
+import { Dashboard } from "@/pages/Dashboard";
+import { RoleContext } from "@/lib/role";
 
 export function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined);
@@ -52,29 +54,34 @@ export function App() {
   return (
     <div className="min-h-svh">
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-x-4 px-4 sm:px-6 md:h-14 md:flex-nowrap">
+          <Link href="/" className="flex h-14 items-center gap-2 font-semibold">
             <span className="flex size-7 items-center justify-center rounded-lg bg-brand/15 text-brand">
               <Server className="size-4" />
             </span>
             servermgr
           </Link>
-          <nav className="mr-auto flex min-w-0 items-center gap-1 overflow-x-auto text-sm">
-            <NavLink href="/">Servers</NavLink>
-            <NavLink href="/automation">
-              <Workflow className="size-4" /> Automation
+          <nav className="order-last -mx-1 flex w-full min-w-0 items-center gap-1 overflow-x-auto px-1 pb-2 text-sm md:order-none md:mr-auto md:w-auto md:pb-0">
+            <NavLink href="/" label="Dashboard">
+              <LayoutDashboard className="size-4" />
+            </NavLink>
+            <NavLink href="/servers" label="Servers">
+              <Server className="size-4" />
+            </NavLink>
+            <NavLink href="/automation" label="Automation">
+              <Workflow className="size-4" />
               <FiringDot />
             </NavLink>
-            <NavLink href="/activity">
-              <History className="size-4" /> Activity
+            <NavLink href="/activity" label="Activity">
+              <History className="size-4" />
             </NavLink>
             {role === "admin" && (
-              <NavLink href="/users">
-                <UsersIcon className="size-4" /> Users
+              <NavLink href="/users" label="Users">
+                <UsersIcon className="size-4" />
               </NavLink>
             )}
-            <NavLink href="/progress">
-              <ListChecks className="size-4" /> Progress
+            <NavLink href="/progress" label="Progress">
+              <ListChecks className="size-4" />
             </NavLink>
           </nav>
           <div className="flex items-center gap-3 text-sm">
@@ -82,12 +89,13 @@ export function App() {
             <Link href="/account" className="text-muted-foreground hover:text-foreground" title="Account & security">
               {user}
             </Link>
-            <Button variant="ghost" size="sm" onClick={logout}>
-              <LogOut /> Sign out
+            <Button variant="ghost" size="sm" onClick={logout} aria-label="Sign out" title="Sign out">
+              <LogOut /> <span className="hidden sm:inline">Sign out</span>
             </Button>
           </div>
         </div>
       </header>
+      <RoleContext.Provider value={role}>
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
         {role === "viewer" && (
           <p className="mb-6 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
@@ -96,6 +104,9 @@ export function App() {
         )}
         <Switch>
           <Route path="/">
+            <Dashboard role={role} />
+          </Route>
+          <Route path="/servers">
             <Servers />
           </Route>
           <Route path="/users">
@@ -119,21 +130,25 @@ export function App() {
           </Route>
         </Switch>
       </main>
+      </RoleContext.Provider>
     </div>
   );
 }
 
-function NavLink({ href, children }: { href: string; children: ReactNode }) {
+function NavLink({ href, label, children }: { href: string; label: string; children: ReactNode }) {
   const [loc] = useLocation();
-  const active = href === "/" ? loc === "/" || loc.startsWith("/servers") : loc.startsWith(href);
+  const active = href === "/" ? loc === "/" : loc.startsWith(href);
   return (
     <Link
       href={href}
+      title={label}
+      aria-label={label}
       className={`flex items-center gap-1.5 rounded-md px-2.5 py-1.5 transition-colors ${
         active ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"
       }`}
     >
       {children}
+      <span className="hidden md:inline">{label}</span>
     </Link>
   );
 }

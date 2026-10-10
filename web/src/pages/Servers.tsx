@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { Meter } from "@/components/LiveChart";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { BulkDialog } from "@/components/BulkDialog";
+import { canOperate, isAdmin, useRole } from "@/lib/role";
 import { api } from "@/lib/api";
 import { outdated, useAgentBuild } from "@/lib/agentBuild";
 import { Button } from "@/components/ui/button";
@@ -31,6 +32,7 @@ export function StatusBadge({ online }: { online: boolean }) {
 }
 
 export function Servers() {
+  const role = useRole();
   const map = useLive((s) => s.servers);
   const servers = useMemo(() => [...map.values()].sort((a, b) => a.name.localeCompare(b.name)), [map]);
   const online = servers.filter((s) => s.online).length;
@@ -58,7 +60,7 @@ export function Servers() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {servers.length > 1 && (
+          {servers.length > 1 && canOperate(role) && (
             <Button
               variant="ghost"
               size="sm"
@@ -67,10 +69,10 @@ export function Servers() {
               {selected.size === servers.length ? "Clear selection" : "Select all"}
             </Button>
           )}
-          <AddServerDialog />
+          {isAdmin(role) && <AddServerDialog />}
         </div>
       </div>
-      {stale.length > 0 && (
+      {stale.length > 0 && canOperate(role) && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-2.5 text-sm">
           <span>
             {updateMsg || `${stale.length} agent(s) can be updated to ${build?.version}.`}
@@ -112,13 +114,13 @@ export function Servers() {
           <ServerOff className="size-8 text-muted-foreground" />
           <div className="font-medium">No servers yet</div>
           <p className="max-w-sm text-sm text-muted-foreground">
-            Click “Add server” to get a one-line install command for your first server.
+            {isAdmin(role) ? "Click “Add server” to get a one-line install command for your first server." : "An admin can add servers here."}
           </p>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {servers.map((s) => (
-            <ServerCard key={s.id} s={s} selected={selected.has(s.id)} onToggle={() => toggle(s.id)} />
+            <ServerCard key={s.id} s={s} selectable={canOperate(role)} selected={selected.has(s.id)} onToggle={() => toggle(s.id)} />
           ))}
         </div>
       )}
@@ -126,7 +128,7 @@ export function Servers() {
   );
 }
 
-function ServerCard({ s, selected, onToggle }: { s: Server; selected: boolean; onToggle: () => void }) {
+function ServerCard({ s, selectable, selected, onToggle }: { s: Server; selectable: boolean; selected: boolean; onToggle: () => void }) {
   const m = s.online ? s.latest : null;
   return (
     <Link href={`/servers/${s.id}`} className="group block rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
@@ -134,7 +136,7 @@ function ServerCard({ s, selected, onToggle }: { s: Server; selected: boolean; o
         className={`h-full p-5 transition-colors group-hover:border-brand/40 group-hover:bg-accent/30 ${selected ? "border-brand/70 bg-brand/5" : ""}`}
       >
         <div className="mb-4 flex items-start justify-between gap-3">
-          <input
+          {selectable && <input
             type="checkbox"
             aria-label={`Select ${s.name}`}
             className="mt-1 size-4 shrink-0 cursor-pointer accent-[var(--color-brand)]"
@@ -144,7 +146,7 @@ function ServerCard({ s, selected, onToggle }: { s: Server; selected: boolean; o
               e.stopPropagation();
               onToggle();
             }}
-          />
+          />}
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold">{s.name}</div>
             <div className="truncate text-xs text-muted-foreground">

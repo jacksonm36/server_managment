@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Activity,
@@ -31,6 +31,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LiveChart } from "@/components/LiveChart";
 import { StatusBadge } from "./Servers";
 import { outdated, useAgentBuild } from "@/lib/agentBuild";
+import { canOperate, isAdmin, useRole } from "@/lib/role";
 import { Updates } from "./server/Updates";
 import { Sites } from "./server/Sites";
 // xterm.js is large; load it only when the Terminal tab opens.
@@ -56,6 +57,7 @@ export function ServerDetail({ id }: { id: string }) {
   const [tab, setTab] = useTab();
   const [logUnit, setLogUnit] = useState("");
   const build = useAgentBuild();
+  const role = useRole();
   const [updating, setUpdating] = useState("");
 
   useEffect(() => {
@@ -85,7 +87,7 @@ export function ServerDetail({ id }: { id: string }) {
   async function remove() {
     if (!confirm(`Remove ${server!.name}? Its agent will be refused on the next connect.`)) return;
     await api.deleteServer(id);
-    navigate("/");
+    navigate("/servers");
   }
 
   return (
@@ -103,7 +105,7 @@ export function ServerDetail({ id }: { id: string }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          {outdated(build, server.agent_version) && (
+          {outdated(build, server.agent_version) && canOperate(role) && (
             <Button
               variant="secondary"
               size="sm"
@@ -124,14 +126,19 @@ export function ServerDetail({ id }: { id: string }) {
               <RefreshCw /> {updating || `Update agent to ${build?.version}`}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={remove}>
-            <Trash2 /> Remove
-          </Button>
+          {isAdmin(role) && (
+            <Button variant="outline" size="sm" onClick={remove}>
+              <Trash2 /> Remove
+            </Button>
+          )}
         </div>
       </div>
 
       <Tabs tab={tab} setTab={setTab} />
 
+      <div className="grid gap-6 lg:grid-cols-[12rem_minmax(0,1fr)]">
+        <SideNav tab={tab} setTab={setTab} />
+        <div className="grid min-w-0 content-start gap-6">
       {tab === "overview" && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -192,26 +199,28 @@ export function ServerDetail({ id }: { id: string }) {
       {tab === "firewall" && <Firewall serverId={id} online={server.online} />}
       {tab === "fail2ban" && <Fail2ban serverId={id} online={server.online} />}
       {tab === "tasks" && <Jobs serverId={id} online={server.online} />}
+        </div>
+      </div>
     </div>
   );
 }
 
 const TABS = [
-  { id: "overview", label: "Overview", icon: Activity },
-  { id: "terminal", label: "Terminal", icon: SquareTerminal },
-  { id: "sites", label: "Sites", icon: Globe },
-  { id: "databases", label: "Databases", icon: Database },
-  { id: "docker", label: "Docker", icon: Container },
-  { id: "files", label: "Files", icon: FolderOpen },
-  { id: "services", label: "Services", icon: Cog },
-  { id: "logs", label: "Logs", icon: ScrollText },
-  { id: "cron", label: "Cron", icon: Clock },
-  { id: "backups", label: "Backups", icon: Archive },
-  { id: "updates", label: "Updates", icon: PackageCheck },
-  { id: "ssh", label: "SSH keys", icon: KeyRound },
-  { id: "firewall", label: "Firewall", icon: Shield },
-  { id: "fail2ban", label: "Fail2ban", icon: ShieldBan },
-  { id: "tasks", label: "Tasks", icon: ListTodo },
+  { id: "overview", label: "Overview", icon: Activity, group: "" },
+  { id: "terminal", label: "Terminal", icon: SquareTerminal, group: "" },
+  { id: "tasks", label: "Tasks", icon: ListTodo, group: "" },
+  { id: "sites", label: "Sites", icon: Globe, group: "Web" },
+  { id: "databases", label: "Databases", icon: Database, group: "Web" },
+  { id: "docker", label: "Docker", icon: Container, group: "Web" },
+  { id: "files", label: "Files", icon: FolderOpen, group: "Web" },
+  { id: "services", label: "Services", icon: Cog, group: "System" },
+  { id: "logs", label: "Logs", icon: ScrollText, group: "System" },
+  { id: "cron", label: "Cron", icon: Clock, group: "System" },
+  { id: "backups", label: "Backups", icon: Archive, group: "System" },
+  { id: "updates", label: "Updates", icon: PackageCheck, group: "System" },
+  { id: "ssh", label: "SSH keys", icon: KeyRound, group: "Security" },
+  { id: "firewall", label: "Firewall", icon: Shield, group: "Security" },
+  { id: "fail2ban", label: "Fail2ban", icon: ShieldBan, group: "Security" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -234,9 +243,40 @@ function useTab(): [TabId, (t: TabId) => void] {
   return [tab, setTab];
 }
 
-function Tabs({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
+// Sidebar on wide screens: grouped like a hosting panel.
+function SideNav({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
+  const groups = [...new Set(TABS.map((t) => t.group))];
   return (
-    <div role="tablist" className="-mx-1 flex gap-1 overflow-x-auto border-b px-1">
+    <nav aria-label="Server sections" className="sticky top-20 hidden content-start gap-4 lg:grid">
+      {groups.map((g) => (
+        <div key={g || "main"} className="grid gap-0.5">
+          {g && <div className="px-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{g}</div>}
+          {TABS.filter((t) => t.group === g).map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              aria-current={tab === id ? "page" : undefined}
+              className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors ${
+                tab === id ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+              }`}
+            >
+              <Icon className={`size-4 ${tab === id ? "text-brand" : ""}`} /> {label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+function Tabs({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
+  const strip = useRef<HTMLDivElement>(null);
+  // Keep the active tab visible in the scrolling strip (phones/tablets).
+  useEffect(() => {
+    strip.current?.querySelector<HTMLElement>("[aria-selected=true]")?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [tab]);
+  return (
+    <div ref={strip} role="tablist" className="-mx-1 flex gap-1 overflow-x-auto border-b px-1 lg:hidden">
       {TABS.map(({ id, label, icon: Icon }) => (
         <button
           key={id}
@@ -256,7 +296,7 @@ function Tabs({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
 
 function BackLink() {
   return (
-    <Link href="/" className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+    <Link href="/servers" className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft className="size-4" /> All servers
     </Link>
   );
