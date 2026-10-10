@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { History, ListChecks, LogOut, Server, Workflow } from "lucide-react";
-import { api } from "@/lib/api";
+import { History, ListChecks, LogOut, Server, Users as UsersIcon, Workflow } from "lucide-react";
+import { api, type Role } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Login } from "@/pages/Login";
@@ -11,14 +11,19 @@ import { Progress } from "@/pages/Progress";
 import { Activity } from "@/pages/Activity";
 import { Account } from "@/pages/Account";
 import { Automation } from "@/pages/Automation";
+import { Users } from "@/pages/Users";
 
 export function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined);
+  const [role, setRole] = useState<Role>("viewer");
 
   useEffect(() => {
     api
       .me()
-      .then((r) => setUser(r.username))
+      .then((r) => {
+        setUser(r.username);
+        setRole(r.role);
+      })
       .catch(() => setUser(null));
   }, []);
 
@@ -29,7 +34,15 @@ export function App() {
   }, [user]);
 
   if (user === undefined) return null;
-  if (user === null) return <Login onLogin={setUser} />;
+  if (user === null)
+    return (
+      <Login
+        onLogin={(u) => {
+          setUser(u);
+          void api.me().then((r) => setRole(r.role));
+        }}
+      />
+    );
 
   async function logout() {
     await api.logout().catch(() => {});
@@ -55,6 +68,11 @@ export function App() {
             <NavLink href="/activity">
               <History className="size-4" /> Activity
             </NavLink>
+            {role === "admin" && (
+              <NavLink href="/users">
+                <UsersIcon className="size-4" /> Users
+              </NavLink>
+            )}
             <NavLink href="/progress">
               <ListChecks className="size-4" /> Progress
             </NavLink>
@@ -71,9 +89,17 @@ export function App() {
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {role === "viewer" && (
+          <p className="mb-6 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
+            You have read-only access. Actions that change servers are disabled for your account.
+          </p>
+        )}
         <Switch>
           <Route path="/">
             <Servers />
+          </Route>
+          <Route path="/users">
+            <Users me={user} />
           </Route>
           <Route path="/automation">
             <Automation />

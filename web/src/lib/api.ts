@@ -166,6 +166,18 @@ const ruleBody = (r: AlertRule) => {
   return { name, metric, threshold, duration_sec, server_ids, all_servers, channel_ids, enabled };
 };
 
+export type Role = "admin" | "operator" | "viewer";
+
+export type User = {
+  id: number;
+  username: string;
+  role: Role;
+  disabled: boolean;
+  totp_enabled: boolean;
+  last_login: string | null;
+  created_at: string;
+};
+
 export type FeatureStatus = "done" | "in-progress" | "todo";
 
 export type Progress = {
@@ -217,7 +229,13 @@ export const api = {
   recoveryCodes: (password: string) =>
     request<{ recovery_codes: string[] }>("POST", "/api/v1/account/recovery-codes", { password }),
   logout: () => request<void>("POST", "/api/v1/auth/logout"),
-  me: () => request<{ username: string }>("GET", "/api/v1/me"),
+  me: () => request<{ username: string; role: Role }>("GET", "/api/v1/me"),
+  users: () => request<User[]>("GET", "/api/v1/users"),
+  createUser: (u: { username: string; password: string; role: Role }) => request<{ id: number }>("POST", "/api/v1/users", u),
+  updateUser: (id: number, u: { role: Role; disabled: boolean }) => request<void>("PUT", `/api/v1/users/${id}`, u),
+  resetUserPassword: (id: number, password: string, reset2fa: boolean) =>
+    request<void>("POST", `/api/v1/users/${id}/password`, { password, reset_2fa: reset2fa }),
+  deleteUser: (id: number) => request<void>("DELETE", `/api/v1/users/${id}`),
   servers: () => request<Server[]>("GET", "/api/v1/servers"),
   server: (id: string) => request<Server>("GET", `/api/v1/servers/${id}`),
   deleteServer: (id: string) => request<void>("DELETE", `/api/v1/servers/${id}`),

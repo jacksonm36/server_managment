@@ -19,8 +19,9 @@ func (e *DispatchError) Error() string { return e.Msg }
 
 // Who identifies the origin of an action for the audit log.
 type Who struct {
-	Actor string // admin username, or "scheduler" / "playbook" / "alerts"
+	Actor string // admin username, or "schedule: …" / "baseline"
 	IP    string
+	Role  string // user role, or systemRole for background work
 }
 
 // Dispatch validates op/params, records the job and sends it to the agent.
@@ -32,6 +33,9 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 	}
 	if err := spec.checkParams(params); err != nil {
 		return nil, &DispatchError{http.StatusBadRequest, err.Error()}
+	}
+	if !roleAllowsOp(who.Role, op) {
+		return nil, &DispatchError{http.StatusForbidden, "your role (" + who.Role + ") cannot run " + op}
 	}
 	srv, err := a.Store.GetServer(ctx, serverID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -76,7 +80,7 @@ func (a *API) writeDispatchErr(w http.ResponseWriter, err error) {
 func whoFrom(r *http.Request) Who {
 	w := Who{IP: clientIP(r)}
 	if ad := adminFrom(r.Context()); ad != nil {
-		w.Actor = ad.Username
+		w.Actor, w.Role = ad.Username, ad.Role
 	}
 	return w
 }

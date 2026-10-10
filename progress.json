@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T13:57:09Z",
+  "updated_at": "2026-10-10T14:00:53Z",
   "phases": [
     {
       "name": "MVP",
@@ -157,7 +157,7 @@
         },
         {
           "name": "Multiple users & roles",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "Agent self-update",

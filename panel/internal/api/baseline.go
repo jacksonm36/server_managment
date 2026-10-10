@@ -28,7 +28,7 @@ func (a *API) ApplyBaseline(serverID string) {
 	for i := 0; i < 20 && !a.Hub.Online(serverID); i++ {
 		time.Sleep(250 * time.Millisecond)
 	}
-	if _, err := a.StartPlaybook(ctx, Who{Actor: "baseline", IP: "panel"}, pb, []string{serverID}); err != nil {
+	if _, err := a.StartPlaybook(ctx, Who{Actor: "baseline", IP: "panel", Role: systemRole}, pb, []string{serverID}); err != nil {
 		a.Log.Error("baseline: start", "server", serverID, "err", err)
 		return
 	}

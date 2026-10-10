@@ -186,6 +186,11 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
 	}
+	if admin.Disabled {
+		a.audit(r, admin.Username, "auth.login", "", map[string]string{"error": "account disabled"}, false)
+		writeErr(w, http.StatusForbidden, "this account is disabled")
+		return
+	}
 	if admin.TOTPEnabled {
 		if strings.TrimSpace(req.OTP) == "" {
 			// The password was right; ask for the second factor without
@@ -214,8 +219,9 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Name: sessionCookie, Value: raw, Path: "/", HttpOnly: true,
 		Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode, MaxAge: int(sessionTTL.Seconds()),
 	})
+	a.Store.TouchLogin(r.Context(), admin.ID)
 	a.audit(r, admin.Username, "auth.login", "", nil, true)
-	writeJSON(w, http.StatusOK, map[string]string{"username": admin.Username})
+	writeJSON(w, http.StatusOK, map[string]string{"username": admin.Username, "role": admin.Role})
 }
 
 func truncate(s string, n int) string {
@@ -237,5 +243,6 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"username": adminFrom(r.Context()).Username})
+	ad := adminFrom(r.Context())
+	writeJSON(w, http.StatusOK, map[string]string{"username": ad.Username, "role": ad.Role})
 }

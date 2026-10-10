@@ -95,13 +95,15 @@ type Admin struct {
 	TOTPEnabled  bool
 	TOTPSecret   string // sealed
 	TOTPPending  string // sealed, set during setup
+	Role         string
+	Disabled     bool
 }
 
-const adminCols = `a.id, a.username, a.password_hash, a.totp_enabled, COALESCE(a.totp_secret, ''), COALESCE(a.totp_pending, '')`
+const adminCols = `a.id, a.username, a.password_hash, a.totp_enabled, COALESCE(a.totp_secret, ''), COALESCE(a.totp_pending, ''), a.role, a.disabled`
 
 func scanAdmin(row pgx.Row) (*Admin, error) {
 	a := &Admin{}
-	err := row.Scan(&a.ID, &a.Username, &a.PasswordHash, &a.TOTPEnabled, &a.TOTPSecret, &a.TOTPPending)
+	err := row.Scan(&a.ID, &a.Username, &a.PasswordHash, &a.TOTPEnabled, &a.TOTPSecret, &a.TOTPPending, &a.Role, &a.Disabled)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -131,7 +133,7 @@ func (s *Store) CreateSession(ctx context.Context, tokenHash []byte, adminID int
 func (s *Store) SessionAdmin(ctx context.Context, tokenHash []byte) (*Admin, error) {
 	return scanAdmin(s.db.QueryRow(ctx, `
 		SELECT `+adminCols+` FROM sessions s JOIN admins a ON a.id = s.admin_id
-		WHERE s.token_hash = $1 AND s.expires_at > now()`, tokenHash))
+		WHERE s.token_hash = $1 AND s.expires_at > now() AND NOT a.disabled`, tokenHash))
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash []byte) error {

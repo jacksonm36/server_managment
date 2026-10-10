@@ -65,7 +65,7 @@ func (a *API) targets(ctx context.Context, sc *store.Schedule) ([]string, error)
 
 // runSchedule executes a schedule once and records a one-line summary.
 func (a *API) runSchedule(ctx context.Context, sc *store.Schedule) string {
-	who := Who{Actor: "schedule: " + sc.Name, IP: "panel"}
+	who := Who{Actor: "schedule: " + sc.Name, IP: "panel", Role: systemRole}
 	ids, err := a.targets(ctx, sc)
 	var result string
 	switch {
