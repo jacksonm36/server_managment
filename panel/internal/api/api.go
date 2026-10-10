@@ -64,6 +64,10 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/enroll", a.handleEnroll)
 	mux.HandleFunc("GET /install.sh", a.handleInstallScript)
 	mux.HandleFunc("GET /ca.crt", a.handleCACert)
+	// OpenTofu http state backend: basic auth with a per-run token.
+	for _, m := range []string{"GET", "POST", "DELETE", "LOCK", "UNLOCK"} {
+		mux.HandleFunc(m+" /tofu/state/{id}", a.handleTofuState)
+	}
 	mux.HandleFunc("GET /download/{file}", a.handleDownload)
 
 	// Authenticated API.
@@ -114,6 +118,17 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/progress", a.handleProgress)
 	authed.HandleFunc("GET /api/v1/agent-build", a.handleAgentBuild)
 	authed.HandleFunc("GET /api/v1/apps", a.handleListApps)
+	authed.HandleFunc("GET /api/v1/tofu", need("operator", a.handleTofuOverview))
+	authed.HandleFunc("POST /api/v1/tofu/setup", need("admin", a.handleTofuSetup))
+	authed.HandleFunc("POST /api/v1/tofu/workspaces", need("admin", a.handleSaveTofuWorkspace))
+	authed.HandleFunc("PUT /api/v1/tofu/workspaces/{id}", need("admin", a.handleSaveTofuWorkspace))
+	authed.HandleFunc("DELETE /api/v1/tofu/workspaces/{id}", need("admin", a.handleDeleteTofuWorkspace))
+	authed.HandleFunc("POST /api/v1/tofu/workspaces/{id}/unlock", need("admin", a.handleTofuUnlock))
+	authed.HandleFunc("POST /api/v1/tofu/workspaces/{id}/plan", need("operator", a.handleTofuPlan))
+	authed.HandleFunc("POST /api/v1/tofu/runs/{run}/apply", need("operator", a.handleTofuApply))
+	authed.HandleFunc("GET /api/v1/tofu/runs", need("operator", a.handleListTofuRuns))
+	authed.HandleFunc("GET /api/v1/tofu/runs/{id}", need("operator", a.handleGetTofuRun))
+	authed.HandleFunc("POST /api/v1/tofu/runs/{id}/cancel", need("operator", a.handleCancelTofuRun))
 	authed.HandleFunc("GET /api/v1/ansible", need("operator", a.handleAnsibleOverview))
 	authed.HandleFunc("POST /api/v1/ansible/setup", need("admin", a.handleAnsibleSetup))
 	authed.HandleFunc("POST /api/v1/servers/{id}/ansible/prepare", need("admin", a.handleAnsiblePrepare))

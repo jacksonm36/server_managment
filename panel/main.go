@@ -135,6 +135,9 @@ func run(log *slog.Logger) error {
 		}
 	}
 	_, grpcPort, _ := net.SplitHostPort(grpcAddr)
+	if err := st.FailStaleTofuRuns(ctx); err != nil {
+		log.Warn("tofu: mark interrupted runs", "err", err)
+	}
 	if err := st.FailStaleAnsibleRuns(ctx); err != nil {
 		log.Warn("ansible: mark interrupted runs", "err", err)
 	}
