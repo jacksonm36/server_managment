@@ -140,7 +140,7 @@ func shownArgs(args []string, vars map[string]string) string {
 	for i, a := range args {
 		out[i] = a
 		for k, v := range vars {
-			if v != "" && strings.Contains(k, "password") && strings.Contains(a, v) {
+			if v != "" && (strings.Contains(k, "password") || strings.Contains(k, "secret")) && strings.Contains(a, v) {
 				out[i] = strings.ReplaceAll(a, v, "••••")
 			}
 		}
@@ -313,10 +313,20 @@ func extract(archive, url, dst string, strip int) error {
 	}
 }
 
-// fixOwnership gives the site user (and the web group) the site tree.
+// fixOwnership gives the site user (and the web group) the site tree,
+// including app folders outside the docroot (data/, config/, private/).
 func fixOwnership(ctx context.Context, s *Site) error {
-	if err := exec.CommandContext(ctx, "chown", "-R", s.User+":"+webGroup(), s.Root).Run(); err != nil {
+	ents, err := os.ReadDir(s.home())
+	if err != nil {
 		return err
+	}
+	for _, e := range ents {
+		if e.Name() == "logs" || e.Name() == "tmp" {
+			continue
+		}
+		if err := exec.CommandContext(ctx, "chown", "-R", s.User+":"+webGroup(), filepath.Join(s.home(), e.Name())).Run(); err != nil {
+			return err
+		}
 	}
 	// Group can read, nobody else; directories keep setgid so new files stay readable by nginx.
 	_ = exec.CommandContext(ctx, "chmod", "-R", "u+rwX,g+rX,g-w,o-rwx", s.Root).Run()
@@ -533,7 +543,7 @@ func appUpdate(ctx context.Context, p map[string]string, logf func(string, ...an
 func maskSecrets(logf func(string, ...any), vars map[string]string) func(string, ...any) {
 	var secrets []string
 	for k, v := range vars {
-		if strings.Contains(k, "password") && len(v) >= 6 {
+		if (strings.Contains(k, "password") || strings.Contains(k, "secret")) && len(v) >= 6 {
 			secrets = append(secrets, v)
 		}
 	}

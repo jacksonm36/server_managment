@@ -1,0 +1,40 @@
+id: nextcloud
+name: Nextcloud
+category: Collaboration
+description: Self-hosted files, calendar and contacts. Data lives outside the web root.
+version: "35.0.1"
+php_min: "8.2"
+database: true
+admin: true
+admin_path: /
+homepage: https://nextcloud.com
+notes: Nextcloud wants at least 1 GB of RAM and a few GB of disk for data. For background jobs, add a cron job (Cron tab) running `php -f /srv/sites/<domain>/public/cron.php` every 5 minutes as the site user.
+
+install:
+  - fetch:
+      url: https://download.nextcloud.com/server/releases/nextcloud-35.0.1.tar.bz2
+      sha256: 7ed305e880192d804ba83179a19dd22257679608d63161a611ce3f8a918d2aa6
+      strip: 1
+      into: public
+  - php:
+      - occ
+      - maintenance:install
+      - --database=mysql
+      - "--database-name=${db_name}"
+      - "--database-user=${db_user}"
+      - "--database-pass=${db_password}"
+      - --database-host=localhost
+      - "--admin-user=${admin_user}"
+      - "--admin-pass=${admin_password}"
+      - "--admin-email=${admin_email}"
+      - "--data-dir=${home}/data"
+      - --no-interaction
+  - php: [occ, config:system:set, trusted_domains, "1", "--value=${domain}"]
+  - php: [occ, config:system:set, overwrite.cli.url, "--value=${site_url}"]
+
+update:
+  - php: [updater/updater.phar, --no-interaction]
+  - php: [occ, upgrade, --no-interaction]
+
+version_check:
+  - php: [-r, "include 'version.php'; echo $OC_VersionString;"]

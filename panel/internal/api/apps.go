@@ -92,7 +92,9 @@ func (a *API) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 	creds := map[string]string{"url": scheme + "://" + req.Domain + "/"}
-	vars := map[string]string{"site_url": scheme + "://" + req.Domain, "title": req.Title}
+	vars := map[string]string{"site_url": scheme + "://" + req.Domain, "title": req.Title,
+		// Salts/keys for app config files (masked in job output like passwords).
+		"secret_32": genPassword(32), "secret_64": genPassword(64)}
 	steps := []store.Step{{Op: "site.create", Params: map[string]string{"domain": req.Domain, "aliases": req.Aliases, "type": "php", "php_version": req.PHPVersion}}}
 	if app.Database {
 		db, user := dbNames(req.Domain)

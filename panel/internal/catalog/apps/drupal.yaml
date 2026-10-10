@@ -1,0 +1,46 @@
+id: drupal
+name: Drupal
+category: CMS
+description: Powerful CMS for structured content. Files and database are prepared; you pick the profile and admin account in Drupal's installer.
+version: "11.4.9"
+php_min: "8.3"
+database: true
+admin: false
+admin_path: /user/login
+homepage: https://www.drupal.org
+notes: Open the site to finish Drupal's installer. The database is already configured, so you only choose a profile and create the admin account.
+
+install:
+  - fetch:
+      url: https://ftp.drupal.org/files/projects/drupal-11.4.9.tar.gz
+      sha256: 198c0965f95e90b33da3d988ef28061a6ff95ec8c09c0c306424be71622ad104
+      strip: 1
+      into: public
+  - write:
+      path: public/sites/default/settings.php
+      mode: "0640"
+      content: |
+        <?php
+        // Written by servermgr; Drupal's installer completes it.
+        $databases['default']['default'] = [
+          'database' => '${db_name}',
+          'username' => '${db_user}',
+          'password' => '${db_password}',
+          'host' => 'localhost',
+          'port' => '3306',
+          'driver' => 'mysql',
+          'prefix' => '',
+          'collation' => 'utf8mb4_general_ci',
+        ];
+        $settings['hash_salt'] = '${secret_64}';
+        $settings['config_sync_directory'] = '${home}/config/sync';
+        $settings['file_private_path'] = '${home}/private';
+        $settings['update_free_access'] = FALSE;
+  - write:
+      path: config/sync/.htaccess
+      mode: "0640"
+      content: "Require all denied\n"
+  - write:
+      path: private/.htaccess
+      mode: "0640"
+      content: "Require all denied\n"

@@ -1,0 +1,39 @@
+id: phpmyadmin
+name: phpMyAdmin
+category: Database tools
+description: Web interface for the MariaDB server on this machine. Sign in with any database user.
+version: "5.2.3"
+php_min: "7.2"
+database: false
+admin: false
+homepage: https://www.phpmyadmin.net
+notes: Sign in with a database user (create one on the Databases tab); root cannot log in. phpMyAdmin reaches every database on the server, so protect this site (HTTPS, firewall source rule).
+
+install:
+  - fetch:
+      url: https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.tar.gz
+      sha256: 12ba1c425fa4071abbd4e7668c9ebdeac0b0755a467a6d6d5026122bb47c102b
+      strip: 1
+      into: public
+  - write:
+      path: public/config.inc.php
+      mode: "0640"
+      content: |
+        <?php
+        // Written by servermgr.
+        $cfg['blowfish_secret'] = '${secret_32}';
+        $i = 1;
+        $cfg['Servers'][$i]['auth_type'] = 'cookie';
+        $cfg['Servers'][$i]['host'] = 'localhost';
+        $cfg['Servers'][$i]['AllowNoPassword'] = false;
+        $cfg['Servers'][$i]['AllowRoot'] = false;
+        $cfg['TempDir'] = '${home}/tmp';
+  - remove: public/setup
+
+update:
+  - fetch:
+      url: https://files.phpmyadmin.net/phpMyAdmin/5.2.3/phpMyAdmin-5.2.3-all-languages.tar.gz
+      sha256: 12ba1c425fa4071abbd4e7668c9ebdeac0b0755a467a6d6d5026122bb47c102b
+      strip: 1
+      into: public
+  - remove: public/setup
