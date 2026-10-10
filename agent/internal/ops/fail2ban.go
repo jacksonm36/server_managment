@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const f2bConfPath = "/etc/fail2ban/jail.d/servermgr.local"
@@ -167,7 +168,7 @@ backend = systemd
 }
 
 func fail2banInstall(ctx context.Context, logf func(string, ...any)) (any, error) {
-	if err := aptInstall(ctx, logf, "fail2ban", "python3-systemd"); err != nil {
+	if err := aptInstall(ctx, logf, "fail2ban", "python3-systemd", "nftables"); err != nil {
 		return nil, err
 	}
 	if _, err := os.Stat(f2bConfPath); errors.Is(err, os.ErrNotExist) {
@@ -183,7 +184,29 @@ func fail2banInstall(ctx context.Context, logf func(string, ...any)) (any, error
 	if out, err := exec.CommandContext(ctx, "systemctl", "restart", "fail2ban").CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("restart fail2ban: %s", strings.TrimSpace(string(out)))
 	}
+	if err := waitF2B(ctx); err != nil {
+		return nil, err
+	}
 	return fail2banStatus(ctx)
+}
+
+// waitF2B waits for the fail2ban socket after a (re)start; systemd reports
+// the unit active a moment before the server accepts commands.
+func waitF2B(ctx context.Context) error {
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if exec.CommandContext(ctx, "fail2ban-client", "ping").Run() == nil {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.New("fail2ban did not come up within 20 seconds (see journalctl -u fail2ban)")
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(500 * time.Millisecond):
+		}
+	}
 }
 
 func fail2banConfigure(ctx context.Context, p map[string]string, logf func(string, ...any)) (any, error) {
@@ -196,6 +219,9 @@ func fail2banConfigure(ctx context.Context, p map[string]string, logf func(strin
 	}
 	logf("wrote %s, reloading fail2ban", f2bConfPath)
 	if _, err := f2bClient(ctx, "reload"); err != nil {
+		return nil, err
+	}
+	if err := waitF2B(ctx); err != nil {
 		return nil, err
 	}
 	return fail2banStatus(ctx)

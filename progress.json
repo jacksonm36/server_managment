@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T02:55:05Z",
+  "updated_at": "2026-10-10T03:00:33Z",
   "phases": [
     {
       "name": "MVP",
@@ -51,11 +51,11 @@
         },
         {
           "name": "UFW firewall management",
-          "status": "in-progress"
+          "status": "done"
         },
         {
           "name": "Fail2ban management",
-          "status": "in-progress"
+          "status": "done"
         },
         {
           "name": "Jobs history + audit log",
@@ -89,7 +89,7 @@
         },
         {
           "name": "MariaDB / PostgreSQL databases & users",
-          "status": "in-progress"
+          "status": "done"
         },
         {
           "name": "File manager",
