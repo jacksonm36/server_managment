@@ -1,0 +1,49 @@
+id: ghost
+name: Ghost
+category: Blog
+kind: compose
+description: Modern publishing platform for blogs and newsletters (Node.js). Runs in Docker with its own MySQL 8.
+version: "6.69.0"
+needs_docker: true
+min_ram_mb: 1024
+protect: false
+admin_path: /ghost/
+homepage: https://ghost.org
+notes: Open /ghost/ to create the owner account right away (until then anyone who can reach the site could claim it; tick password protection if the site is public before you finish setup). Mail delivery needs SMTP settings in Ghost's config.
+
+compose: |
+  services:
+    ghost:
+      image: ghost:6.69.0-alpine
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:2368"
+      environment:
+        url: ${site_url}
+        database__client: mysql
+        database__connection__host: db
+        database__connection__user: ghost
+        database__connection__password: ${secret_32}
+        database__connection__database: ghost
+      volumes:
+        - content:/var/lib/ghost/content
+      depends_on:
+        db:
+          condition: service_healthy
+    db:
+      image: mysql:8.4
+      restart: unless-stopped
+      environment:
+        MYSQL_ROOT_PASSWORD: ${secret_64}
+        MYSQL_DATABASE: ghost
+        MYSQL_USER: ghost
+        MYSQL_PASSWORD: ${secret_32}
+      volumes:
+        - db:/var/lib/mysql
+      healthcheck:
+        test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--silent"]
+        interval: 5s
+        retries: 30
+  volumes:
+    content: {}
+    db: {}

@@ -162,7 +162,7 @@ func accessStep(domain string, protect bool, allowIPs string, creds map[string]s
 	return []store.Step{{Op: "site.access", Params: p}}
 }
 
-var composeVarRe = regexp.MustCompile(`\$\{(port|secret_32|secret_64)\}`)
+var composeVarRe = regexp.MustCompile(`\$\{(port|site_url|secret_32|secret_64)\}`)
 
 // installComposeApp runs a Docker compose app on a loopback port and puts
 // an nginx proxy site (with optional protection and TLS) in front of it.
@@ -170,7 +170,7 @@ func (a *API) installComposeApp(w http.ResponseWriter, r *http.Request, app *cat
 	h := fnv.New32a()
 	h.Write([]byte(domain))
 	port := strconv.Itoa(20000 + int(h.Sum32()%10000))
-	vals := map[string]string{"port": port, "secret_32": genPassword(32), "secret_64": genPassword(64)}
+	vals := map[string]string{"port": port, "site_url": scheme + "://" + domain, "secret_32": genPassword(32), "secret_64": genPassword(64)}
 	yaml := composeVarRe.ReplaceAllStringFunc(app.Compose, func(m string) string { return vals[m[2:len(m)-1]] })
 	name := "app-" + strings.Trim(nonIdent.ReplaceAllString(strings.ToLower(domain), "-"), "-")
 	if len(name) > 60 {

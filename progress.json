@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T15:24:22Z",
+  "updated_at": "2026-10-10T15:56:48Z",
   "phases": [
     {
       "name": "MVP",
@@ -183,7 +183,7 @@
       "features": [
         {
           "name": "One-click app catalog (WordPress, Joomla, Drupal, Nextcloud, Ghost, phpMyAdmin)",
-          "status": "in-progress"
+          "status": "done"
         },
         {
           "name": "Ansible (venv, inventory, managed SSH key, playbooks, live output)",
