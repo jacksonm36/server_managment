@@ -2,6 +2,8 @@ module github.com/jacksonm36/servermgr
 
 go 1.26.0
 
+toolchain go1.26.9
+
 require (
 	github.com/coder/websocket v1.8.14
 	github.com/creack/pty v1.1.24
