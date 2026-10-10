@@ -1,0 +1,166 @@
+package store
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+)
+
+type ProxmoxCluster struct {
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	URL          string    `json:"url"`
+	TokenID      string    `json:"token_id"`
+	SealedSecret string    `json:"-"`
+	Fingerprint  string    `json:"fingerprint"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+const pveCols = `id::text, name, url, token_id, token_secret, fingerprint, created_at, updated_at`
+
+func scanPVE(row pgx.Row) (*ProxmoxCluster, error) {
+	c := &ProxmoxCluster{}
+	err := row.Scan(&c.ID, &c.Name, &c.URL, &c.TokenID, &c.SealedSecret, &c.Fingerprint, &c.CreatedAt, &c.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return c, err
+}
+
+func (s *Store) ListProxmoxClusters(ctx context.Context) ([]*ProxmoxCluster, error) {
+	rows, err := s.db.Query(ctx, `SELECT `+pveCols+` FROM proxmox_clusters ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*ProxmoxCluster{}
+	for rows.Next() {
+		c, err := scanPVE(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetProxmoxCluster(ctx context.Context, id string) (*ProxmoxCluster, error) {
+	return scanPVE(s.db.QueryRow(ctx, `SELECT `+pveCols+` FROM proxmox_clusters WHERE id::text = $1`, id))
+}
+
+func (s *Store) SaveProxmoxCluster(ctx context.Context, c *ProxmoxCluster) error {
+	if c.ID == "" {
+		c.ID = NewUUID()
+		_, err := s.db.Exec(ctx, `INSERT INTO proxmox_clusters (id, name, url, token_id, token_secret, fingerprint) VALUES ($1, $2, $3, $4, $5, $6)`,
+			c.ID, c.Name, c.URL, c.TokenID, c.SealedSecret, c.Fingerprint)
+		return err
+	}
+	tag, err := s.db.Exec(ctx, `UPDATE proxmox_clusters SET name = $2, url = $3, token_id = $4, token_secret = $5, fingerprint = $6, updated_at = now()
+		WHERE id::text = $1`, c.ID, c.Name, c.URL, c.TokenID, c.SealedSecret, c.Fingerprint)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+func (s *Store) DeleteProxmoxCluster(ctx context.Context, id string) error {
+	tag, err := s.db.Exec(ctx, `DELETE FROM proxmox_clusters WHERE id::text = $1`, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
+}
+
+// ProxmoxLinks maps vmid -> servermgr server id for a cluster.
+func (s *Store) ProxmoxLinks(ctx context.Context, clusterID string) (map[int]string, error) {
+	rows, err := s.db.Query(ctx, `SELECT vmid, server_id::text FROM proxmox_links WHERE cluster_id::text = $1`, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int]string{}
+	for rows.Next() {
+		var vmid int
+		var sid string
+		if err := rows.Scan(&vmid, &sid); err != nil {
+			return nil, err
+		}
+		out[vmid] = sid
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) LinkProxmoxGuest(ctx context.Context, clusterID string, vmid int, serverID string) error {
+	_, err := s.db.Exec(ctx, `INSERT INTO proxmox_links (cluster_id, vmid, server_id) VALUES ($1, $2, $3)
+		ON CONFLICT (cluster_id, vmid) DO UPDATE SET server_id = $3`, clusterID, vmid, serverID)
+	return err
+}
+
+func (s *Store) UnlinkProxmoxGuest(ctx context.Context, clusterID string, vmid int) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM proxmox_links WHERE cluster_id::text = $1 AND vmid = $2`, clusterID, vmid)
+	return err
+}
+
+// JoinTokenServer returns the server a join token enrolled ("" if unused).
+func (s *Store) JoinTokenServer(ctx context.Context, tokenHash []byte) (string, error) {
+	var id *string
+	err := s.db.QueryRow(ctx, `SELECT server_id::text FROM join_tokens WHERE token_hash = $1`, tokenHash).Scan(&id)
+	if err != nil || id == nil {
+		return "", err
+	}
+	return *id, nil
+}
+
+type ProxmoxProvision struct {
+	ID         string     `json:"id"`
+	ClusterID  string     `json:"cluster_id"`
+	Name       string     `json:"name"`
+	VMID       *int       `json:"vmid"`
+	Status     string     `json:"status"` // running | succeeded | failed
+	Log        string     `json:"log"`
+	ServerID   *string    `json:"server_id"`
+	CreatedBy  string     `json:"created_by"`
+	CreatedAt  time.Time  `json:"created_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+}
+
+func (s *Store) CreateProvision(ctx context.Context, p *ProxmoxProvision) error {
+	return s.db.QueryRow(ctx, `INSERT INTO proxmox_provisions (id, cluster_id, name, created_by) VALUES ($1, $2, $3, $4) RETURNING created_at`,
+		p.ID, p.ClusterID, p.Name, p.CreatedBy).Scan(&p.CreatedAt)
+}
+
+func (s *Store) UpdateProvision(ctx context.Context, p *ProxmoxProvision, finished bool) error {
+	q := `UPDATE proxmox_provisions SET vmid = $2, status = $3, log = $4, server_id = $5`
+	if finished {
+		q += `, finished_at = now()`
+	}
+	_, err := s.db.Exec(ctx, q+` WHERE id::text = $1`, p.ID, p.VMID, p.Status, p.Log, p.ServerID)
+	return err
+}
+
+func (s *Store) ListProvisions(ctx context.Context, limit int) ([]*ProxmoxProvision, error) {
+	rows, err := s.db.Query(ctx, `SELECT id::text, cluster_id::text, name, vmid, status, log, server_id::text, created_by, created_at, finished_at
+		FROM proxmox_provisions ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*ProxmoxProvision{}
+	for rows.Next() {
+		p := &ProxmoxProvision{}
+		if err := rows.Scan(&p.ID, &p.ClusterID, &p.Name, &p.VMID, &p.Status, &p.Log, &p.ServerID, &p.CreatedBy, &p.CreatedAt, &p.FinishedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) FailStaleProvisions(ctx context.Context) error {
+	_, err := s.db.Exec(ctx, `UPDATE proxmox_provisions SET status = 'failed', log = log || E'interrupted: the panel restarted\n', finished_at = now()
+		WHERE status = 'running'`)
+	return err
+}

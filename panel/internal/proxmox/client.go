@@ -1,0 +1,244 @@
+// Package proxmox is a small Proxmox VE API client: API-token auth and a
+// pinned TLS certificate (SHA-256 of the leaf), so self-signed PVE
+// certificates are trusted exactly, never blindly.
+package proxmox
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+)
+
+type Client struct {
+	BaseURL string // https://host:8006
+	TokenID string // user@realm!name
+	Secret  string
+	http    *http.Client
+}
+
+// Fingerprint formats a certificate hash like Proxmox does (AA:BB:…).
+func Fingerprint(der []byte) string {
+	sum := sha256.Sum256(der)
+	h := strings.ToUpper(hex.EncodeToString(sum[:]))
+	var b strings.Builder
+	for i := 0; i < len(h); i += 2 {
+		if i > 0 {
+			b.WriteByte(':')
+		}
+		b.WriteString(h[i : i+2])
+	}
+	return b.String()
+}
+
+// Probe connects without verifying and returns the server certificate's
+// fingerprint and subject, for the admin to confirm before pinning.
+func Probe(ctx context.Context, baseURL string) (fp, subject string, err error) {
+	u, err := url.Parse(baseURL)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return "", "", errors.New("URL must look like https://pve.example:8006")
+	}
+	host := u.Host
+	if u.Port() == "" {
+		host = net.JoinHostPort(u.Hostname(), "8006")
+	}
+	d := &tls.Dialer{Config: &tls.Config{InsecureSkipVerify: true}} // only to read the certificate
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	c, err := d.DialContext(ctx, "tcp", host)
+	if err != nil {
+		return "", "", err
+	}
+	defer c.Close()
+	certs := c.(*tls.Conn).ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		return "", "", errors.New("no certificate presented")
+	}
+	return Fingerprint(certs[0].Raw), certs[0].Subject.String(), nil
+}
+
+// New returns a client that only accepts a server certificate whose
+// fingerprint equals pinned.
+func New(baseURL, tokenID, secret, pinned string) *Client {
+	pinned = strings.ToUpper(strings.TrimSpace(pinned))
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true, // replaced by the pin check below
+			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
+				if len(raw) == 0 || Fingerprint(raw[0]) != pinned {
+					return errors.New("Proxmox certificate does not match the pinned fingerprint")
+				}
+				return nil
+			},
+		},
+		TLSHandshakeTimeout: 10 * time.Second,
+		IdleConnTimeout:     60 * time.Second,
+		MaxIdleConnsPerHost: 4,
+	}
+	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), TokenID: tokenID, Secret: secret, http: &http.Client{Transport: tr, Timeout: 60 * time.Second}}
+}
+
+// APIError is an error response from Proxmox.
+type APIError struct {
+	Status int
+	Msg    string
+}
+
+func (e *APIError) Error() string { return fmt.Sprintf("proxmox: %s (HTTP %d)", e.Msg, e.Status) }
+
+// Do calls /api2/json<path>. form is sent url-encoded for POST/PUT and as
+// the query for GET/DELETE; out receives the "data" field.
+func (c *Client) Do(ctx context.Context, method, path string, form url.Values, out any) error {
+	u := c.BaseURL + "/api2/json" + path
+	var body io.Reader
+	if len(form) > 0 {
+		if method == http.MethodGet || method == http.MethodDelete {
+			u += "?" + form.Encode()
+		} else {
+			body = strings.NewReader(form.Encode())
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, body)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "PVEAPIToken="+c.TokenID+"="+c.Secret)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+	if err != nil {
+		return err
+	}
+	var env struct {
+		Data    json.RawMessage   `json:"data"`
+		Message string            `json:"message"`
+		Errors  map[string]string `json:"errors"`
+	}
+	_ = json.Unmarshal(raw, &env)
+	if resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(env.Message)
+		for k, v := range env.Errors {
+			msg = strings.TrimSpace(msg + " " + k + ": " + v)
+		}
+		if msg == "" {
+			msg = resp.Status
+		}
+		return &APIError{resp.StatusCode, msg}
+	}
+	if out != nil && len(env.Data) > 0 {
+		return json.Unmarshal(env.Data, out)
+	}
+	return nil
+}
+
+// ---- typed helpers ----
+
+type Resource struct {
+	ID       string  `json:"id"`
+	Type     string  `json:"type"` // node | qemu | lxc | storage
+	Node     string  `json:"node"`
+	VMID     int     `json:"vmid,omitempty"`
+	Name     string  `json:"name,omitempty"`
+	Status   string  `json:"status"`
+	CPU      float64 `json:"cpu"`
+	MaxCPU   float64 `json:"maxcpu"`
+	Mem      int64   `json:"mem"`
+	MaxMem   int64   `json:"maxmem"`
+	Disk     int64   `json:"disk"`
+	MaxDisk  int64   `json:"maxdisk"`
+	Uptime   int64   `json:"uptime"`
+	Template int     `json:"template,omitempty"`
+	Tags     string  `json:"tags,omitempty"`
+}
+
+func (c *Client) Resources(ctx context.Context) ([]Resource, error) {
+	var out []Resource
+	return out, c.Do(ctx, http.MethodGet, "/cluster/resources", nil, &out)
+}
+
+func (c *Client) Version(ctx context.Context) (string, error) {
+	var v struct {
+		Version string `json:"version"`
+	}
+	return v.Version, c.Do(ctx, http.MethodGet, "/version", nil, &v)
+}
+
+type TaskStatus struct {
+	Status     string `json:"status"` // running | stopped
+	ExitStatus string `json:"exitstatus"`
+}
+
+func (c *Client) Task(ctx context.Context, node, upid string) (*TaskStatus, error) {
+	var t TaskStatus
+	return &t, c.Do(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+"/tasks/"+url.PathEscape(upid)+"/status", nil, &t)
+}
+
+// WaitTask polls a task until it stops; a non-OK exit status is an error.
+func (c *Client) WaitTask(ctx context.Context, node, upid string) error {
+	delay := 500 * time.Millisecond
+	for {
+		t, err := c.Task(ctx, node, upid)
+		if err != nil {
+			return err
+		}
+		if t.Status == "stopped" {
+			if t.ExitStatus != "OK" && !strings.HasPrefix(t.ExitStatus, "WARNINGS") {
+				return fmt.Errorf("task failed: %s", t.ExitStatus)
+			}
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+		if delay < 3*time.Second {
+			delay += 500 * time.Millisecond
+		}
+	}
+}
+
+// GuestPath is /nodes/<node>/<qemu|lxc>/<vmid>.
+func GuestPath(node, typ string, vmid int) string {
+	return fmt.Sprintf("/nodes/%s/%s/%d", url.PathEscape(node), typ, vmid)
+}
+
+// GuestIPv4 asks the QEMU guest agent for the first non-loopback IPv4.
+func (c *Client) GuestIPv4(ctx context.Context, node string, vmid int) (string, error) {
+	var res struct {
+		Result []struct {
+			Name string `json:"name"`
+			IPs  []struct {
+				Type string `json:"ip-address-type"`
+				Addr string `json:"ip-address"`
+			} `json:"ip-addresses"`
+		} `json:"result"`
+	}
+	if err := c.Do(ctx, http.MethodGet, GuestPath(node, "qemu", vmid)+"/agent/network-get-interfaces", nil, &res); err != nil {
+		return "", err
+	}
+	for _, i := range res.Result {
+		for _, a := range i.IPs {
+			if ip := net.ParseIP(a.Addr); a.Type == "ipv4" && ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
+				return a.Addr, nil
+			}
+		}
+	}
+	return "", errors.New("the guest agent reports no IPv4 address yet")
+}

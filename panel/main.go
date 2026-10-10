@@ -135,6 +135,9 @@ func run(log *slog.Logger) error {
 		}
 	}
 	_, grpcPort, _ := net.SplitHostPort(grpcAddr)
+	if err := st.FailStaleProvisions(ctx); err != nil {
+		log.Warn("proxmox: mark interrupted provisions", "err", err)
+	}
 	if err := st.FailStaleTofuRuns(ctx); err != nil {
 		log.Warn("tofu: mark interrupted runs", "err", err)
 	}
