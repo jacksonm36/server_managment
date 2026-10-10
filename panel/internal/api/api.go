@@ -110,6 +110,8 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/join-tokens", need("admin", a.handleCreateJoinToken))
 	authed.HandleFunc("GET /api/v1/events", a.handleEvents)
 	authed.HandleFunc("GET /api/v1/progress", a.handleProgress)
+	authed.HandleFunc("GET /api/v1/agent-build", a.handleAgentBuild)
+	authed.HandleFunc("POST /api/v1/servers/{id}/agent-update", need("operator", a.handleAgentUpdate))
 	authed.HandleFunc("GET /api/v1/users", need("admin", a.handleListUsers))
 	authed.HandleFunc("POST /api/v1/users", need("admin", a.handleCreateUser))
 	authed.HandleFunc("PUT /api/v1/users/{id}", need("admin", a.handleUpdateUser))
@@ -312,6 +314,7 @@ var opsByName = map[string]opSpec{
 	"compose.read":           {op: agentv1.Op_OP_COMPOSE_READ, params: []string{"name"}},
 	"compose.save":           {op: agentv1.Op_OP_COMPOSE_SAVE, params: []string{"name", "yaml", "deploy"}, maxParam: 256 << 10},
 	"compose.action":         {op: agentv1.Op_OP_COMPOSE_ACTION, params: []string{"name", "action"}},
+	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current"}},
 	"backup.list":            {op: agentv1.Op_OP_BACKUP_LIST},
 	"backup.create":          {op: agentv1.Op_OP_BACKUP_CREATE, params: []string{"domain", "databases"}},
 	"backup.delete":          {op: agentv1.Op_OP_BACKUP_DELETE, params: []string{"domain", "file"}},

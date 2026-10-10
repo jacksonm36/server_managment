@@ -136,6 +136,7 @@ const (
 	Op_OP_COMPOSE_READ           Op = 57 // params: name
 	Op_OP_COMPOSE_SAVE           Op = 58 // params: name, yaml, deploy
 	Op_OP_COMPOSE_ACTION         Op = 59 // params: name, action (up|down|restart|pull|delete)
+	Op_OP_AGENT_UPDATE           Op = 60 // params: sha256, version, current
 )
 
 // Enum value maps for Op.
@@ -201,6 +202,7 @@ var (
 		57: "OP_COMPOSE_READ",
 		58: "OP_COMPOSE_SAVE",
 		59: "OP_COMPOSE_ACTION",
+		60: "OP_AGENT_UPDATE",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -263,6 +265,7 @@ var (
 		"OP_COMPOSE_READ":           57,
 		"OP_COMPOSE_SAVE":           58,
 		"OP_COMPOSE_ACTION":         59,
+		"OP_AGENT_UPDATE":           60,
 	}
 )
 
@@ -1323,7 +1326,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\x96\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xab\n" +
 	"\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
@@ -1386,7 +1389,8 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x0fOP_DOCKER_PRUNE\x108\x12\x13\n" +
 	"\x0fOP_COMPOSE_READ\x109\x12\x13\n" +
 	"\x0fOP_COMPOSE_SAVE\x10:\x12\x15\n" +
-	"\x11OP_COMPOSE_ACTION\x10;2M\n" +
+	"\x11OP_COMPOSE_ACTION\x10;\x12\x13\n" +
+	"\x0fOP_AGENT_UPDATE\x10<2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

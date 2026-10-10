@@ -191,6 +191,7 @@ func cmdRun(args []string, log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	ops.PanelURL = st.PanelURL
 	ops.StartRenewer(ctx, log)
 	ops.StartBackups(ctx, log)
 	c := &client{addr: st.GRPCAddr, tls: tlsCfg, log: log.With("server", st.ServerID), sys: sysinfo.New()}

@@ -170,6 +170,7 @@ enum Op {
   OP_COMPOSE_READ = 57;         // params: name
   OP_COMPOSE_SAVE = 58;         // params: name, yaml, deploy
   OP_COMPOSE_ACTION = 59;       // params: name, action (up|down|restart|pull|delete)
+  OP_AGENT_UPDATE = 60;         // params: sha256, version, current
 }
 
 message Job {

@@ -26,6 +26,7 @@ panel:
 agent:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o bin/servermgr-agent-linux-amd64 ./agent
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GO) build -trimpath -ldflags="$(LDFLAGS)" -o bin/servermgr-agent-linux-arm64 ./agent
+	echo "$(VERSION)" > bin/agent.version
 
 ## run: run the panel in the foreground with settings from .env
 run: panel
