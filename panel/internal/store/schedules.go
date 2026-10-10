@@ -13,7 +13,7 @@ type Schedule struct {
 	ID         string            `json:"id"`
 	Name       string            `json:"name"`
 	Cron       string            `json:"cron"`
-	Kind       string            `json:"kind"` // op | playbook
+	Kind       string            `json:"kind"` // op | playbook | ansible
 	Op         string            `json:"op"`
 	Params     map[string]string `json:"params"`
 	PlaybookID *string           `json:"playbook_id"`
@@ -27,7 +27,7 @@ type Schedule struct {
 	UpdatedAt  time.Time         `json:"updated_at"`
 }
 
-const scheduleCols = `id::text, name, cron, kind, op, params, playbook_id::text, server_ids, all_servers, enabled, created_by, last_run, last_result, created_at, updated_at`
+const scheduleCols = `id::text, name, cron, kind, op, params, COALESCE(playbook_id, ansible_playbook_id)::text, server_ids, all_servers, enabled, created_by, last_run, last_result, created_at, updated_at`
 
 func scanSchedule(row pgx.Row) (*Schedule, error) {
 	s := &Schedule{}
@@ -72,18 +72,22 @@ func (s *Store) GetSchedule(ctx context.Context, id string) (*Schedule, error) {
 func (s *Store) SaveSchedule(ctx context.Context, sc *Schedule) error {
 	params, _ := json.Marshal(sc.Params)
 	servers, _ := json.Marshal(sc.ServerIDs)
+	pbID, ansID := sc.PlaybookID, (*string)(nil)
+	if sc.Kind == "ansible" {
+		pbID, ansID = nil, sc.PlaybookID
+	}
 	if sc.ID == "" {
 		sc.ID = NewUUID()
 		return s.db.QueryRow(ctx, `
-			INSERT INTO schedules (id, name, cron, kind, op, params, playbook_id, server_ids, all_servers, enabled, created_by)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING created_at, updated_at`,
-			sc.ID, sc.Name, sc.Cron, sc.Kind, sc.Op, params, sc.PlaybookID, servers, sc.AllServers, sc.Enabled, sc.CreatedBy).
+			INSERT INTO schedules (id, name, cron, kind, op, params, playbook_id, server_ids, all_servers, enabled, created_by, ansible_playbook_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING created_at, updated_at`,
+			sc.ID, sc.Name, sc.Cron, sc.Kind, sc.Op, params, pbID, servers, sc.AllServers, sc.Enabled, sc.CreatedBy, ansID).
 			Scan(&sc.CreatedAt, &sc.UpdatedAt)
 	}
 	tag, err := s.db.Exec(ctx, `
 		UPDATE schedules SET name = $2, cron = $3, kind = $4, op = $5, params = $6, playbook_id = $7, server_ids = $8,
-		all_servers = $9, enabled = $10, updated_at = now() WHERE id::text = $1`,
-		sc.ID, sc.Name, sc.Cron, sc.Kind, sc.Op, params, sc.PlaybookID, servers, sc.AllServers, sc.Enabled)
+		all_servers = $9, enabled = $10, ansible_playbook_id = $11, updated_at = now() WHERE id::text = $1`,
+		sc.ID, sc.Name, sc.Cron, sc.Kind, sc.Op, params, pbID, servers, sc.AllServers, sc.Enabled, ansID)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T17:24:46Z",
+  "updated_at": "2026-10-10T20:10:03Z",
   "phases": [
     {
       "name": "MVP",
@@ -195,7 +195,7 @@
         },
         {
           "name": "Ansible (venv, inventory, managed SSH key, playbooks, live output)",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "OpenTofu workspaces (plan/apply, encrypted vars, state in panel)",

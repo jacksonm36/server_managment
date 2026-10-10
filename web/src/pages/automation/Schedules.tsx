@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { CalendarClock, Pause, Pencil, Play, Plus, Trash2, Zap } from "lucide-react";
-import { api, type Playbook, type Schedule } from "@/lib/api";
+import { api, type Playbook, type Schedule, type AnsiblePlaybook } from "@/lib/api";
 import { CATALOG, clean, defaults, missing, opDef } from "@/lib/catalog";
 import { useLive } from "@/lib/live";
 import { timeAgo } from "@/lib/utils";
@@ -25,6 +25,7 @@ const PRESETS = [
 export function Schedules() {
   const [list, setList] = useState<Schedule[]>([]);
   const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
+  const [ansiblePbs, setAnsiblePbs] = useState<AnsiblePlaybook[]>([]);
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [msg, setMsg] = useState("");
   const servers = useLive((s) => s.servers);
@@ -32,6 +33,7 @@ export function Schedules() {
   useEffect(() => {
     void reload();
     void api.playbooks().then(setPlaybooks);
+    void api.ansiblePlaybooks().then(setAnsiblePbs).catch(() => {});
   }, [reload]);
 
   const blank: Schedule = {
@@ -52,7 +54,11 @@ export function Schedules() {
   };
 
   const what = (s: Schedule) =>
-    s.kind === "playbook" ? `Playbook: ${playbooks.find((p) => p.id === s.playbook_id)?.name ?? "?"}` : stepLabel({ op: s.op, params: s.params });
+    s.kind === "playbook"
+      ? `Playbook: ${playbooks.find((p) => p.id === s.playbook_id)?.name ?? "?"}`
+      : s.kind === "ansible"
+        ? `Ansible: ${ansiblePbs.find((p) => p.id === s.playbook_id)?.name ?? "?"}${s.params.check === "true" ? " (check mode)" : ""}`
+        : stepLabel({ op: s.op, params: s.params });
   const where = (s: Schedule) =>
     s.all_servers ? "all servers" : s.server_ids.map((id) => servers.get(id)?.name ?? "removed server").join(", ");
 
@@ -133,6 +139,7 @@ export function Schedules() {
         <ScheduleDialog
           s={editing}
           playbooks={playbooks}
+          ansiblePbs={ansiblePbs}
           onClose={() => setEditing(null)}
           onSave={async (s) => {
             await save(s);
@@ -144,7 +151,19 @@ export function Schedules() {
   );
 }
 
-function ScheduleDialog({ s, playbooks, onClose, onSave }: { s: Schedule; playbooks: Playbook[]; onClose: () => void; onSave: (s: Schedule) => Promise<void> }) {
+function ScheduleDialog({
+  s,
+  playbooks,
+  ansiblePbs,
+  onClose,
+  onSave,
+}: {
+  s: Schedule;
+  playbooks: Playbook[];
+  ansiblePbs: AnsiblePlaybook[];
+  onClose: () => void;
+  onSave: (s: Schedule) => Promise<void>;
+}) {
   const [d, setD] = useState<Schedule>({ ...s, params: { ...defaults(opDef(s.op) ?? CATALOG[0]), ...s.params } });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -159,7 +178,9 @@ function ScheduleDialog({ s, playbooks, onClose, onSave }: { s: Schedule; playbo
     setBusy(true);
     setError("");
     try {
-      await onSave({ ...d, params: d.kind === "op" && opDef(d.op) ? clean(opDef(d.op)!, d.params) : {} });
+      const params =
+        d.kind === "op" && opDef(d.op) ? clean(opDef(d.op)!, d.params) : d.kind === "ansible" && d.params.check === "true" ? { check: "true" } : {};
+      await onSave({ ...d, params });
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -196,13 +217,43 @@ function ScheduleDialog({ s, playbooks, onClose, onSave }: { s: Schedule; playbo
           </div>
           <div className="grid gap-2">
             <Label htmlFor="sc-kind">Run</Label>
-            <Select id="sc-kind" value={d.kind} onChange={(e) => set({ kind: e.target.value as Schedule["kind"], playbook_id: d.playbook_id ?? playbooks[0]?.id ?? null })}>
+            <Select
+              id="sc-kind"
+              value={d.kind}
+              onChange={(e) => {
+                const kind = e.target.value as Schedule["kind"];
+                const list = kind === "ansible" ? ansiblePbs : playbooks;
+                set({ kind, playbook_id: list.some((p) => p.id === d.playbook_id) ? d.playbook_id : (list[0]?.id ?? null) });
+              }}
+            >
               <option value="op">A single action</option>
               <option value="playbook">A playbook</option>
+              {ansiblePbs.length > 0 && <option value="ansible">An Ansible playbook</option>}
             </Select>
           </div>
           {d.kind === "op" ? (
             <OpForm op={d.op} params={d.params} idPrefix="sc" onChange={(op, params) => set({ op, params })} />
+          ) : d.kind === "ansible" ? (
+            <div className="grid gap-2">
+              <Label htmlFor="sc-apb">Ansible playbook</Label>
+              <Select id="sc-apb" value={d.playbook_id ?? ""} onChange={(e) => set({ playbook_id: e.target.value })}>
+                {ansiblePbs.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="accent-[var(--color-brand)]"
+                  checked={d.params.check === "true"}
+                  onChange={(e) => set({ params: e.target.checked ? { check: "true" } : {} })}
+                />
+                Check mode only (report drift, change nothing)
+              </label>
+              <p className="text-xs text-muted-foreground">Servers not prepared for Ansible are skipped.</p>
+            </div>
           ) : (
             <div className="grid gap-2">
               <Label htmlFor="sc-pb">Playbook</Label>

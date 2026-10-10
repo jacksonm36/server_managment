@@ -457,6 +457,37 @@ func (a *API) handleCancelAnsibleRun(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// runAnsibleSchedule runs an Ansible playbook from a schedule on the
+// targets that are prepared for Ansible, and summarizes in one line.
+func (a *API) runAnsibleSchedule(ctx context.Context, who Who, pbID string, ids []string, check bool) string {
+	pb, err := a.Store.GetAnsiblePlaybook(ctx, pbID)
+	if err != nil {
+		return "error: Ansible playbook not found"
+	}
+	hosts, err := a.Store.ListAnsibleHosts(ctx)
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	var ready []string
+	for _, id := range ids {
+		if hosts[id] != nil {
+			ready = append(ready, id)
+		}
+	}
+	if len(ready) == 0 {
+		return "skipped: no target server is prepared for Ansible"
+	}
+	run, err := a.StartAnsibleRun(ctx, who, pb, ready, check, "")
+	if err != nil {
+		return "error: " + err.Error()
+	}
+	res := fmt.Sprintf("started Ansible %q on %d server(s) (run %s)", pb.Name, len(ready), run.ID[:8])
+	if n := len(ids) - len(ready); n > 0 {
+		res += fmt.Sprintf(", %d not prepared skipped", n)
+	}
+	return res
+}
+
 // ---- runner ----
 
 var inventoryName = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)

@@ -71,6 +71,8 @@ func (a *API) runSchedule(ctx context.Context, sc *store.Schedule) string {
 	switch {
 	case err != nil:
 		result = "error: " + err.Error()
+	case sc.Kind == "ansible" && sc.PlaybookID != nil:
+		result = a.runAnsibleSchedule(ctx, who, *sc.PlaybookID, ids, sc.Params["check"] == "true")
 	case sc.Kind == "playbook" && sc.PlaybookID != nil:
 		pb, perr := a.Store.GetPlaybook(ctx, *sc.PlaybookID)
 		if perr != nil {
@@ -199,8 +201,17 @@ func (a *API) handleSaveSchedule(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		sc.PlaybookID = &req.PlaybookID
+	case "ansible":
+		if _, err := a.Store.GetAnsiblePlaybook(r.Context(), req.PlaybookID); err != nil {
+			writeErr(w, http.StatusBadRequest, "Ansible playbook not found")
+			return
+		}
+		sc.PlaybookID = &req.PlaybookID
+		if req.Params["check"] == "true" {
+			sc.Params["check"] = "true"
+		}
 	default:
-		writeErr(w, http.StatusBadRequest, "kind must be op or playbook")
+		writeErr(w, http.StatusBadRequest, "kind must be op, playbook or ansible")
 		return
 	}
 	if err := a.Store.SaveSchedule(r.Context(), sc); err != nil {

@@ -109,7 +109,7 @@ export type Schedule = {
   id: string;
   name: string;
   cron: string;
-  kind: "op" | "playbook";
+  kind: "op" | "playbook" | "ansible";
   op: string;
   params: Record<string, string>;
   playbook_id: string | null;
@@ -196,6 +196,48 @@ export type CatalogApp = {
   needs_docker: boolean;
   min_ram_mb?: number;
   protect: boolean;
+};
+
+export type AnsibleHost = {
+  server_id: string;
+  name: string;
+  online: boolean;
+  address: string;
+  port: number;
+  root_login: string;
+  prepared_at: string | null;
+};
+export type AnsibleOverview = {
+  installed: boolean;
+  version: string;
+  setup: { running: boolean; log: string; error: string };
+  public_key: string;
+  hosts: AnsibleHost[];
+};
+export type AnsiblePlaybook = {
+  id: string;
+  name: string;
+  description: string;
+  source: "inline" | "git";
+  content: string;
+  git_url: string;
+  git_ref: string;
+  git_path: string;
+  created_at: string;
+  updated_at: string;
+};
+export type AnsibleRecap = { ok: number; changed: number; unreachable: number; failed: number; skipped: number };
+export type AnsibleRun = {
+  id: string;
+  playbook_id: string | null;
+  playbook_name: string;
+  server_ids: string[];
+  check: boolean;
+  status: "running" | "succeeded" | "failed" | "cancelled";
+  recap: Record<string, AnsibleRecap> | null;
+  created_by: string;
+  created_at: string;
+  finished_at: string | null;
 };
 
 // Shapes are cscli's JSON output, passed through by the panel.
@@ -327,6 +369,33 @@ export const api = {
   uninstallApp: (id: string, domain: string, db: string, compose = "") =>
     request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/uninstall`, { db, compose }),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
+  ansible: () => request<AnsibleOverview>("GET", "/api/v1/ansible"),
+  ansibleSetup: () => request<void>("POST", "/api/v1/ansible/setup"),
+  ansiblePrepare: (id: string, address: string) =>
+    request<Job>("POST", `/api/v1/servers/${id}/ansible/prepare`, address ? { address } : {}),
+  ansibleRevoke: (id: string) => request<Job>("POST", `/api/v1/servers/${id}/ansible/revoke`),
+  ansiblePlaybooks: () => request<AnsiblePlaybook[]>("GET", "/api/v1/ansible/playbooks"),
+  saveAnsiblePlaybook: (p: Partial<AnsiblePlaybook>) => {
+    const body = {
+      name: p.name ?? "",
+      description: p.description ?? "",
+      source: p.source ?? "inline",
+      content: p.content ?? "",
+      git_url: p.git_url ?? "",
+      git_ref: p.git_ref ?? "",
+      git_path: p.git_path ?? "",
+    };
+    return p.id
+      ? request<AnsiblePlaybook>("PUT", `/api/v1/ansible/playbooks/${p.id}`, body)
+      : request<AnsiblePlaybook>("POST", "/api/v1/ansible/playbooks", body);
+  },
+  deleteAnsiblePlaybook: (id: string) => request<void>("DELETE", `/api/v1/ansible/playbooks/${id}`),
+  runAnsiblePlaybook: (id: string, b: { server_ids: string[]; check: boolean; extra_vars: string }) =>
+    request<AnsibleRun>("POST", `/api/v1/ansible/playbooks/${id}/run`, b),
+  ansibleRuns: () => request<AnsibleRun[]>("GET", "/api/v1/ansible/runs"),
+  ansibleRun: (id: string, offset: number) =>
+    request<{ run: AnsibleRun; output: string; total: number }>("GET", `/api/v1/ansible/runs/${id}?offset=${offset}`),
+  cancelAnsibleRun: (id: string) => request<void>("POST", `/api/v1/ansible/runs/${id}/cancel`),
   crowdsec: () => request<CrowdSecOverview>("GET", "/api/v1/crowdsec"),
   crowdsecBan: (b: { type: string; value: string; duration: string; reason: string }) =>
     request<void>("POST", "/api/v1/crowdsec/decisions", b),
