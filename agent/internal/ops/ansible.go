@@ -41,7 +41,7 @@ func ansiblePrepare(ctx context.Context, p map[string]string, logf func(string, 
 	if len(from) == 0 {
 		return nil, errors.New("from (the panel's address) is required")
 	}
-	if err := pkgInstall(ctx, logf, []string{"openssh-server", "python3"}, []string{"openssh-server", "python3"}); err != nil {
+	if err := pkgInstall(ctx, logf, []string{"openssh-server", "python3", "python3-apt"}, []string{"openssh-server", "python3"}); err != nil {
 		return nil, err
 	}
 	if err := run(ctx, logf, "systemctl", "enable", "--now", sshUnit()); err != nil {
