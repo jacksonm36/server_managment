@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T03:07:33Z",
+  "updated_at": "2026-10-10T13:10:11Z",
   "phases": [
     {
       "name": "MVP",
@@ -119,7 +119,7 @@
         },
         {
           "name": "Scheduled tasks and playbooks",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "Server baselines (apply on enrollment)",

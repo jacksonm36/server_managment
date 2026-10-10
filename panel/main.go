@@ -136,6 +136,8 @@ func run(log *slog.Logger) error {
 		},
 		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey, Ctx: ctx,
 	}
+	go a.RunScheduler(ctx)
+
 	hs := &http.Server{
 		Addr:              httpAddr,
 		Handler:           a.Handler(),

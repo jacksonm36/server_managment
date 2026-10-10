@@ -105,6 +105,25 @@ export type PlaybookRun = {
   finished_at: string | null;
 };
 
+export type Schedule = {
+  id: string;
+  name: string;
+  cron: string;
+  kind: "op" | "playbook";
+  op: string;
+  params: Record<string, string>;
+  playbook_id: string | null;
+  server_ids: string[];
+  all_servers: boolean;
+  enabled: boolean;
+  created_by: string;
+  last_run: string | null;
+  last_result: string;
+  next_run: string | null;
+};
+
+type ScheduleBody = Omit<Schedule, "id" | "created_by" | "last_run" | "last_result" | "next_run" | "playbook_id"> & { playbook_id: string };
+
 export type FeatureStatus = "done" | "in-progress" | "todo";
 
 export type Progress = {
@@ -181,6 +200,17 @@ export const api = {
   deletePlaybook: (id: string) => request<void>("DELETE", `/api/v1/playbooks/${id}`),
   runPlaybook: (id: string, serverIds: string[]) => request<PlaybookRun[]>("POST", `/api/v1/playbooks/${id}/run`, { server_ids: serverIds }),
   playbookRuns: () => request<PlaybookRun[]>("GET", "/api/v1/playbook-runs?limit=50"),
+  schedules: () => request<Schedule[]>("GET", "/api/v1/schedules"),
+  createSchedule: (s: ScheduleBody) => request<Schedule>("POST", "/api/v1/schedules", pickSchedule(s)),
+  updateSchedule: (id: string, s: ScheduleBody) => request<Schedule>("PUT", `/api/v1/schedules/${id}`, pickSchedule(s)),
+  deleteSchedule: (id: string) => request<void>("DELETE", `/api/v1/schedules/${id}`),
+  runScheduleNow: (id: string) => request<{ result: string }>("POST", `/api/v1/schedules/${id}/run`),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string) => request<JoinToken>("POST", "/api/v1/join-tokens", { name }),
 };
+
+// The API rejects unknown fields, so send exactly what it accepts.
+function pickSchedule(s: ScheduleBody) {
+  const { name, cron, kind, op, params, playbook_id, server_ids, all_servers, enabled } = s;
+  return { name, cron, kind, op, params, playbook_id, server_ids, all_servers, enabled };
+}
