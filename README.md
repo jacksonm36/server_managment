@@ -78,9 +78,16 @@ It downloads the agent, enrolls it and installs `servermgr-agent.service`.
 ### Test servers with Incus
 
 ```sh
-sudo incus launch images:debian/13 sm-node1 -c limits.memory=512MiB
+sudo incus launch images:debian/13 sm-node1 -c limits.memory=512MiB </dev/null
 sudo incus exec sm-node1 -- sh -c 'apt-get update && apt-get install -y curl'
 ```
+
+When scripting (e.g. over non-interactive SSH), close stdin as above:
+`incus launch`/`incus init` read extra instance config from stdin when it is
+not a terminal and otherwise wait forever without any output.
+
+To run Docker inside a test container, enable nesting first:
+`sudo incus config set sm-node2 security.nesting=true && sudo incus restart sm-node2`.
 
 On hosts that also run Docker, Docker sets the iptables `FORWARD` policy to
 `DROP`, which cuts Incus containers off from the internet. Allow the bridge in
