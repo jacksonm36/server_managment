@@ -148,6 +148,8 @@ export const api = {
     return request<AuditEntry[]>("GET", `/api/v1/audit?${p}`);
   },
   recentJobs: () => request<JobSummary[]>("GET", "/api/v1/jobs?limit=200"),
+  bulk: (serverIds: string[], op: string, params: Record<string, string>) =>
+    request<{ server_id: string; job_id?: string; error?: string }[]>("POST", "/api/v1/bulk", { server_ids: serverIds, op, params }),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string) => request<JoinToken>("POST", "/api/v1/join-tokens", { name }),
 };

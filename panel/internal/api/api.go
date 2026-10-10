@@ -76,6 +76,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/servers/{id}/jobs", a.handleCreateJob)
 	authed.HandleFunc("GET /api/v1/jobs/{id}", a.handleGetJob)
 	authed.HandleFunc("GET /api/v1/jobs", a.handleRecentJobs)
+	authed.HandleFunc("POST /api/v1/bulk", a.handleBulk)
 	authed.HandleFunc("GET /api/v1/audit", a.handleListAudit)
 	authed.HandleFunc("POST /api/v1/join-tokens", a.handleCreateJoinToken)
 	authed.HandleFunc("GET /api/v1/events", a.handleEvents)
@@ -315,57 +316,6 @@ func (s opSpec) checkParams(p map[string]string) error {
 		}
 	}
 	return nil
-}
-
-func (a *API) handleCreateJob(w http.ResponseWriter, r *http.Request) {
-	serverID := r.PathValue("id")
-	var req struct {
-		Op     string            `json:"op"`
-		Params map[string]string `json:"params"`
-	}
-	if !readJSON(w, r, &req) {
-		return
-	}
-	spec, ok := opsByName[req.Op]
-	if !ok {
-		writeErr(w, http.StatusBadRequest, "unknown op")
-		return
-	}
-	if err := spec.checkParams(req.Params); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	srv, err := a.Store.GetServer(r.Context(), serverID)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "server not found")
-		return
-	}
-	if !a.Hub.Online(serverID) {
-		writeErr(w, http.StatusConflict, "server is offline")
-		return
-	}
-	if req.Params == nil {
-		req.Params = map[string]string{}
-	}
-	stored := redact(req.Params)
-	job := &store.Job{ID: store.NewUUID(), ServerID: serverID, Op: req.Op, Params: stored, Status: "queued",
-		CreatedBy: adminFrom(r.Context()).Username}
-	if err := a.Store.CreateJob(r.Context(), job); err != nil {
-		a.internal(w, err)
-		return
-	}
-	msg := &agentv1.PanelMessage{Msg: &agentv1.PanelMessage_Job{Job: &agentv1.Job{Id: job.ID, Op: spec.op, Params: req.Params}}}
-	if err := a.Hub.Send(serverID, msg); err != nil {
-		_ = a.Store.UpdateJob(r.Context(), job.ID, "failed", "", nil, err.Error(), true)
-		a.audit(r, "", "job.create", srv.Name, map[string]any{"op": req.Op, "params": stored, "job_id": job.ID, "error": err.Error()}, false)
-		writeErr(w, http.StatusConflict, err.Error())
-		return
-	}
-	if !readOnlyOps[req.Op] {
-		a.audit(r, "", "job.create", srv.Name, map[string]any{"op": req.Op, "params": stored, "job_id": job.ID}, true)
-	}
-	a.Hub.JobChanged(serverID, job.ID)
-	writeJSON(w, http.StatusAccepted, job)
 }
 
 func (a *API) handleListJobs(w http.ResponseWriter, r *http.Request) {

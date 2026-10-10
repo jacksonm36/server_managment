@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T03:00:33Z",
+  "updated_at": "2026-10-10T03:03:56Z",
   "phases": [
     {
       "name": "MVP",
@@ -110,15 +110,27 @@
           "status": "done"
         },
         {
-          "name": "Scripts library, run on many servers",
+          "name": "Bulk actions across selected servers",
+          "status": "done"
+        },
+        {
+          "name": "Playbooks (saved sequences of operations)",
+          "status": "in-progress"
+        },
+        {
+          "name": "Scheduled tasks and playbooks",
           "status": "todo"
         },
         {
-          "name": "Unattended security updates policy",
+          "name": "Server baselines (apply on enrollment)",
           "status": "todo"
         },
         {
-          "name": "Alerts (CPU / disk / offline) by email/webhook",
+          "name": "Alerts: CPU / disk / memory / offline thresholds",
+          "status": "todo"
+        },
+        {
+          "name": "Notifications: email, Telegram, Discord, webhook",
           "status": "todo"
         }
       ]

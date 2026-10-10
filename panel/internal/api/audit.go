@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -11,17 +12,21 @@ import (
 // audit records an action. actor defaults to the logged-in admin. Failures
 // are logged but never fail the request.
 func (a *API) audit(r *http.Request, actor, action, target string, detail any, success bool) {
-	if actor == "" {
-		if ad := adminFrom(r.Context()); ad != nil {
-			actor = ad.Username
-		}
+	who := whoFrom(r)
+	if actor != "" {
+		who.Actor = actor
 	}
+	a.auditAs(r.Context(), who, action, target, detail, success)
+}
+
+// auditAs records an action outside an HTTP request (scheduler, playbooks).
+func (a *API) auditAs(ctx context.Context, who Who, action, target string, detail any, success bool) {
 	var raw json.RawMessage
 	if detail != nil {
 		raw, _ = json.Marshal(detail)
 	}
-	e := &store.AuditEntry{Actor: actor, IP: clientIP(r), Action: action, Target: target, Detail: raw, Success: success}
-	if err := a.Store.Audit(r.Context(), e); err != nil {
+	e := &store.AuditEntry{Actor: who.Actor, IP: who.IP, Action: action, Target: target, Detail: raw, Success: success}
+	if err := a.Store.Audit(ctx, e); err != nil {
 		a.Log.Error("audit", "action", action, "err", err)
 	}
 }
