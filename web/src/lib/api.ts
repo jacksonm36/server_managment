@@ -198,6 +198,40 @@ export type CatalogApp = {
   protect: boolean;
 };
 
+export type PVECluster = { id: string; name: string; url: string; token_id: string; fingerprint: string; created_at: string; updated_at: string };
+export type PVEResource = {
+  id: string;
+  type: "node" | "qemu" | "lxc" | "storage";
+  node: string;
+  vmid: number;
+  name: string;
+  status: string;
+  cpu: number;
+  maxcpu: number;
+  mem: number;
+  maxmem: number;
+  disk: number;
+  maxdisk: number;
+  uptime: number;
+  template?: number;
+  tags?: string;
+};
+export type PVEGuest = PVEResource & { server_id?: string; server_name?: string };
+export type PVEResources = { cluster: PVECluster; version?: string; error?: string; nodes?: PVEResource[]; guests?: PVEGuest[]; storage?: PVEResource[] };
+export type PVESnapshot = { name: string; description?: string; snaptime?: number; vmstate?: number; parent?: string };
+export type PVEProvision = {
+  id: string;
+  cluster_id: string;
+  name: string;
+  vmid: number | null;
+  status: "running" | "succeeded" | "failed";
+  log: string;
+  server_id: string | null;
+  created_by: string;
+  created_at: string;
+  finished_at: string | null;
+};
+
 export type TofuVar = { key: string; value: string; kind: "tf" | "env"; sensitive: boolean };
 export type TofuWorkspace = {
   id: string;
@@ -421,6 +455,38 @@ export const api = {
   uninstallApp: (id: string, domain: string, db: string, compose = "") =>
     request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/uninstall`, { db, compose }),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
+  pveClusters: () => request<PVECluster[]>("GET", "/api/v1/proxmox"),
+  pveProbe: (url: string) => request<{ fingerprint: string; subject: string }>("POST", "/api/v1/proxmox/probe", { url }),
+  savePVE: (id: string, c: { name: string; url: string; token_id: string; token_secret: string; fingerprint: string }) =>
+    id
+      ? request<{ cluster: PVECluster; version: string }>("PUT", `/api/v1/proxmox/${id}`, c)
+      : request<{ cluster: PVECluster; version: string }>("POST", "/api/v1/proxmox", c),
+  deletePVE: (id: string) => request<void>("DELETE", `/api/v1/proxmox/${id}`),
+  pveResources: (id: string) => request<PVEResources>("GET", `/api/v1/proxmox/${id}/resources`),
+  pveProvisions: () => request<PVEProvision[]>("GET", "/api/v1/proxmox/provisions"),
+  pvePower: (id: string, g: PVEGuest, action: string) => request<void>("POST", `${pveGuestURL(id, g)}/power`, { action }),
+  pveSnapshots: (id: string, g: PVEGuest) => request<PVESnapshot[]>("GET", `${pveGuestURL(id, g)}/snapshots`),
+  pveSnapshot: (id: string, g: PVEGuest, s: { name: string; description: string; vmstate: boolean }) =>
+    request<void>("POST", `${pveGuestURL(id, g)}/snapshots`, s),
+  pveDeleteSnapshot: (id: string, g: PVEGuest, name: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/snapshots/${name}`),
+  pveRollback: (id: string, g: PVEGuest, name: string) => request<void>("POST", `${pveGuestURL(id, g)}/snapshots/${name}/rollback`),
+  pveDeleteGuest: (id: string, g: PVEGuest, confirm: string) => request<void>("DELETE", pveGuestURL(id, g), { confirm }),
+  pveProvision: (
+    id: string,
+    b: {
+      template_vmid: number;
+      node: string;
+      target: string;
+      name: string;
+      cores: number;
+      memory_mb: number;
+      disk_grow_gb: number;
+      full_clone: boolean;
+      ip: string;
+      gateway: string;
+      enroll: boolean;
+    },
+  ) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/provision`, b),
   tofu: () => request<TofuOverview>("GET", "/api/v1/tofu"),
   tofuSetup: () => request<void>("POST", "/api/v1/tofu/setup"),
   saveTofuWorkspace: (
@@ -476,6 +542,10 @@ export const api = {
   baseline: () => request<{ playbook_id: string }>("GET", "/api/v1/settings/baseline"),
   setBaseline: (playbookId: string) => request<{ playbook_id: string }>("PUT", "/api/v1/settings/baseline", { playbook_id: playbookId }),
 };
+
+function pveGuestURL(id: string, g: PVEGuest) {
+  return `/api/v1/proxmox/${id}/guests/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`;
+}
 
 // The API rejects unknown fields, so send exactly what it accepts.
 function pickSchedule(s: ScheduleBody) {

@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { History, LayoutDashboard, ListChecks, LogOut, Server, ShieldCheck, Users as UsersIcon, Workflow } from "lucide-react";
+import { Boxes, History, LayoutDashboard, ListChecks, LogOut, Server, ShieldCheck, Users as UsersIcon, Workflow } from "lucide-react";
 import { api, type Role } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,7 @@ import { Automation } from "@/pages/Automation";
 import { Users } from "@/pages/Users";
 import { Dashboard } from "@/pages/Dashboard";
 import { CrowdSec } from "@/pages/CrowdSec";
+import { Proxmox } from "@/pages/Proxmox";
 import { RoleContext } from "@/lib/role";
 
 export function App() {
@@ -73,6 +74,9 @@ export function App() {
               <Workflow className="size-4" />
               <FiringDot />
             </NavLink>
+            <NavLink href="/proxmox" label="Proxmox">
+              <Boxes className="size-4" />
+            </NavLink>
             {role !== "viewer" && (
               <NavLink href="/security" label="Security">
                 <ShieldCheck className="size-4" />
@@ -123,6 +127,9 @@ export function App() {
           </Route>
           <Route path="/account">
             <Account />
+          </Route>
+          <Route path="/proxmox">
+            <Proxmox />
           </Route>
           <Route path="/security">
             <CrowdSec />

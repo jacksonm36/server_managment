@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T20:19:02Z",
+  "updated_at": "2026-10-10T20:31:00Z",
   "phases": [
     {
       "name": "MVP",
@@ -203,7 +203,7 @@
         },
         {
           "name": "Proxmox VE node management (VMs/LXC, snapshots, cloud-init enroll)",
-          "status": "todo"
+          "status": "done"
         }
       ]
     }
