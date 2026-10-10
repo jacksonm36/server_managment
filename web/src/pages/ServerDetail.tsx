@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Activity,
@@ -29,7 +29,8 @@ import { LiveChart } from "@/components/LiveChart";
 import { StatusBadge } from "./Servers";
 import { Updates } from "./server/Updates";
 import { Sites } from "./server/Sites";
-import { Terminal } from "./server/Terminal";
+// xterm.js is large; load it only when the Terminal tab opens.
+const Terminal = lazy(() => import("./server/Terminal").then((m) => ({ default: m.Terminal })));
 import { Databases } from "./server/Databases";
 import { Files } from "./server/Files";
 import { Cron } from "./server/Cron";
@@ -131,7 +132,11 @@ export function ServerDetail({ id }: { id: string }) {
           )}
         </>
       )}
-      {tab === "terminal" && <Terminal serverId={id} online={server.online} />}
+      {tab === "terminal" && (
+        <Suspense fallback={<p className="text-sm text-muted-foreground">Loading terminal…</p>}>
+          <Terminal serverId={id} online={server.online} />
+        </Suspense>
+      )}
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "databases" && <Databases serverId={id} online={server.online} />}
       {tab === "files" && <Files serverId={id} online={server.online} />}
