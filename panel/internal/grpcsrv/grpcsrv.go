@@ -26,6 +26,9 @@ type Server struct {
 	Store *store.Store
 	Hub   *hub.Hub
 	Log   *slog.Logger
+	// OnConnect runs (in its own goroutine) after an agent's Hello; the
+	// panel uses it to apply enrollment baselines.
+	OnConnect func(serverID string)
 }
 
 func (s *Server) GRPCServer(creds credentials.TransportCredentials) *grpc.Server {
@@ -81,6 +84,9 @@ func (s *Server) Connect(stream agentv1.AgentService_ConnectServer) error {
 	log.Info("agent connected", "hostname", hello.Hostname, "version", hello.AgentVersion)
 
 	send, detach := s.Hub.Attach(serverID)
+	if s.OnConnect != nil {
+		go s.OnConnect(serverID)
+	}
 	defer func() {
 		detach()
 		log.Info("agent disconnected")

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T13:10:11Z",
+  "updated_at": "2026-10-10T13:35:00Z",
   "phases": [
     {
       "name": "MVP",
@@ -123,7 +123,7 @@
         },
         {
           "name": "Server baselines (apply on enrollment)",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "Alerts: CPU / disk / memory / offline thresholds",

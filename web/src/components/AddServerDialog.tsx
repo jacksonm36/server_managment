@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy, Plus, Terminal } from "lucide-react";
-import { api, type JoinToken } from "@/lib/api";
+import { api, type JoinToken, type Playbook } from "@/lib/api";
+import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 import {
@@ -19,6 +20,14 @@ export function AddServerDialog() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [playbooks, setPlaybooks] = useState<Playbook[]>([]);
+  const [baseline, setBaseline] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    void api.playbooks().then(setPlaybooks).catch(() => {});
+    void api.baseline().then((b) => setBaseline(b.playbook_id)).catch(() => {});
+  }, [open]);
 
   function reset(o: boolean) {
     setOpen(o);
@@ -35,7 +44,7 @@ export function AddServerDialog() {
     setBusy(true);
     setError("");
     try {
-      setToken(await api.createJoinToken(name.trim()));
+      setToken(await api.createJoinToken(name.trim(), baseline));
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -85,6 +94,18 @@ export function AddServerDialog() {
                 onChange={(e) => setName(e.target.value)}
                 autoFocus
               />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="srv-baseline">Baseline playbook</Label>
+              <Select id="srv-baseline" value={baseline} onChange={(e) => setBaseline(e.target.value)}>
+                <option value="">None</option>
+                {playbooks.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </Select>
+              <p className="text-xs text-muted-foreground">Runs once, automatically, when the new server first connects.</p>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="flex justify-end">

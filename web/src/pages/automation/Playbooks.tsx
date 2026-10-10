@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/select";
+import { Select, Textarea } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OpForm } from "@/components/OpForm";
 import { ServerPicker } from "@/components/ServerPicker";
@@ -36,7 +36,8 @@ export function Playbooks() {
 
   return (
     <div className="grid gap-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <DefaultBaseline playbooks={list} />
         <Button variant="brand" size="sm" onClick={() => setEditing(blank)}>
           <Plus /> New playbook
         </Button>
@@ -311,5 +312,37 @@ export function Runs() {
         </Card>
       ))}
     </div>
+  );
+}
+
+function DefaultBaseline({ playbooks }: { playbooks: Playbook[] }) {
+  const [value, setValue] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    void api.baseline().then((b) => setValue(b.playbook_id));
+  }, []);
+  if (value === null) return <span />;
+  return (
+    <label className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">Default baseline for new servers</span>
+      <Select
+        className="h-8 w-56"
+        value={value}
+        onChange={async (e) => {
+          const r = await api.setBaseline(e.target.value);
+          setValue(r.playbook_id);
+          setSaved(true);
+          setTimeout(() => setSaved(false), 1500);
+        }}
+      >
+        <option value="">None</option>
+        {playbooks.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+      </Select>
+      {saved && <span className="text-xs text-success">saved</span>}
+    </label>
   );
 }

@@ -88,6 +88,8 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/playbooks/{id}/run", a.handleRunPlaybook)
 	authed.HandleFunc("GET /api/v1/playbook-runs", a.handleListRuns)
 	authed.HandleFunc("GET /api/v1/schedules", a.handleListSchedules)
+	authed.HandleFunc("GET /api/v1/settings/baseline", a.handleGetBaseline)
+	authed.HandleFunc("PUT /api/v1/settings/baseline", a.handleSetBaseline)
 	authed.HandleFunc("POST /api/v1/schedules", a.handleSaveSchedule)
 	authed.HandleFunc("PUT /api/v1/schedules/{id}", a.handleSaveSchedule)
 	authed.HandleFunc("DELETE /api/v1/schedules/{id}", a.handleDeleteSchedule)
@@ -411,7 +413,8 @@ const joinTokenTTL = time.Hour
 
 func (a *API) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name string `json:"name"`
+		Name       string `json:"name"`
+		PlaybookID string `json:"playbook_id"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -421,13 +424,21 @@ func (a *API) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "name too long")
 		return
 	}
+	var baseline *string
+	if req.PlaybookID != "" {
+		if _, err := a.Store.GetPlaybook(r.Context(), req.PlaybookID); err != nil {
+			writeErr(w, http.StatusBadRequest, "baseline playbook not found")
+			return
+		}
+		baseline = &req.PlaybookID
+	}
 	raw, hash := randomToken()
 	expires := time.Now().Add(joinTokenTTL)
-	if err := a.Store.CreateJoinToken(r.Context(), hash, req.Name, expires); err != nil {
+	if err := a.Store.CreateJoinToken(r.Context(), hash, req.Name, expires, baseline); err != nil {
 		a.internal(w, err)
 		return
 	}
-	a.audit(r, "", "server.join_token", req.Name, map[string]any{"expires_at": expires}, true)
+	a.audit(r, "", "server.join_token", req.Name, map[string]any{"expires_at": expires, "baseline": req.PlaybookID}, true)
 	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | sudo sh -s -- --token %s --ca-sha256 %s",
 		a.Cfg.PublicURL, raw, a.CA.Fingerprint())
 	writeJSON(w, http.StatusCreated, map[string]any{

@@ -155,8 +155,8 @@ func (s *Store) PurgeExpired(ctx context.Context) error {
 
 // ---- join tokens & enrollment ----
 
-func (s *Store) CreateJoinToken(ctx context.Context, tokenHash []byte, name string, expires time.Time) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO join_tokens (token_hash, name, expires_at) VALUES ($1, $2, $3)`, tokenHash, name, expires)
+func (s *Store) CreateJoinToken(ctx context.Context, tokenHash []byte, name string, expires time.Time, playbookID *string) error {
+	_, err := s.db.Exec(ctx, `INSERT INTO join_tokens (token_hash, name, expires_at, playbook_id) VALUES ($1, $2, $3, $4)`, tokenHash, name, expires, playbookID)
 	return err
 }
 

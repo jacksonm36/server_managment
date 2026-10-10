@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -101,7 +102,14 @@ func run(log *slog.Logger) error {
 		ClientAuth:   tls.RequireAndVerifyClientCert,
 		MinVersion:   tls.VersionTLS13,
 	}
-	gs := (&grpcsrv.Server{Store: st, Hub: h, Log: log}).GRPCServer(credentials.NewTLS(tlsCfg))
+	// The API that handles new connections is built later; agents that
+	// connect before then get their baseline on a later connect.
+	var onConnect atomic.Pointer[func(string)]
+	gs := (&grpcsrv.Server{Store: st, Hub: h, Log: log, OnConnect: func(id string) {
+		if f := onConnect.Load(); f != nil {
+			(*f)(id)
+		}
+	}}).GRPCServer(credentials.NewTLS(tlsCfg))
 	gl, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
 		return err
@@ -136,6 +144,8 @@ func run(log *slog.Logger) error {
 		},
 		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey, Ctx: ctx,
 	}
+	applyBaseline := a.ApplyBaseline
+	onConnect.Store(&applyBaseline)
 	go a.RunScheduler(ctx)
 
 	hs := &http.Server{

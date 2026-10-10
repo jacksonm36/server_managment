@@ -206,7 +206,10 @@ export const api = {
   deleteSchedule: (id: string) => request<void>("DELETE", `/api/v1/schedules/${id}`),
   runScheduleNow: (id: string) => request<{ result: string }>("POST", `/api/v1/schedules/${id}/run`),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
-  createJoinToken: (name: string) => request<JoinToken>("POST", "/api/v1/join-tokens", { name }),
+  createJoinToken: (name: string, playbookId = "") =>
+    request<JoinToken>("POST", "/api/v1/join-tokens", { name, playbook_id: playbookId }),
+  baseline: () => request<{ playbook_id: string }>("GET", "/api/v1/settings/baseline"),
+  setBaseline: (playbookId: string) => request<{ playbook_id: string }>("PUT", "/api/v1/settings/baseline", { playbook_id: playbookId }),
 };
 
 // The API rejects unknown fields, so send exactly what it accepts.
