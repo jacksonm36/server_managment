@@ -438,6 +438,9 @@ func (a *API) handleListJobs(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
+	for _, j := range jobs {
+		hideFromViewer(r, j)
+	}
 	writeJSON(w, http.StatusOK, jobs)
 }
 
@@ -451,7 +454,16 @@ func (a *API) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
+	hideFromViewer(r, j)
 	writeJSON(w, http.StatusOK, j)
+}
+
+// hideFromViewer blanks the output of jobs a viewer may not run themselves
+// (file contents can hold secrets), so they cannot read an admin's result.
+func hideFromViewer(r *http.Request, j *store.Job) {
+	if ad := adminFrom(r.Context()); ad != nil && ad.Role == "viewer" && !viewerOp(j.Op) {
+		j.Result, j.Log = nil, ""
+	}
 }
 
 // ---- build progress ----

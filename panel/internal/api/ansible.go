@@ -496,7 +496,7 @@ var inventoryName = regexp.MustCompile(`[^A-Za-z0-9_.-]+`)
 // background. Used by the UI and by schedules.
 func (a *API) StartAnsibleRun(ctx context.Context, who Who, pb *store.AnsiblePlaybook, serverIDs []string, check bool, extraVars string) (*store.AnsibleRun, error) {
 	if !fileExists(a.ansibleBin("ansible-playbook")) {
-		return nil, errors.New("Ansible is not installed on the panel yet")
+		return nil, errors.New("install Ansible on the panel first")
 	}
 	if len(serverIDs) == 0 {
 		return nil, errors.New("pick at least one server")
@@ -543,10 +543,6 @@ func (a *API) StartAnsibleRun(ctx context.Context, who Who, pb *store.AnsiblePla
 		id := pb.ID
 		run.PlaybookID = &id
 	}
-	if err := a.Store.CreateAnsibleRun(ctx, run); err != nil {
-		return nil, err
-	}
-
 	// Work dir: inventory, pinned known_hosts, config, playbook.
 	if err := os.MkdirAll(filepath.Join(a.ansibleDir(), "runs"), 0o700); err != nil {
 		return nil, err
@@ -580,7 +576,7 @@ nocolor = True
 local_tmp = %[1]s/tmp
 
 [ssh_connection]
-ssh_args = -o ControlMaster=auto -o ControlPersist=60s -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%[1]s/known_hosts -o GlobalKnownHostsFile=/dev/null
+ssh_args = -F none -o ControlMaster=auto -o ControlPersist=60s -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=%[1]s/known_hosts -o GlobalKnownHostsFile=/dev/null
 control_path_dir = %[1]s/cp
 pipelining = True
 `, dir, keyPath)
@@ -599,6 +595,10 @@ pipelining = True
 		}
 	}
 
+	if err := a.Store.CreateAnsibleRun(ctx, run); err != nil {
+		os.RemoveAll(dir)
+		return nil, err
+	}
 	runCtx, cancel := context.WithTimeout(a.baseCtx(), ansibleRunTimeout)
 	ansible.mu.Lock()
 	ansible.cancels[run.ID] = cancel
@@ -671,9 +671,19 @@ func (a *API) executeAnsibleRun(ctx context.Context, cancel context.CancelFunc, 
 			args = append(args, "-e", "@"+filepath.Join(dir, "vars.json"))
 		}
 		write(fmt.Sprintf("$ ansible-playbook %s%s\n", pb.Name, map[bool]string{true: " --check --diff", false: ""}[run.Check]))
-		cmd := exec.CommandContext(ctx, a.ansibleBin("ansible-playbook"), args...)
-		cmd.Dir = filepath.Dir(playbook)
-		cmd.Env = append(os.Environ(), "ANSIBLE_CONFIG="+filepath.Join(dir, "ansible.cfg"), "PYTHONUNBUFFERED=1", "ANSIBLE_FORCE_COLOR=0")
+		keyPath, _, err := a.ansibleKey()
+		if err != nil {
+			return err
+		}
+		// Sandboxed: the playbook's lookups and local tasks run here, on the
+		// panel host, and must not see the panel's data.
+		cmd, err := sandboxCmd(ctx, []string{filepath.Join(a.ansibleDir(), "venv"), keyPath}, []string{dir}, filepath.Dir(playbook),
+			a.ansibleBin("ansible-playbook"), args...)
+		if err != nil {
+			return err
+		}
+		cmd.Env = []string{"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + dir, "LANG=C.UTF-8",
+			"ANSIBLE_CONFIG=" + filepath.Join(dir, "ansible.cfg"), "PYTHONUNBUFFERED=1", "ANSIBLE_FORCE_COLOR=0"}
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
 		cmd.WaitDelay = 10 * time.Second

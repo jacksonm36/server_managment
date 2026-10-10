@@ -125,6 +125,9 @@ func clampLines(s string, def int) int {
 func journalLogs(ctx context.Context, p map[string]string) (any, error) {
 	args := []string{"--no-pager", "-o", "short-iso", "-n", strconv.Itoa(clampLines(p["lines"], 300))}
 	if u := p["unit"]; u != "" {
+		if !strings.Contains(u, ".") {
+			u += ".service"
+		}
 		if !unitName.MatchString(u) {
 			return nil, errors.New("invalid unit")
 		}

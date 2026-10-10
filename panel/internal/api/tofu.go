@@ -806,12 +806,12 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 	}()
 
 	work := filepath.Join(a.tofuDir(), "work", ws.ID)
-	planFile := func(id string) string { return filepath.Join(a.tofuDir(), "plans", id+".tfplan") }
+	planFile := func(id string) string { return filepath.Join(work, "plans", id+".tfplan") }
 	summary := map[string]any{}
 	status := "failed"
 
 	err := func() error {
-		for _, d := range []string{work, filepath.Join(a.tofuDir(), "plans"), filepath.Join(a.tofuDir(), "plugin-cache")} {
+		for _, d := range []string{work, filepath.Join(work, "plans"), filepath.Join(work, "home")} {
 			if err := os.MkdirAll(d, 0o700); err != nil {
 				return err
 			}
@@ -866,10 +866,9 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 		}
 		stateURL := "http://" + net.JoinHostPort("127.0.0.1", port) + "/tofu/state/" + ws.ID
 		env := []string{
-			"PATH=" + os.Getenv("PATH"), "HOME=" + a.tofuDir(),
+			"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + filepath.Join(work, "home"), "LANG=C.UTF-8",
 			"TF_IN_AUTOMATION=1", "TF_INPUT=0",
 			"TF_DATA_DIR=" + filepath.Join(work, "data"),
-			"TF_PLUGIN_CACHE_DIR=" + filepath.Join(a.tofuDir(), "plugin-cache"),
 			"TF_HTTP_ADDRESS=" + stateURL, "TF_HTTP_LOCK_ADDRESS=" + stateURL, "TF_HTTP_UNLOCK_ADDRESS=" + stateURL,
 			"TF_HTTP_LOCK_METHOD=LOCK", "TF_HTTP_UNLOCK_METHOD=UNLOCK",
 			"TF_HTTP_USERNAME=" + tofuStateUser, "TF_HTTP_PASSWORD=" + token,
@@ -896,8 +895,12 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 		}
 		tofuCmd := func(args ...string) (int, error) {
 			masked("\n$ tofu " + strings.Join(args, " ") + "\n")
-			cmd := exec.CommandContext(ctx, a.tofuBin(), args...)
-			cmd.Dir = cfgDir
+			// Sandboxed: providers, local-exec and external data sources
+			// see only this workspace's directory.
+			cmd, err := sandboxCmd(ctx, []string{a.tofuBin()}, []string{work}, cfgDir, a.tofuBin(), args...)
+			if err != nil {
+				return -1, err
+			}
 			cmd.Env = env
 			return runStreamed(cmd, masked)
 		}
@@ -928,9 +931,9 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 				return fmt.Errorf("tofu plan failed (exit %d)", code)
 			}
 			// Only the newest plan can be applied: drop older plan files.
-			old, _ := filepath.Glob(filepath.Join(a.tofuDir(), "plans", "*.tfplan"))
+			old, _ := filepath.Glob(filepath.Join(work, "plans", "*.tfplan"))
 			for _, f := range old {
-				if f != planFile(run.ID) && a.planOfWorkspace(f, ws.ID) {
+				if f != planFile(run.ID) {
 					_ = os.Remove(f)
 				}
 			}
@@ -952,8 +955,11 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 				summary["added"], summary["changed"], summary["destroyed"] = atoi(m[1]), atoi(m[2]), atoi(m[3])
 			}
 			// Outputs, with sensitive values hidden.
-			cmd := exec.CommandContext(ctx, a.tofuBin(), "output", "-json", "-no-color")
-			cmd.Dir, cmd.Env = cfgDir, env
+			cmd, err := sandboxCmd(ctx, []string{a.tofuBin()}, []string{work}, cfgDir, a.tofuBin(), "output", "-json", "-no-color")
+			if err != nil {
+				return err
+			}
+			cmd.Env = env
 			if b, err := cmd.Output(); err == nil {
 				var outs map[string]struct {
 					Sensitive bool `json:"sensitive"`
@@ -988,13 +994,6 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 		a.Log.Error("tofu: finish run", "run", run.ID, "err", err)
 	}
 	a.Log.Info("tofu run finished", "run", run.ID, "workspace", ws.Name, "kind", run.Kind, "status", status)
-}
-
-// planOfWorkspace reports whether a saved plan file belongs to wsID.
-func (a *API) planOfWorkspace(path, wsID string) bool {
-	id := strings.TrimSuffix(filepath.Base(path), ".tfplan")
-	r, err := a.Store.GetTofuRun(a.baseCtx(), id)
-	return err != nil || r.WorkspaceID == wsID
 }
 
 func atoi(s string) int { v, _ := strconv.Atoi(s); return v }

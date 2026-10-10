@@ -172,6 +172,7 @@ func (h *Hub) OfflineSince(serverID string) (time.Time, bool) {
 func (h *Hub) Forget(serverID string) {
 	h.mu.Lock()
 	delete(h.metrics, serverID)
+	delete(h.addrs, serverID)
 	h.mu.Unlock()
 }
 

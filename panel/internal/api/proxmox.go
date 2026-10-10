@@ -207,22 +207,22 @@ func guestPath(r *http.Request) (node, typ string, vmid int, err error) {
 	return node, typ, vmid, nil
 }
 
-func (a *API) pveGuestCall(w http.ResponseWriter, r *http.Request, method, sub string, form url.Values, audit string) {
+func (a *API) pveGuestCall(w http.ResponseWriter, r *http.Request, method, sub string, form url.Values, audit string) bool {
 	c, cl, err := a.pveClient(r.Context(), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
-		return
+		return false
 	}
 	node, typ, vmid, err := guestPath(r)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
-		return
+		return false
 	}
 	var upid string
 	if err := cl.Do(r.Context(), method, proxmox.GuestPath(node, typ, vmid)+sub, form, &upid); err != nil {
 		a.audit(r, "", audit, fmt.Sprintf("%s/%d", c.Name, vmid), map[string]string{"error": err.Error()}, false)
 		writeErr(w, http.StatusBadGateway, err.Error())
-		return
+		return false
 	}
 	if upid != "" {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
@@ -230,11 +230,12 @@ func (a *API) pveGuestCall(w http.ResponseWriter, r *http.Request, method, sub s
 		if err := cl.WaitTask(ctx, node, upid); err != nil {
 			a.audit(r, "", audit, fmt.Sprintf("%s/%d", c.Name, vmid), map[string]string{"error": err.Error()}, false)
 			writeErr(w, http.StatusBadGateway, err.Error())
-			return
+			return false
 		}
 	}
 	a.audit(r, "", audit, fmt.Sprintf("%s/%d", c.Name, vmid), form, true)
 	w.WriteHeader(http.StatusNoContent)
+	return true
 }
 
 func (a *API) handlePVEPower(w http.ResponseWriter, r *http.Request) {
@@ -351,8 +352,9 @@ func (a *API) handlePVEDeleteGuest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "type the guest's name to confirm")
 		return
 	}
-	a.pveGuestCall(w, r, http.MethodDelete, "", url.Values{"purge": {"1"}}, "proxmox.guest_delete")
-	_ = a.Store.UnlinkProxmoxGuest(r.Context(), r.PathValue("id"), vmid)
+	if a.pveGuestCall(w, r, http.MethodDelete, "", url.Values{"purge": {"1"}}, "proxmox.guest_delete") {
+		_ = a.Store.UnlinkProxmoxGuest(r.Context(), r.PathValue("id"), vmid)
+	}
 }
 
 // ---- provisioning ----

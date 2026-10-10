@@ -474,7 +474,7 @@ function RunDialog({ pb, hosts, onClose, onStarted }: { pb: AnsiblePlaybook; hos
           <div className="grid gap-1.5">
             <Label htmlFor="ar-vars">Extra variables (YAML or JSON, optional)</Label>
             <Textarea id="ar-vars" className="min-h-20 font-mono text-xs" value={vars} onChange={(e) => setVars(e.target.value)} placeholder="app_version: 1.4.2" spellCheck={false} />
-            <p className="text-xs text-muted-foreground">Saved with the run's history. Don't put passwords here.</p>
+            <p className="text-xs text-muted-foreground">Passed to this run only, not stored. Tasks may still print them.</p>
           </div>
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">

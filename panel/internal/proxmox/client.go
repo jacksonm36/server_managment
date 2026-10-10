@@ -76,7 +76,7 @@ func New(baseURL, tokenID, secret, pinned string) *Client {
 			InsecureSkipVerify: true, // replaced by the pin check below
 			VerifyPeerCertificate: func(raw [][]byte, _ [][]*x509.Certificate) error {
 				if len(raw) == 0 || Fingerprint(raw[0]) != pinned {
-					return errors.New("Proxmox certificate does not match the pinned fingerprint")
+					return errors.New("certificate does not match the pinned Proxmox fingerprint")
 				}
 				return nil
 			},
