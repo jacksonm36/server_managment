@@ -192,6 +192,10 @@ export type CatalogApp = {
   homepage: string;
   notes?: string;
   updatable: boolean;
+  kind: "php" | "compose";
+  needs_docker: boolean;
+  min_ram_mb?: number;
+  protect: boolean;
 };
 
 export type FeatureStatus = "done" | "in-progress" | "todo";
@@ -295,10 +299,11 @@ export const api = {
   agentBuild: () => request<{ version: string; sha256: Record<string, string> }>("GET", "/api/v1/agent-build"),
   updateAgent: (id: string) => request<Job>("POST", `/api/v1/servers/${id}/agent-update`),
   apps: () => request<CatalogApp[]>("GET", "/api/v1/apps"),
-  installApp: (id: string, body: Record<string, string>) =>
+  installApp: (id: string, body: Record<string, string | boolean>) =>
     request<{ runs: PlaybookRun[]; credentials: Record<string, string>; notes?: string }>("POST", `/api/v1/servers/${id}/apps`, body),
   updateApp: (id: string, domain: string, app: string) => request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/update`, { app }),
-  uninstallApp: (id: string, domain: string, db: string) => request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/uninstall`, { db }),
+  uninstallApp: (id: string, domain: string, db: string, compose = "") =>
+    request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/uninstall`, { db, compose }),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string, playbookId = "") =>
     request<JoinToken>("POST", "/api/v1/join-tokens", { name, playbook_id: playbookId }),

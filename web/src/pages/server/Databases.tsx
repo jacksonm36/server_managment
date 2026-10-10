@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input, Label } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OpStatus, Offline } from "@/components/OpStatus";
+import { DbToolPicker } from "@/components/DbToolPicker";
 
 type DB = { name: string; size: number; users: string[] };
 type DBUser = { user: string; host: string; databases: string[] };
@@ -21,7 +22,7 @@ function genPassword() {
   return Array.from(buf, (n) => abc[n % abc.length]).join("");
 }
 
-export function Databases({ serverId, online }: { serverId: string; online: boolean }) {
+export function Databases({ serverId, online, onInstallApp }: { serverId: string; online: boolean; onInstallApp?: (app: string) => void }) {
   const { data, busy, error, job, run } = useAgentState<State>(serverId, "db.status", online);
   const [dialog, setDialog] = useState<"db" | "user" | null>(null);
   const [created, setCreated] = useState<{ user: string; host: string; password: string; db?: string } | null>(null);
@@ -46,6 +47,7 @@ export function Databases({ serverId, online }: { serverId: string; online: bool
   return (
     <div className="grid gap-4">
       {created && <Credentials c={created} onClose={() => setCreated(null)} />}
+      {data?.active && onInstallApp && <DbToolPicker serverId={serverId} online={online} onInstall={onInstallApp} />}
       <Card>
         <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
           <div>

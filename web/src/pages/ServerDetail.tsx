@@ -58,6 +58,7 @@ export function ServerDetail({ id }: { id: string }) {
   const [, navigate] = useLocation();
   const [tab, setTab] = useTab();
   const [logUnit, setLogUnit] = useState("");
+  const [pendingApp, setPendingApp] = useState("");
   const build = useAgentBuild();
   const role = useRole();
   const [updating, setUpdating] = useState("");
@@ -179,10 +180,19 @@ export function ServerDetail({ id }: { id: string }) {
           <Terminal serverId={id} online={server.online} />
         </Suspense>
       )}
-      {tab === "apps" && <Apps serverId={id} online={server.online} />}
+      {tab === "apps" && <Apps serverId={id} online={server.online} initialApp={pendingApp} onInitialAppUsed={() => setPendingApp("")} />}
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "docker" && <Docker serverId={id} online={server.online} />}
-      {tab === "databases" && <Databases serverId={id} online={server.online} />}
+      {tab === "databases" && (
+        <Databases
+          serverId={id}
+          online={server.online}
+          onInstallApp={(app) => {
+            setPendingApp(app);
+            setTab("apps");
+          }}
+        />
+      )}
       {tab === "files" && <Files serverId={id} online={server.online} />}
       {tab === "services" && (
         <Services

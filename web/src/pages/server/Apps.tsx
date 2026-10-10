@@ -13,7 +13,7 @@ import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Offline } from "@/components/OpStatus";
 
-type SiteApp = { id: string; name: string; version: string; db?: string; installed_at: string; updated_at?: string };
+type SiteApp = { id: string; name: string; version: string; db?: string; compose?: string; installed_at: string; updated_at?: string };
 type Site = { domain: string; tls: string; app?: SiteApp };
 type Web = { nginx: boolean; php_versions: string[]; sites: Site[] };
 
@@ -23,7 +23,7 @@ const cmpVer = (a: string, b: string) => {
   return x1 - x2 || y1 - y2;
 };
 
-export function Apps({ serverId, online }: { serverId: string; online: boolean }) {
+export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serverId: string; online: boolean; initialApp?: string; onInitialAppUsed?: () => void }) {
   const role = useRole();
   const { data, run } = useAgentState<Web>(serverId, "web.status", online);
   const [catalog, setCatalog] = useState<CatalogApp[]>([]);
@@ -36,6 +36,13 @@ export function Apps({ serverId, online }: { serverId: string; online: boolean }
   useEffect(() => {
     void api.apps().then(setCatalog);
   }, []);
+  // Opened from the Databases tab picker: jump straight into that app's install dialog.
+  useEffect(() => {
+    if (!initialApp || catalog.length === 0) return;
+    const c = catalog.find((x) => x.id === initialApp);
+    if (c) setInstalling(c);
+    onInitialAppUsed?.();
+  }, [initialApp, catalog, onInitialAppUsed]);
 
   // Follow the install/update/uninstall run until it finishes.
   useEffect(() => {
@@ -53,7 +60,7 @@ export function Apps({ serverId, online }: { serverId: string; online: boolean }
   if (data && !data.nginx) {
     return (
       <Card className="p-8 text-center text-sm text-muted-foreground">
-        Install the web stack (nginx + PHP) on the Sites tab first. Apps also need MariaDB (Databases tab).
+        Install the web stack (nginx + PHP) on the Sites tab first. PHP apps also need MariaDB (Databases tab); Docker apps need Docker.
       </Card>
     );
   }
@@ -127,7 +134,7 @@ export function Apps({ serverId, online }: { serverId: string; online: boolean }
                       aria-label="Uninstall"
                       onClick={() => {
                         if (!confirm(`Uninstall ${s.app!.name} from ${s.domain}?\n\nThis deletes the site, all its files${s.app!.db ? ` and the database ${s.app!.db}` : ""}. Take a backup first if you need one.`)) return;
-                        void follow(api.uninstallApp(serverId, s.domain, s.app!.db ?? ""));
+                        void follow(api.uninstallApp(serverId, s.domain, s.app!.db ?? "", s.app!.compose ?? ""));
                       }}
                     >
                       <Trash2 className="text-destructive" />
@@ -156,10 +163,16 @@ export function Apps({ serverId, online }: { serverId: string; online: boolean }
               <div>
                 <div className="font-semibold">{c.name}</div>
                 <div className="text-xs text-muted-foreground">
-                  {c.category} · PHP {c.php_min}+{c.version !== "latest" && ` · ${c.version}`}
+                  {c.category}
+                  {c.kind === "php" && ` · PHP ${c.php_min}+`}
+                  {c.version !== "latest" && ` · ${c.version}`}
+                  {c.min_ram_mb ? ` · ${c.min_ram_mb / 1024} GB+ RAM` : ""}
                 </div>
               </div>
-              {c.database && <Badge variant="outline">MariaDB</Badge>}
+              <div className="flex gap-1">
+                {c.database && <Badge variant="outline">MariaDB</Badge>}
+                {c.needs_docker && <Badge variant="outline">Docker</Badge>}
+              </div>
             </div>
             <p className="flex-1 text-sm text-muted-foreground">{c.description}</p>
             <div className="flex items-center justify-between gap-2">
@@ -179,7 +192,10 @@ export function Apps({ serverId, online }: { serverId: string; online: boolean }
       {installing && data && (
         <InstallDialog
           app={installing}
-          phpVersions={data.php_versions.filter((v) => cmpVer(v, installing.php_min) >= 0 && (!installing.php_max || cmpVer(v, installing.php_max) <= 0))}
+          phpVersions={
+            installing.kind === "compose" ? ["-"] : data.php_versions.filter((v) => cmpVer(v, installing.php_min) >= 0 && (!installing.php_max || cmpVer(v, installing.php_max) <= 0))
+          }
+          serverMemMB={server?.latest ? Math.round(server.latest.mem_total / 1048576) : 0}
           onClose={() => setInstalling(null)}
           onInstall={async (body) => {
             const r = await api.installApp(serverId, body);
@@ -238,6 +254,8 @@ function Credentials({ creds, notes, onClose }: { creds: Record<string, string>;
     ["Database", creds.db_name],
     ["DB user", creds.db_user],
     ["DB password", creds.db_password],
+    ["Site login user", creds.access_user],
+    ["Site login password", creds.access_password],
   ].filter(([, v]) => v) as [string, string][];
   return (
     <Card className="border-brand/40 bg-brand/5">
@@ -278,14 +296,18 @@ function Credentials({ creds, notes, onClose }: { creds: Record<string, string>;
 function InstallDialog({
   app,
   phpVersions,
+  serverMemMB,
   onClose,
   onInstall,
 }: {
   app: CatalogApp;
   phpVersions: string[];
+  serverMemMB: number;
   onClose: () => void;
-  onInstall: (b: { app: string; domain: string; aliases: string; php_version: string; title: string; admin_user: string; admin_email: string; tls: string }) => Promise<void>;
+  onInstall: (b: Record<string, string | boolean>) => Promise<void>;
 }) {
+  const [protect, setProtect] = useState(app.protect);
+  const [allowIps, setAllowIps] = useState("");
   const [domain, setDomain] = useState("");
   const [aliases, setAliases] = useState("");
   const [php, setPhp] = useState(phpVersions[0] ?? "");
@@ -301,7 +323,11 @@ function InstallDialog({
       <DialogContent className="max-h-[90svh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Install {app.name}</DialogTitle>
-          <DialogDescription>Creates a new site{app.database && ", a database and a database user"}, installs {app.name} and generates the passwords.</DialogDescription>
+          <DialogDescription>
+            {app.kind === "compose"
+              ? `Runs ${app.name} in Docker behind a new HTTPS site.`
+              : `Creates a new site${app.database ? ", a database and a database user" : ""}, installs ${app.name} and generates the passwords.`}
+          </DialogDescription>
         </DialogHeader>
         {phpVersions.length === 0 ? (
           <p className="text-sm text-destructive">
@@ -316,7 +342,7 @@ function InstallDialog({
               setBusy(true);
               setError("");
               try {
-                await onInstall({ app: app.id, domain: domain.trim().toLowerCase(), aliases, php_version: php, title: title || domain, admin_user: adminUser, admin_email: adminEmail, tls });
+                await onInstall({ app: app.id, domain: domain.trim().toLowerCase(), aliases, php_version: php === "-" ? "" : php, title: title || domain, admin_user: adminUser, admin_email: adminEmail, tls, protect, allow_ips: allowIps });
               } catch (err) {
                 setError((err as Error).message);
               } finally {
@@ -333,7 +359,7 @@ function InstallDialog({
                 <Label htmlFor="ai-aliases">Aliases (optional)</Label>
                 <Input id="ai-aliases" placeholder="www.blog.example.com" value={aliases} onChange={(e) => setAliases(e.target.value)} />
               </div>
-              <div className="grid gap-2">
+              <div className={`grid gap-2 ${app.kind === "compose" ? "invisible" : ""}`}>
                 <Label htmlFor="ai-php">PHP</Label>
                 <Select id="ai-php" value={php} onChange={(e) => setPhp(e.target.value)}>
                   {phpVersions.map((v) => (
@@ -362,6 +388,26 @@ function InstallDialog({
                 </div>
               </>
             )}
+            {(app.needs_docker || (app.min_ram_mb && serverMemMB && serverMemMB < app.min_ram_mb)) && (
+              <p className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
+                <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+                <span>
+                  {app.needs_docker && "Needs Docker on this server (Docker tab). "}
+                  {app.min_ram_mb && serverMemMB && serverMemMB < app.min_ram_mb ? `Wants ${app.min_ram_mb} MB RAM; this server has ${serverMemMB} MB.` : ""}
+                </span>
+              </p>
+            )}
+            <div className="grid gap-2 rounded-lg border p-3">
+              <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                <input type="checkbox" className="accent-[var(--color-brand)]" checked={protect} onChange={(e) => setProtect(e.target.checked)} />
+                Password-protect this site{app.protect && " (recommended)"}
+              </label>
+              <p className="text-xs text-muted-foreground">Adds an extra HTTP login in front of the app; it is generated and shown once.</p>
+              <Label htmlFor="ai-ips" className="mt-1 text-xs">
+                Only allow these IPs / ranges (optional)
+              </Label>
+              <Input id="ai-ips" className="font-mono text-xs" placeholder="10.0.1.0/24 203.0.113.7" value={allowIps} onChange={(e) => setAllowIps(e.target.value)} />
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="ai-tls">HTTPS</Label>
               <Select id="ai-tls" value={tls} onChange={(e) => setTls(e.target.value)}>
