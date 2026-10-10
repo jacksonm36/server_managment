@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T15:56:48Z",
+  "updated_at": "2026-10-10T17:24:46Z",
   "phases": [
     {
       "name": "MVP",
@@ -183,6 +183,14 @@
       "features": [
         {
           "name": "One-click app catalog (WordPress, Joomla, Drupal, Nextcloud, Ghost, phpMyAdmin)",
+          "status": "done"
+        },
+        {
+          "name": "Database admin tools (Adminer / CloudBeaver picker)",
+          "status": "done"
+        },
+        {
+          "name": "CrowdSec on every server + central LAPI, shared bans, Security page",
           "status": "done"
         },
         {
