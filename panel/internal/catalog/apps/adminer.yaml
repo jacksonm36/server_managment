@@ -1,0 +1,29 @@
+id: adminer
+name: Adminer
+category: Database tools
+description: Lightweight database manager in one PHP file. Works with MariaDB/MySQL, PostgreSQL, SQLite, MS SQL and Oracle. The recommended choice.
+version: "6.1.1"
+php_min: "7.4"
+database: false
+admin: false
+protect: true
+homepage: https://www.adminer.org
+notes: Sign in with a database user (server "localhost"). The site is password-protected by default; the extra login is shown below. Light and dark themes follow your browser.
+
+install:
+  - fetch:
+      url: https://github.com/vrana/adminer/releases/download/v6.1.1/adminer-6.1.1.php
+      sha256: 49c4d400994ef74bbb1b1b4d06c05445c1ba49ba3766b9092dce157750e09303
+      into: public
+      as: index.php
+  # Modern themes from the same release tag: light (pepa-linha) and dark (Dracula).
+  - fetch:
+      url: https://raw.githubusercontent.com/vrana/adminer/v6.1.1/designs/pepa-linha/adminer.css
+      sha256: 23f345dea08c812ea680567f5154d8079cb43e7f5a456ffa91673adbd8c723b6
+      into: public
+      as: adminer.css
+  - fetch:
+      url: https://raw.githubusercontent.com/vrana/adminer/v6.1.1/designs/dracula/adminer-dark.css
+      sha256: a616dc5570690394a666bbce679e0d5bb9be86b83993fbfed39cb2bbd751298e
+      into: public
+      as: adminer-dark.css

@@ -57,6 +57,7 @@ type Site struct {
 	CreatedAt   time.Time     `json:"created_at"`
 	Backup      *BackupPolicy `json:"backup,omitempty"`
 	App         *SiteApp      `json:"app,omitempty"`
+	Access      *SiteAccess   `json:"access,omitempty"`
 }
 
 func (s *Site) home() string    { return filepath.Join(sitesRoot, s.Domain) }
@@ -407,6 +408,8 @@ server {
     location ^~ /.well-known/acme-challenge/ {
         root {{.ACME}};
         default_type text/plain;
+        auth_basic off;
+        allow all;
     }
 {{- if and .HasCert $s.ForceHTTPS}}
 
@@ -436,6 +439,19 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_session_cache shared:SSL:10m;
     add_header Strict-Transport-Security "max-age=31536000" always;
+{{- end}}
+
+{{- with $s.Access}}
+{{- range .AllowIPs}}
+    allow {{.}};
+{{- end}}
+{{- if .AllowIPs}}
+    deny all;
+{{- end}}
+{{- if .AuthUser}}
+    auth_basic "Restricted";
+    auth_basic_user_file {{$.Htpasswd}};
+{{- end}}
 {{- end}}
 
     root {{$s.Root}};
@@ -518,7 +534,7 @@ func renderNginxWith(s *Site, hasCert bool) ([]byte, error) {
 	var b bytes.Buffer
 	err := nginxTmpl.Execute(&b, map[string]any{
 		"Site": s, "Names": strings.Join(s.names(), " "), "ACME": acmeWebroot, "Home": s.home(),
-		"HasCert": hasCert, "CertDir": s.certDir(), "Socket": s.fpmSocket(), "HTTP2On": nginxModernHTTP2(),
+		"HasCert": hasCert, "CertDir": s.certDir(), "Socket": s.fpmSocket(), "HTTP2On": nginxModernHTTP2(), "Htpasswd": s.htpasswdFile(),
 	})
 	return b.Bytes(), err
 }

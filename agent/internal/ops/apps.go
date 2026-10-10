@@ -33,6 +33,7 @@ type SiteApp struct {
 	Version     string    `json:"version"`
 	DB          string    `json:"db,omitempty"`
 	DBUser      string    `json:"db_user,omitempty"`
+	Compose     string    `json:"compose,omitempty"` // compose app name for Docker-based apps
 	InstalledAt time.Time `json:"installed_at"`
 	UpdatedAt   time.Time `json:"updated_at,omitzero"`
 }
@@ -53,7 +54,8 @@ type fetchStep struct {
 	URL    string `json:"url"`
 	SHA256 string `json:"sha256"`
 	Strip  int    `json:"strip"`
-	Into   string `json:"into"` // relative to the site home, usually "public"
+	Into   string `json:"into"`         // relative to the site home, usually "public"
+	As     string `json:"as,omitempty"` // save the download under this name instead of extracting
 }
 
 type writeStep struct {
@@ -396,8 +398,12 @@ func runAppSteps(ctx context.Context, s *Site, steps []appStep, vars map[string]
 			if err != nil {
 				return "", err
 			}
-			logf("checksum ok; extracting into %s", into)
-			err = extract(tmp, url, into, st.Fetch.Strip)
+			if st.Fetch.As != "" {
+				err = placeFile(tmp, into, st.Fetch.As)
+			} else {
+				logf("checksum ok; extracting into %s", into)
+				err = extract(tmp, url, into, st.Fetch.Strip)
+			}
 			os.Remove(tmp)
 			if err != nil {
 				return "", err
@@ -448,12 +454,15 @@ func parseAppParams(p map[string]string) (*Site, []appStep, map[string]string, e
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if s.Type != "php" {
-		return nil, nil, nil, errors.New("apps need a PHP site")
-	}
 	var steps []appStep
-	if err := json.Unmarshal([]byte(p["steps"]), &steps); err != nil {
-		return nil, nil, nil, fmt.Errorf("bad steps: %w", err)
+	if p["steps"] != "" {
+		if err := json.Unmarshal([]byte(p["steps"]), &steps); err != nil {
+			return nil, nil, nil, fmt.Errorf("bad steps: %w", err)
+		}
+	}
+	// PHP apps run steps in the docroot; Docker apps (proxy sites) only register.
+	if s.Type != "php" && len(steps) > 0 {
+		return nil, nil, nil, errors.New("apps with install steps need a PHP site")
 	}
 	vars := map[string]string{}
 	if p["vars"] != "" {
@@ -476,13 +485,15 @@ func appDeploy(ctx context.Context, p map[string]string, logf func(string, ...an
 	if s.App != nil {
 		return nil, fmt.Errorf("%s already runs %s", s.Domain, s.App.Name)
 	}
-	// Start from an empty docroot (the welcome page is ours).
-	_ = os.Remove(filepath.Join(s.Root, "index.html"))
-	if _, err := runAppSteps(ctx, s, steps, vars, logf); err != nil {
-		return nil, err
-	}
-	if err := fixOwnership(ctx, s); err != nil {
-		return nil, err
+	if len(steps) > 0 {
+		// Start from an empty docroot (the welcome page is ours).
+		_ = os.Remove(filepath.Join(s.Root, "index.html"))
+		if _, err := runAppSteps(ctx, s, steps, vars, logf); err != nil {
+			return nil, err
+		}
+		if err := fixOwnership(ctx, s); err != nil {
+			return nil, err
+		}
 	}
 	version := p["version"]
 	if vs := p["version_steps"]; vs != "" {
@@ -494,7 +505,7 @@ func appDeploy(ctx context.Context, p map[string]string, logf func(string, ...an
 		}
 	}
 	siteMu.Lock()
-	s.App = &SiteApp{ID: p["app"], Name: p["name"], Version: version, DB: vars["db_name"], DBUser: vars["db_user"], InstalledAt: time.Now().UTC()}
+	s.App = &SiteApp{ID: p["app"], Name: p["name"], Version: version, DB: vars["db_name"], DBUser: vars["db_user"], Compose: p["compose"], InstalledAt: time.Now().UTC()}
 	err = saveSite(s)
 	siteMu.Unlock()
 	if err != nil {
@@ -554,4 +565,19 @@ func maskSecrets(logf func(string, ...any), vars map[string]string) func(string,
 		}
 		logf("%s", line)
 	}
+}
+
+// placeFile moves a single downloaded file (e.g. adminer.php) into dir.
+func placeFile(tmp, dir, name string) error {
+	if name != filepath.Base(name) || strings.HasPrefix(name, ".") {
+		return fmt.Errorf("invalid file name %q", name)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	b, err := os.ReadFile(tmp)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(filepath.Join(dir, name), b, 0o640)
 }

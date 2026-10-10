@@ -158,6 +158,8 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = composeSave(ctx, p, logf)
 	case agentv1.Op_OP_COMPOSE_ACTION:
 		result, err = composeAction(ctx, p, logf)
+	case agentv1.Op_OP_SITE_ACCESS:
+		result, err = withSiteLock(func() (any, error) { return siteAccess(ctx, p, logf) })
 	case agentv1.Op_OP_APP_DEPLOY:
 		result, err = appDeploy(ctx, p, logf)
 	case agentv1.Op_OP_APP_UPDATE:

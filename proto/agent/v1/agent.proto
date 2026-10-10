@@ -173,6 +173,7 @@ enum Op {
   OP_AGENT_UPDATE = 60;         // params: sha256, version, current
   OP_APP_DEPLOY = 61;           // params: domain, app, name, version, steps, version_steps, vars
   OP_APP_UPDATE = 62;           // params: domain, steps, version_steps, vars
+  OP_SITE_ACCESS = 63;          // params: domain, auth (on|off), auth_user, auth_password, allow_ips
 }
 
 message Job {

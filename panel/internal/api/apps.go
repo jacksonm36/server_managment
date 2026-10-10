@@ -3,9 +3,11 @@ package api
 import (
 	"crypto/rand"
 	"encoding/json"
+	"hash/fnv"
 	"math/big"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/jacksonm36/servermgr/panel/internal/catalog"
@@ -53,6 +55,8 @@ func (a *API) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		AdminUser  string `json:"admin_user"`
 		AdminEmail string `json:"admin_email"`
 		TLS        string `json:"tls"`
+		Protect    bool   `json:"protect"`
+		AllowIPs   string `json:"allow_ips"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -92,10 +96,15 @@ func (a *API) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 	creds := map[string]string{"url": scheme + "://" + req.Domain + "/"}
+	if app.Kind == "compose" {
+		a.installComposeApp(w, r, app, srv, req.Domain, req.Aliases, req.TLS, req.Protect, req.AllowIPs, scheme, creds)
+		return
+	}
 	vars := map[string]string{"site_url": scheme + "://" + req.Domain, "title": req.Title,
 		// Salts/keys for app config files (masked in job output like passwords).
 		"secret_32": genPassword(32), "secret_64": genPassword(64)}
 	steps := []store.Step{{Op: "site.create", Params: map[string]string{"domain": req.Domain, "aliases": req.Aliases, "type": "php", "php_version": req.PHPVersion}}}
+	steps = append(steps, accessStep(req.Domain, req.Protect, req.AllowIPs, creds)...)
 	if app.Database {
 		db, user := dbNames(req.Domain)
 		pw := genPassword(24)
@@ -118,10 +127,14 @@ func (a *API) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		steps = append(steps, store.Step{Op: "site.tls", Params: map[string]string{"domain": req.Domain, "mode": req.TLS}})
 	}
 	// If anything fails, remove what this install created.
-	// Step 0 is site.create and step 1 (if any) db.create.
+	// Undo site.create (step 0) and db.create, wherever it ended up.
 	rollback := []store.Step{{Op: "site.delete", Params: map[string]string{"domain": req.Domain, "delete_files": "true"}, UndoFor: 0}}
 	if db := vars["db_name"]; db != "" {
-		rollback = append(rollback, store.Step{Op: "db.delete", Params: map[string]string{"name": db, "drop_users": "true"}, UndoFor: 1})
+		for i, st := range steps {
+			if st.Op == "db.create" {
+				rollback = append(rollback, store.Step{Op: "db.delete", Params: map[string]string{"name": db, "drop_users": "true"}, UndoFor: i})
+			}
+		}
 	}
 	pb := &store.Playbook{Name: "Install " + app.Name + " on " + req.Domain, Steps: steps, Rollback: rollback}
 	runs, err := a.startRuns(r.Context(), whoFrom(r), pb, []string{srv.ID})
@@ -130,6 +143,62 @@ func (a *API) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.audit(r, "", "app.install", srv.Name, map[string]string{"app": app.ID, "domain": req.Domain}, true)
+	writeJSON(w, http.StatusAccepted, map[string]any{"runs": runs, "credentials": creds, "notes": app.Notes})
+}
+
+// accessStep protects a new site with a generated HTTP login and/or an IP
+// allowlist, recording the login in creds (shown once).
+func accessStep(domain string, protect bool, allowIPs string, creds map[string]string) []store.Step {
+	allowIPs = strings.TrimSpace(allowIPs)
+	if !protect && allowIPs == "" {
+		return nil
+	}
+	p := map[string]string{"domain": domain, "allow_ips": allowIPs}
+	if protect {
+		pw := genPassword(20)
+		p["auth"], p["auth_user"], p["auth_password"] = "on", "dbadmin", pw
+		creds["access_user"], creds["access_password"] = "dbadmin", pw
+	}
+	return []store.Step{{Op: "site.access", Params: p}}
+}
+
+var composeVarRe = regexp.MustCompile(`\$\{(port|secret_32|secret_64)\}`)
+
+// installComposeApp runs a Docker compose app on a loopback port and puts
+// an nginx proxy site (with optional protection and TLS) in front of it.
+func (a *API) installComposeApp(w http.ResponseWriter, r *http.Request, app *catalog.App, srv *store.Server, domain, aliases, tls string, protect bool, allowIPs, scheme string, creds map[string]string) {
+	h := fnv.New32a()
+	h.Write([]byte(domain))
+	port := strconv.Itoa(20000 + int(h.Sum32()%10000))
+	vals := map[string]string{"port": port, "secret_32": genPassword(32), "secret_64": genPassword(64)}
+	yaml := composeVarRe.ReplaceAllStringFunc(app.Compose, func(m string) string { return vals[m[2:len(m)-1]] })
+	name := "app-" + strings.Trim(nonIdent.ReplaceAllString(strings.ToLower(domain), "-"), "-")
+	if len(name) > 60 {
+		name = name[:60]
+	}
+	steps := []store.Step{
+		{Op: "compose.save", Params: map[string]string{"name": name, "yaml": yaml, "deploy": "true"}},
+		{Op: "site.create", Params: map[string]string{"domain": domain, "aliases": aliases, "type": "proxy", "proxy_target": "http://127.0.0.1:" + port}},
+	}
+	steps = append(steps, accessStep(domain, protect, allowIPs, creds)...)
+	steps = append(steps, store.Step{Op: "app.deploy", Params: map[string]string{"domain": domain, "app": app.ID, "name": app.Name, "version": app.Version, "compose": name}})
+	if tls != "" {
+		steps = append(steps, store.Step{Op: "site.tls", Params: map[string]string{"domain": domain, "mode": tls}})
+	}
+	rollback := []store.Step{
+		{Op: "compose.action", Params: map[string]string{"name": name, "action": "delete"}, UndoFor: 0},
+		{Op: "site.delete", Params: map[string]string{"domain": domain, "delete_files": "true"}, UndoFor: 1},
+	}
+	pb := &store.Playbook{Name: "Install " + app.Name + " on " + domain, Steps: steps, Rollback: rollback}
+	runs, err := a.startRuns(r.Context(), whoFrom(r), pb, []string{srv.ID})
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if app.AdminPath != "" {
+		creds["admin_url"] = scheme + "://" + domain + app.AdminPath
+	}
+	a.audit(r, "", "app.install", srv.Name, map[string]string{"app": app.ID, "domain": domain}, true)
 	writeJSON(w, http.StatusAccepted, map[string]any{"runs": runs, "credentials": creds, "notes": app.Notes})
 }
 
@@ -159,13 +228,18 @@ func (a *API) handleUpdateApp(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleUninstallApp(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		DB string `json:"db"`
+		DB      string `json:"db"`
+		Compose string `json:"compose"`
 	}
 	if !readJSON(w, r, &req) {
 		return
 	}
 	domain := r.PathValue("domain")
-	steps := []store.Step{{Op: "site.delete", Params: map[string]string{"domain": domain, "delete_files": "true"}}}
+	var steps []store.Step
+	if req.Compose != "" {
+		steps = append(steps, store.Step{Op: "compose.action", Params: map[string]string{"name": req.Compose, "action": "delete"}})
+	}
+	steps = append(steps, store.Step{Op: "site.delete", Params: map[string]string{"domain": domain, "delete_files": "true"}})
 	if req.DB != "" {
 		steps = append(steps, store.Step{Op: "db.delete", Params: map[string]string{"name": req.DB, "drop_users": "true"}})
 	}

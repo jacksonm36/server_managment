@@ -33,6 +33,16 @@ type App struct {
 	Notes       string `yaml:"notes" json:"notes,omitempty"` // shown after install
 	Updatable   bool   `json:"updatable"`
 
+	// Kind is "php" (default: steps run in a PHP site) or "compose" (a Docker
+	// compose app behind an nginx proxy site).
+	Kind        string `yaml:"kind" json:"kind"`
+	Compose     string `yaml:"compose" json:"-"`
+	NeedsDocker bool   `yaml:"needs_docker" json:"needs_docker"`
+	MinRAMMB    int    `yaml:"min_ram_mb" json:"min_ram_mb,omitempty"`
+	// Protect turns on password protection for the site by default
+	// (database tools reach every database on the server).
+	Protect bool `yaml:"protect" json:"protect"`
+
 	Install []map[string]any `yaml:"install" json:"-"`
 	Update  []map[string]any `yaml:"update" json:"-"`
 	Ver     []map[string]any `yaml:"version_check" json:"-"`
@@ -49,8 +59,11 @@ func init() {
 		if err := yaml.Unmarshal(b, a); err != nil {
 			panic(fmt.Sprintf("catalog %s: %v", n, err))
 		}
-		if a.ID == "" || len(a.Install) == 0 {
-			panic("catalog " + n + ": id and install are required")
+		if a.Kind == "" {
+			a.Kind = "php"
+		}
+		if a.ID == "" || (a.Kind == "php" && len(a.Install) == 0) || (a.Kind == "compose" && a.Compose == "") {
+			panic("catalog " + n + ": id and install (php) or compose (compose) are required")
 		}
 		a.Updatable = len(a.Update) > 0
 		apps[a.ID] = a

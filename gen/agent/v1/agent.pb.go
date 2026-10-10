@@ -139,6 +139,7 @@ const (
 	Op_OP_AGENT_UPDATE           Op = 60 // params: sha256, version, current
 	Op_OP_APP_DEPLOY             Op = 61 // params: domain, app, name, version, steps, version_steps, vars
 	Op_OP_APP_UPDATE             Op = 62 // params: domain, steps, version_steps, vars
+	Op_OP_SITE_ACCESS            Op = 63 // params: domain, auth (on|off), auth_user, auth_password, allow_ips
 )
 
 // Enum value maps for Op.
@@ -207,6 +208,7 @@ var (
 		60: "OP_AGENT_UPDATE",
 		61: "OP_APP_DEPLOY",
 		62: "OP_APP_UPDATE",
+		63: "OP_SITE_ACCESS",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -272,6 +274,7 @@ var (
 		"OP_AGENT_UPDATE":           60,
 		"OP_APP_DEPLOY":             61,
 		"OP_APP_UPDATE":             62,
+		"OP_SITE_ACCESS":            63,
 	}
 )
 
@@ -1332,7 +1335,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xd1\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xe5\n" +
 	"\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
@@ -1398,7 +1401,8 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x11OP_COMPOSE_ACTION\x10;\x12\x13\n" +
 	"\x0fOP_AGENT_UPDATE\x10<\x12\x11\n" +
 	"\rOP_APP_DEPLOY\x10=\x12\x11\n" +
-	"\rOP_APP_UPDATE\x10>2M\n" +
+	"\rOP_APP_UPDATE\x10>\x12\x12\n" +
+	"\x0eOP_SITE_ACCESS\x10?2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

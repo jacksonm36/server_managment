@@ -319,7 +319,8 @@ var opsByName = map[string]opSpec{
 	"compose.save":           {op: agentv1.Op_OP_COMPOSE_SAVE, params: []string{"name", "yaml", "deploy"}, maxParam: 256 << 10},
 	"compose.action":         {op: agentv1.Op_OP_COMPOSE_ACTION, params: []string{"name", "action"}},
 	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current"}},
-	"app.deploy":             {op: agentv1.Op_OP_APP_DEPLOY, params: []string{"domain", "app", "name", "version", "steps", "version_steps", "vars"}, maxParam: 64 << 10},
+	"app.deploy":             {op: agentv1.Op_OP_APP_DEPLOY, params: []string{"domain", "app", "name", "version", "steps", "version_steps", "vars", "compose"}, maxParam: 64 << 10},
+	"site.access":            {op: agentv1.Op_OP_SITE_ACCESS, params: []string{"domain", "auth", "auth_user", "auth_password", "allow_ips"}},
 	"app.update":             {op: agentv1.Op_OP_APP_UPDATE, params: []string{"domain", "steps", "version_steps", "vars"}, maxParam: 64 << 10},
 	"backup.list":            {op: agentv1.Op_OP_BACKUP_LIST},
 	"backup.create":          {op: agentv1.Op_OP_BACKUP_CREATE, params: []string{"domain", "databases"}},
@@ -330,7 +331,7 @@ var opsByName = map[string]opSpec{
 
 // secretParams are forwarded to the agent but never stored in job history
 // or the audit log.
-var secretParams = []string{"password", "vars"}
+var secretParams = []string{"password", "vars", "auth_password"}
 
 // bulkyParams (file contents) are replaced by their size when stored.
 var bulkyParams = []string{"content", "content_b64", "yaml"}

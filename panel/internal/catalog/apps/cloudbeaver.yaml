@@ -1,0 +1,26 @@
+id: cloudbeaver
+name: CloudBeaver Community
+category: Database tools
+kind: compose
+description: DBeaver's modern web database manager. Supports most SQL databases. Runs in Docker.
+version: "26.2.2"
+needs_docker: true
+min_ram_mb: 1024
+protect: true
+admin_path: /
+homepage: https://dbeaver.com/docs/cloudbeaver/
+notes: On first visit CloudBeaver's setup wizard asks you to create its admin account; the site is password-protected so nobody else can do that first. To reach MariaDB on this server from the container, grant a database user from the Docker network (e.g. 172.17.0.%) and bind MariaDB to 0.0.0.0 or use the host's Docker bridge IP.
+
+compose: |
+  services:
+    cloudbeaver:
+      image: dbeaver/cloudbeaver:26.2.2
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:8978"
+      volumes:
+        - workspace:/opt/cloudbeaver/workspace
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+  volumes:
+    workspace: {}

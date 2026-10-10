@@ -17,6 +17,7 @@ func TestDumpNginx(t *testing.T) {
 		{Domain: "static.test", Type: "static", Root: "/srv/sites/static.test/public"},
 		{Domain: "php.test", Aliases: []string{"www.php.test"}, Type: "php", PHPVersion: "8.4", Root: "/srv/sites/php.test/public"},
 		{Domain: "app.test", Type: "proxy", ProxyTarget: "http://127.0.0.1:3000", Root: "/srv/sites/app.test/public"},
+		{Domain: "locked.test", Type: "php", PHPVersion: "8.4", Root: "/srv/sites/locked.test/public", Access: &SiteAccess{AuthUser: "dbadmin", AllowIPs: []string{"10.0.1.0/24", "2001:db8::/32"}}},
 	}
 	for _, tls := range []struct {
 		name  string
