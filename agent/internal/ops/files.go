@@ -262,10 +262,10 @@ func filesMkdir(p map[string]string, logf func(string, ...any)) (any, error) {
 	if _, ok := siteHomeOf(path); !ok || protected(path) {
 		return nil, errors.New("folders can only be created inside a site")
 	}
-	if err := os.Mkdir(path, 0o2750); err != nil {
+	if err := os.Mkdir(path, 0o750); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, 0o2750); err != nil {
+	if err := os.Chmod(path, os.ModeSetgid|0o750); err != nil {
 		return nil, err
 	}
 	if err := ownSite(path); err != nil {

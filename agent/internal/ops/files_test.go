@@ -96,3 +96,15 @@ func TestFilesOps(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMkdirSetgid(t *testing.T) {
+	root := withFilesRoot(t)
+	dir := root + "/a.test/public/sub"
+	if _, err := filesMkdir(map[string]string{"path": dir}, func(string, ...any) {}); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || fi.Mode()&os.ModeSetgid == 0 {
+		t.Fatalf("setgid not set: %v %v", fi.Mode(), err)
+	}
+}

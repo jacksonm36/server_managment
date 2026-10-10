@@ -194,7 +194,6 @@ func webStatus(ctx context.Context) (any, error) {
 }
 
 const nginxHardening = `# Managed by servermgr.
-server_tokens off;
 map $http_upgrade $sm_connection_upgrade {
     default upgrade;
     ''      close;
@@ -205,8 +204,13 @@ func webInstall(ctx context.Context, p map[string]string, logf func(string, ...a
 	if err := aptInstall(ctx, logf, "nginx", "ssl-cert"); err != nil {
 		return nil, err
 	}
-	if err := os.WriteFile("/etc/nginx/conf.d/servermgr.conf", []byte(nginxHardening), 0o644); err != nil {
+	const snippet = "/etc/nginx/conf.d/servermgr.conf"
+	if err := os.WriteFile(snippet, []byte(nginxHardening), 0o644); err != nil {
 		return nil, err
+	}
+	if err := run(ctx, logf, "nginx", "-t"); err != nil {
+		_ = os.Remove(snippet)
+		return nil, fmt.Errorf("nginx rejected servermgr.conf, removed it: %w", err)
 	}
 	// The stock default site answers for every unknown host; keep it but
 	// make sure our sites win with explicit server_names.
@@ -331,7 +335,7 @@ server {
 {{- end}}
 
     root {{$s.Root}};
-    index index.html index.htm{{if eq $s.Type "php"}} index.php{{end}};
+    index {{if eq $s.Type "php"}}index.php {{end}}index.html index.htm;
     access_log {{.Home}}/logs/access.log;
     error_log  {{.Home}}/logs/error.log;
     client_max_body_size 64m;
@@ -556,7 +560,7 @@ func siteCreate(ctx context.Context, p map[string]string, logf func(string, ...a
 	for _, d := range []struct {
 		path string
 		mode os.FileMode
-	}{{s.home(), 0o750}, {s.Root, 0o2750}, {filepath.Join(s.home(), "logs"), 0o750}, {filepath.Join(s.home(), "tmp"), 0o700}} {
+	}{{s.home(), 0o750}, {s.Root, os.ModeSetgid | 0o750}, {filepath.Join(s.home(), "logs"), 0o750}, {filepath.Join(s.home(), "tmp"), 0o700}} {
 		if err := os.MkdirAll(d.path, d.mode); err != nil {
 			return nil, err
 		}
