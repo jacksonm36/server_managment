@@ -198,6 +198,28 @@ export type CatalogApp = {
   protect: boolean;
 };
 
+// Shapes are cscli's JSON output, passed through by the panel.
+export type CsDecision = { id: number; value: string; scope: string; type: string; duration: string; origin: string; scenario: string };
+export type CsAlert = {
+  id: number;
+  scenario: string;
+  machine_id: string;
+  created_at: string;
+  events_count: number;
+  source: { ip?: string; range?: string; cn?: string; as_name?: string; scope: string; value: string };
+  decisions?: CsDecision[];
+};
+export type CrowdSecOverview = {
+  available: boolean;
+  error?: string;
+  lapi_url?: string;
+  machines?: { machineId: string; isValidated: boolean; last_heartbeat?: string; version?: string; ipAddress?: string }[];
+  bouncers?: { name: string; last_pull?: string; version?: string; ip_address?: string; revoked?: boolean }[];
+  decisions?: CsAlert[];
+  alerts?: CsAlert[];
+  allowlist?: { items?: { value: string; created_at: string }[] } | null;
+};
+
 export type FeatureStatus = "done" | "in-progress" | "todo";
 
 export type Progress = {
@@ -305,6 +327,15 @@ export const api = {
   uninstallApp: (id: string, domain: string, db: string, compose = "") =>
     request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/uninstall`, { db, compose }),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
+  crowdsec: () => request<CrowdSecOverview>("GET", "/api/v1/crowdsec"),
+  crowdsecBan: (b: { type: string; value: string; duration: string; reason: string }) =>
+    request<void>("POST", "/api/v1/crowdsec/decisions", b),
+  crowdsecUnban: (id: number) => request<void>("DELETE", `/api/v1/crowdsec/decisions/${id}`),
+  crowdsecAllow: (action: "add" | "remove", value: string) => request<void>("POST", "/api/v1/crowdsec/allowlist", { action, value }),
+  crowdsecEnroll: (key: string, name: string) => request<{ result: string }>("POST", "/api/v1/crowdsec/enroll", { key, name }),
+  crowdsecInstall: (id: string, trustLan: boolean) =>
+    request<Job>("POST", `/api/v1/servers/${id}/crowdsec/install${trustLan ? "" : "?trust_lan=off"}`),
+  crowdsecRemove: (id: string) => request<Job>("POST", `/api/v1/servers/${id}/crowdsec/remove`),
   createJoinToken: (name: string, playbookId = "") =>
     request<JoinToken>("POST", "/api/v1/join-tokens", { name, playbook_id: playbookId }),
   baseline: () => request<{ playbook_id: string }>("GET", "/api/v1/settings/baseline"),

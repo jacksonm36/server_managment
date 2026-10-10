@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Shield,
   ShieldBan,
+  ShieldCheck,
   SquareTerminal,
   Trash2,
 } from "lucide-react";
@@ -48,6 +49,7 @@ import { Backups } from "./server/Backups";
 import { SSHKeys } from "./server/SSHKeys";
 import { Firewall } from "./server/Firewall";
 import { Fail2ban } from "./server/Fail2ban";
+import { ServerCrowdSec } from "./server/CrowdSec";
 
 const EMPTY: never[] = [];
 
@@ -211,6 +213,7 @@ export function ServerDetail({ id }: { id: string }) {
       {tab === "ssh" && <SSHKeys serverId={id} online={server.online} />}
       {tab === "firewall" && <Firewall serverId={id} online={server.online} />}
       {tab === "fail2ban" && <Fail2ban serverId={id} online={server.online} />}
+      {tab === "crowdsec" && <ServerCrowdSec serverId={id} online={server.online} onOpenFail2ban={() => setTab("fail2ban")} />}
       {tab === "tasks" && <Jobs serverId={id} online={server.online} />}
         </div>
       </div>
@@ -234,6 +237,7 @@ const TABS = [
   { id: "updates", label: "Updates", icon: PackageCheck, group: "System" },
   { id: "ssh", label: "SSH keys", icon: KeyRound, group: "Security" },
   { id: "firewall", label: "Firewall", icon: Shield, group: "Security" },
+  { id: "crowdsec", label: "CrowdSec", icon: ShieldCheck, group: "Security" },
   { id: "fail2ban", label: "Fail2ban", icon: ShieldBan, group: "Security" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];

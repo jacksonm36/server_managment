@@ -68,6 +68,33 @@ export const CATALOG: OpDef[] = [
   { op: "fail2ban.install", label: "Install Fail2ban", group: "Security", fields: [] },
   { op: "crowdsec.status", label: "CrowdSec status", group: "Security", fields: [] },
   {
+    op: "crowdsec.install",
+    label: "Install / repair CrowdSec",
+    group: "Security",
+    fields: [
+      {
+        key: "trust_lan",
+        label: "Private networks",
+        kind: "select",
+        options: [
+          { value: "on", label: "Never ban private IPs (default)" },
+          { value: "off", label: "Detect attacks from private IPs too" },
+        ],
+        optional: true,
+      },
+    ],
+  },
+  {
+    op: "crowdsec.hub",
+    label: "CrowdSec collections",
+    group: "Security",
+    fields: [
+      { key: "action", label: "Action", kind: "select", options: ["install", "remove"].map((v) => ({ value: v, label: v })) },
+      { key: "items", label: "Collections", placeholder: "crowdsecurity/nginx crowdsecurity/wordpress" },
+    ],
+  },
+  { op: "crowdsec.remove", label: "Remove CrowdSec", group: "Security", fields: [], danger: true },
+  {
     op: "fail2ban.configure",
     label: "Fail2ban settings",
     group: "Security",

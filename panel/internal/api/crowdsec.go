@@ -88,32 +88,41 @@ func (a *API) ensureAllowlist(ctx context.Context, adminIP string) {
 	_, _ = cscli(ctx, append([]string{"allowlists", "add", csAllowlist}, vals...)...)
 }
 
-// handleCrowdSecInstall creates this server's machine + bouncer on the
-// central LAPI and sends the credentials to the agent (redacted in history).
-func (a *API) handleCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
-	srv, err := a.Store.GetServer(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "server not found")
-		return
-	}
-	ctx := r.Context()
+// provisionCrowdSec (re)creates the server's machine + bouncer on the
+// central LAPI and returns the agent params with the credentials added
+// (Dispatch stores them redacted). The caller's map is not modified.
+func (a *API) provisionCrowdSec(ctx context.Context, srv *store.Server, adminIP string, in map[string]string) (map[string]string, error) {
 	name := machineName(srv)
 	pw := genPassword(32)
 	_, _ = cscli(ctx, "machines", "delete", name)
 	if _, err := cscli(ctx, "machines", "add", name, "--password", pw, "-f", "/dev/null", "--force"); err != nil {
-		writeErr(w, http.StatusBadGateway, "central CrowdSec: "+err.Error())
-		return
+		return nil, fmt.Errorf("central CrowdSec: %v", err)
 	}
 	_, _ = cscli(ctx, "bouncers", "delete", name+"-fw")
 	key, err := cscli(ctx, "bouncers", "add", name+"-fw", "-o", "raw")
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "central CrowdSec: "+err.Error())
-		return
+		return nil, fmt.Errorf("central CrowdSec: %v", err)
 	}
-	a.ensureAllowlist(ctx, clientIP(r))
-	job, err := a.Dispatch(ctx, whoFrom(r), srv.ID, "crowdsec.install", map[string]string{
-		"lapi_url": a.lapiURL(), "machine": name, "password": pw, "bouncer_key": strings.TrimSpace(string(key)),
-	})
+	a.ensureAllowlist(ctx, adminIP)
+	out := map[string]string{"lapi_url": a.lapiURL(), "machine": name, "password": pw, "bouncer_key": strings.TrimSpace(string(key))}
+	if in["trust_lan"] == "off" {
+		out["trust_lan"] = "off"
+	}
+	return out, nil
+}
+
+func (a *API) deprovisionCrowdSec(ctx context.Context, srv *store.Server) {
+	name := machineName(srv)
+	_, _ = cscli(ctx, "machines", "delete", name)
+	_, _ = cscli(ctx, "bouncers", "delete", name+"-fw")
+}
+
+func (a *API) handleCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
+	p := map[string]string{}
+	if r.URL.Query().Get("trust_lan") == "off" {
+		p["trust_lan"] = "off"
+	}
+	job, err := a.Dispatch(r.Context(), whoFrom(r), r.PathValue("id"), "crowdsec.install", p)
 	if err != nil {
 		a.writeDispatchErr(w, err)
 		return
@@ -122,19 +131,11 @@ func (a *API) handleCrowdSecInstall(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleCrowdSecRemove(w http.ResponseWriter, r *http.Request) {
-	srv, err := a.Store.GetServer(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "server not found")
-		return
-	}
-	job, err := a.Dispatch(r.Context(), whoFrom(r), srv.ID, "crowdsec.remove", nil)
+	job, err := a.Dispatch(r.Context(), whoFrom(r), r.PathValue("id"), "crowdsec.remove", nil)
 	if err != nil {
 		a.writeDispatchErr(w, err)
 		return
 	}
-	name := machineName(srv)
-	_, _ = cscli(r.Context(), "machines", "delete", name)
-	_, _ = cscli(r.Context(), "bouncers", "delete", name+"-fw")
 	writeJSON(w, http.StatusAccepted, job)
 }
 

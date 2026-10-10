@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { History, LayoutDashboard, ListChecks, LogOut, Server, Users as UsersIcon, Workflow } from "lucide-react";
+import { History, LayoutDashboard, ListChecks, LogOut, Server, ShieldCheck, Users as UsersIcon, Workflow } from "lucide-react";
 import { api, type Role } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import { Account } from "@/pages/Account";
 import { Automation } from "@/pages/Automation";
 import { Users } from "@/pages/Users";
 import { Dashboard } from "@/pages/Dashboard";
+import { CrowdSec } from "@/pages/CrowdSec";
 import { RoleContext } from "@/lib/role";
 
 export function App() {
@@ -72,6 +73,11 @@ export function App() {
               <Workflow className="size-4" />
               <FiringDot />
             </NavLink>
+            {role !== "viewer" && (
+              <NavLink href="/security" label="Security">
+                <ShieldCheck className="size-4" />
+              </NavLink>
+            )}
             <NavLink href="/activity" label="Activity">
               <History className="size-4" />
             </NavLink>
@@ -117,6 +123,9 @@ export function App() {
           </Route>
           <Route path="/account">
             <Account />
+          </Route>
+          <Route path="/security">
+            <CrowdSec />
           </Route>
           <Route path="/activity">
             <Activity />

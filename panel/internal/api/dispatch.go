@@ -50,6 +50,16 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 	if params == nil {
 		params = map[string]string{}
 	}
+	switch op {
+	case "crowdsec.install":
+		// Machine + bouncer are created on the central LAPI here, never
+		// taken from the caller.
+		if params, err = a.provisionCrowdSec(ctx, srv, who.IP, params); err != nil {
+			return nil, &DispatchError{http.StatusBadGateway, err.Error()}
+		}
+	case "crowdsec.remove":
+		a.deprovisionCrowdSec(ctx, srv)
+	}
 	stored := redact(params)
 	job := &store.Job{ID: store.NewUUID(), ServerID: serverID, Op: op, Params: stored, Status: "queued", CreatedBy: who.Actor}
 	if err := a.Store.CreateJob(ctx, job); err != nil {

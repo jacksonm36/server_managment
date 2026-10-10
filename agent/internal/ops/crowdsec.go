@@ -26,6 +26,8 @@ const (
 	csCA          = "/etc/servermgr-agent/ca.crt" // panel CA, also signs the LAPI cert
 )
 
+const csWhitelist = "crowdsecurity/whitelists"
+
 var csItem = regexp.MustCompile(`^[a-z0-9_-]+/[a-z0-9_.-]+$`)
 
 func csInstalled() bool { _, err := exec.LookPath("cscli"); return err == nil }
@@ -50,6 +52,7 @@ func crowdsecStatus(ctx context.Context) (any, error) {
 	res["engine_active"] = active("crowdsec")
 	res["bouncer_active"] = active("crowdsec-firewall-bouncer")
 	res["fail2ban_active"] = active("fail2ban")
+	res["trust_lan"] = fileExists("/etc/crowdsec/parsers/s02-enrich/whitelists.yaml")
 	if out, err := exec.CommandContext(ctx, "cscli", "version").CombinedOutput(); err == nil {
 		for _, l := range strings.Split(string(out), "\n") {
 			if v, ok := strings.CutPrefix(strings.TrimSpace(l), "version:"); ok {
@@ -203,6 +206,17 @@ func crowdsecInstall(ctx context.Context, p map[string]string, logf func(string,
 	if out, err := exec.CommandContext(ctx, "cscli", append([]string{"collections", "install"}, cols...)...).CombinedOutput(); err != nil {
 		logf("%s", strings.TrimSpace(string(out)))
 		return nil, errors.New("installing collections failed")
+	}
+
+	// crowdsecurity/whitelists never alerts on private ranges; turn it off
+	// when attackers can come from the LAN (or for testing).
+	wl := []string{"parsers", "install", csWhitelist}
+	if p["trust_lan"] == "off" {
+		wl = []string{"parsers", "remove", csWhitelist, "--force"}
+	}
+	logf("$ cscli %s", strings.Join(wl, " "))
+	if out, err := exec.CommandContext(ctx, "cscli", wl...).CombinedOutput(); err != nil {
+		logf("%s", strings.TrimSpace(string(out)))
 	}
 
 	// Bouncer: pull decisions from the central LAPI, enforce with nftables.

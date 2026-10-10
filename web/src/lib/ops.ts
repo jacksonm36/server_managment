@@ -24,6 +24,21 @@ export async function runOp(
   throw new Error("timed out waiting for the agent");
 }
 
+/** Polls an already-started job until it finishes. */
+export async function waitJob(started: Job, onProgress?: (j: Job) => void): Promise<Job> {
+  onProgress?.(started);
+  const deadline = Date.now() + 20 * 60 * 1000;
+  let delay = 500;
+  while (Date.now() < deadline) {
+    await sleep(delay);
+    delay = Math.min(delay * 1.4, 2000);
+    const j = await api.job(started.id);
+    onProgress?.(j);
+    if (j.status === "succeeded" || j.status === "failed") return j;
+  }
+  throw new Error("timed out waiting for the agent");
+}
+
 /**
  * Agent-backed state for a tab: loads with `statusOp` when the server is
  * online, and `run` executes mutating ops whose result is the new state.

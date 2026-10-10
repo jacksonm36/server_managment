@@ -328,7 +328,7 @@ var opsByName = map[string]opSpec{
 	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current"}},
 	"app.deploy":             {op: agentv1.Op_OP_APP_DEPLOY, params: []string{"domain", "app", "name", "version", "steps", "version_steps", "vars", "compose"}, maxParam: 64 << 10},
 	"crowdsec.status":        {op: agentv1.Op_OP_CROWDSEC_STATUS},
-	"crowdsec.install":       {op: agentv1.Op_OP_CROWDSEC_INSTALL, params: []string{"lapi_url", "machine", "password", "bouncer_key"}},
+	"crowdsec.install":       {op: agentv1.Op_OP_CROWDSEC_INSTALL, params: []string{"trust_lan"}}, // credentials are added by Dispatch
 	"crowdsec.hub":           {op: agentv1.Op_OP_CROWDSEC_HUB, params: []string{"action", "items"}},
 	"crowdsec.remove":        {op: agentv1.Op_OP_CROWDSEC_REMOVE},
 	"site.access":            {op: agentv1.Op_OP_SITE_ACCESS, params: []string{"domain", "auth", "auth_user", "auth_password", "allow_ips"}},
