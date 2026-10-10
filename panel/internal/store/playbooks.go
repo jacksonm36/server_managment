@@ -10,27 +10,34 @@ import (
 )
 
 type Step struct {
+	// UndoFor (rollback steps only) is the index of the forward step this
+	// undoes; the rollback step runs only if that step succeeded.
+	UndoFor         int               `json:"-"`
 	Op              string            `json:"op"`
 	Params          map[string]string `json:"params"`
 	ContinueOnError bool              `json:"continue_on_error,omitempty"`
 }
 
 type Playbook struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Description string    `json:"description"`
-	Steps       []Step    `json:"steps"`
-	Builtin     bool      `json:"builtin"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Steps       []Step `json:"steps"`
+	// Rollback runs (in memory only) when a run fails, e.g. to remove a
+	// half-installed app. It is not stored with the playbook.
+	Rollback  []Step    `json:"-"`
+	Builtin   bool      `json:"builtin"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // RunStep is a step's state inside a playbook run.
 type RunStep struct {
 	Step
-	Status string `json:"status"` // pending | running | succeeded | failed | skipped
-	JobID  string `json:"job_id,omitempty"`
-	Error  string `json:"error,omitempty"`
+	Status   string `json:"status"` // pending | running | succeeded | failed | skipped
+	JobID    string `json:"job_id,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Rollback bool   `json:"rollback,omitempty"`
 }
 
 type PlaybookRun struct {

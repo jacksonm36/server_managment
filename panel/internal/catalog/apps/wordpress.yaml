@@ -1,0 +1,30 @@
+id: wordpress
+name: WordPress
+category: CMS
+description: Blogs, business sites and online stores. Installed and updated with wp-cli.
+version: latest
+php_min: "7.4"
+database: true
+admin: true
+admin_path: /wp-admin/
+homepage: https://wordpress.org
+
+install:
+  - tool: wp-cli
+  - wp: [core, download, --locale=en_US]
+  # Secrets go through stdin (--prompt), never the process list.
+  - wp: [config, create, "--dbname=${db_name}", "--dbuser=${db_user}", --dbhost=localhost, --prompt=dbpass]
+    stdin: "${db_password}"
+  - wp: [core, install, "--url=${site_url}", "--title=${title}", "--admin_user=${admin_user}", "--admin_email=${admin_email}", --skip-email, --prompt=admin_password]
+    stdin: "${admin_password}"
+  - wp: [rewrite, structure, "/%postname%/"]
+
+update:
+  - tool: wp-cli
+  - wp: [core, update]
+  - wp: [core, update-db]
+  - wp: [plugin, update, --all]
+  - wp: [theme, update, --all]
+
+version_check:
+  - wp: [core, version]

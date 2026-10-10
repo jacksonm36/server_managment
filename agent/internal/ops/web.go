@@ -56,6 +56,7 @@ type Site struct {
 	ForceHTTPS  bool          `json:"force_https"`
 	CreatedAt   time.Time     `json:"created_at"`
 	Backup      *BackupPolicy `json:"backup,omitempty"`
+	App         *SiteApp      `json:"app,omitempty"`
 }
 
 func (s *Site) home() string    { return filepath.Join(sitesRoot, s.Domain) }

@@ -99,7 +99,7 @@ export type PlaybookRun = {
   server_id: string;
   server_name: string;
   status: "running" | "succeeded" | "failed";
-  steps: (Step & { status: string; job_id?: string; error?: string })[];
+  steps: (Step & { status: string; job_id?: string; error?: string; rollback?: boolean })[];
   created_by: string;
   created_at: string;
   finished_at: string | null;
@@ -176,6 +176,22 @@ export type User = {
   totp_enabled: boolean;
   last_login: string | null;
   created_at: string;
+};
+
+export type CatalogApp = {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  version: string;
+  php_min: string;
+  php_max?: string;
+  database: boolean;
+  admin: boolean;
+  admin_path: string;
+  homepage: string;
+  notes?: string;
+  updatable: boolean;
 };
 
 export type FeatureStatus = "done" | "in-progress" | "todo";
@@ -278,6 +294,11 @@ export const api = {
   firingAlerts: () => request<AlertEvent[]>("GET", "/api/v1/alerts?state=firing"),
   agentBuild: () => request<{ version: string; sha256: Record<string, string> }>("GET", "/api/v1/agent-build"),
   updateAgent: (id: string) => request<Job>("POST", `/api/v1/servers/${id}/agent-update`),
+  apps: () => request<CatalogApp[]>("GET", "/api/v1/apps"),
+  installApp: (id: string, body: Record<string, string>) =>
+    request<{ runs: PlaybookRun[]; credentials: Record<string, string>; notes?: string }>("POST", `/api/v1/servers/${id}/apps`, body),
+  updateApp: (id: string, domain: string, app: string) => request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/update`, { app }),
+  uninstallApp: (id: string, domain: string, db: string) => request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/uninstall`, { db }),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string, playbookId = "") =>
     request<JoinToken>("POST", "/api/v1/join-tokens", { name, playbook_id: playbookId }),

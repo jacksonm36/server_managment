@@ -12,6 +12,7 @@ import {
   Globe,
   Info,
   KeyRound,
+  LayoutGrid,
   ListTodo,
   PackageCheck,
   PackageSearch,
@@ -34,6 +35,7 @@ import { outdated, useAgentBuild } from "@/lib/agentBuild";
 import { canOperate, isAdmin, useRole } from "@/lib/role";
 import { Updates } from "./server/Updates";
 import { Sites } from "./server/Sites";
+import { Apps } from "./server/Apps";
 // xterm.js is large; load it only when the Terminal tab opens.
 const Terminal = lazy(() => import("./server/Terminal").then((m) => ({ default: m.Terminal })));
 import { Databases } from "./server/Databases";
@@ -177,6 +179,7 @@ export function ServerDetail({ id }: { id: string }) {
           <Terminal serverId={id} online={server.online} />
         </Suspense>
       )}
+      {tab === "apps" && <Apps serverId={id} online={server.online} />}
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "docker" && <Docker serverId={id} online={server.online} />}
       {tab === "databases" && <Databases serverId={id} online={server.online} />}
@@ -210,6 +213,7 @@ const TABS = [
   { id: "terminal", label: "Terminal", icon: SquareTerminal, group: "" },
   { id: "tasks", label: "Tasks", icon: ListTodo, group: "" },
   { id: "sites", label: "Sites", icon: Globe, group: "Web" },
+  { id: "apps", label: "Apps", icon: LayoutGrid, group: "Web" },
   { id: "databases", label: "Databases", icon: Database, group: "Web" },
   { id: "docker", label: "Docker", icon: Container, group: "Web" },
   { id: "files", label: "Files", icon: FolderOpen, group: "Web" },

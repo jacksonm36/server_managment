@@ -78,6 +78,22 @@ func (a *API) StartPlaybook(ctx context.Context, who Who, pb *store.Playbook, se
 	if err := validateSteps(pb.Steps); err != nil {
 		return nil, err
 	}
+	return a.startRuns(ctx, who, pb, serverIDs)
+}
+
+// startRuns starts pb on each server. Unlike StartPlaybook it accepts
+// secret parameters (used by app installs): run history stores them
+// redacted, while execution uses the real values held in memory only.
+func (a *API) startRuns(ctx context.Context, who Who, pb *store.Playbook, serverIDs []string) ([]*store.PlaybookRun, error) {
+	for i, st := range pb.Steps {
+		spec, ok := opsByName[st.Op]
+		if !ok {
+			return nil, fmt.Errorf("step %d: unknown op %q", i+1, st.Op)
+		}
+		if err := spec.checkParams(st.Params); err != nil {
+			return nil, fmt.Errorf("step %d: %v", i+1, err)
+		}
+	}
 	runs := []*store.PlaybookRun{}
 	for _, sid := range serverIDs {
 		if _, err := a.Store.GetServer(ctx, sid); err != nil {
@@ -89,19 +105,20 @@ func (a *API) StartPlaybook(ctx context.Context, who Who, pb *store.Playbook, se
 			run.PlaybookID = &id
 		}
 		for _, st := range pb.Steps {
-			run.Steps = append(run.Steps, store.RunStep{Step: st, Status: "pending"})
+			shown := store.Step{Op: st.Op, Params: redact(st.Params), ContinueOnError: st.ContinueOnError}
+			run.Steps = append(run.Steps, store.RunStep{Step: shown, Status: "pending"})
 		}
 		if err := a.Store.CreateRun(ctx, run); err != nil {
 			return nil, err
 		}
 		runs = append(runs, run)
-		go a.executeRun(who, run)
+		go a.executeRun(who, run, pb.Steps, pb.Rollback)
 	}
 	a.auditAs(ctx, who, "playbook.run", pb.Name, map[string]any{"servers": len(runs)}, true)
 	return runs, nil
 }
 
-func (a *API) executeRun(who Who, run *store.PlaybookRun) {
+func (a *API) executeRun(who Who, run *store.PlaybookRun, real, rollback []store.Step) {
 	ctx := a.baseCtx()
 	failed := false
 	for i := range run.Steps {
@@ -112,7 +129,7 @@ func (a *API) executeRun(who Who, run *store.PlaybookRun) {
 		}
 		st.Status = "running"
 		_ = a.Store.UpdateRun(ctx, run)
-		job, err := a.Dispatch(ctx, who, run.ServerID, st.Op, st.Params)
+		job, err := a.Dispatch(ctx, who, run.ServerID, real[i].Op, real[i].Params)
 		if err == nil {
 			st.JobID = job.ID
 			_ = a.Store.UpdateRun(ctx, run)
@@ -130,11 +147,40 @@ func (a *API) executeRun(who Who, run *store.PlaybookRun) {
 			st.Status = "succeeded"
 		}
 	}
-	run.Status = "succeeded"
+	failed = false
 	for _, st := range run.Steps {
 		if st.Status == "failed" {
-			run.Status = "failed"
+			failed = true
 		}
+	}
+	// Undo a failed run (the run stays "running" until this finishes); each
+	// rollback step runs even if an earlier one fails.
+	if failed && len(rollback) > 0 {
+		for _, rb := range rollback {
+			if rb.UndoFor < 0 || rb.UndoFor >= len(real) || run.Steps[rb.UndoFor].Status != "succeeded" {
+				continue // never undo something this run did not create
+			}
+			st := store.RunStep{Step: store.Step{Op: rb.Op, Params: redact(rb.Params)}, Status: "running", Rollback: true}
+			run.Steps = append(run.Steps, st)
+			i := len(run.Steps) - 1
+			_ = a.Store.UpdateRun(ctx, run)
+			job, err := a.Dispatch(ctx, who, run.ServerID, rb.Op, rb.Params)
+			if err == nil {
+				run.Steps[i].JobID = job.ID
+				job, err = a.waitJob(ctx, job.ID, stepTimeout)
+				if err == nil && job.Status == "failed" {
+					err = errors.New(job.Error)
+				}
+			}
+			run.Steps[i].Status = "succeeded"
+			if err != nil {
+				run.Steps[i].Status, run.Steps[i].Error = "failed", err.Error()
+			}
+		}
+	}
+	run.Status = "succeeded"
+	if failed {
+		run.Status = "failed"
 	}
 	if err := a.Store.UpdateRun(ctx, run); err != nil {
 		a.Log.Error("update playbook run", "run", run.ID, "err", err)

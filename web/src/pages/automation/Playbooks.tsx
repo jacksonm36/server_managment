@@ -303,7 +303,10 @@ export function Runs() {
                     s.status === "succeeded" ? "bg-success" : s.status === "failed" ? "bg-destructive" : s.status === "running" ? "animate-pulse bg-warning" : "bg-muted-foreground/40"
                   }`}
                 />
-                <span className="min-w-0 truncate">{stepLabel(s)}</span>
+                <span className="min-w-0 truncate">
+                  {s.rollback && <span className="text-warning">undo: </span>}
+                  {stepLabel(s)}
+                </span>
                 <span className="text-xs text-muted-foreground">{s.status}</span>
                 {s.error && <span className="truncate text-xs text-destructive">{s.error}</span>}
               </li>

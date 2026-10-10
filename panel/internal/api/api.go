@@ -111,6 +111,10 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/events", a.handleEvents)
 	authed.HandleFunc("GET /api/v1/progress", a.handleProgress)
 	authed.HandleFunc("GET /api/v1/agent-build", a.handleAgentBuild)
+	authed.HandleFunc("GET /api/v1/apps", a.handleListApps)
+	authed.HandleFunc("POST /api/v1/servers/{id}/apps", need("operator", a.handleInstallApp))
+	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/update", need("operator", a.handleUpdateApp))
+	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/uninstall", need("operator", a.handleUninstallApp))
 	authed.HandleFunc("POST /api/v1/servers/{id}/agent-update", need("operator", a.handleAgentUpdate))
 	authed.HandleFunc("GET /api/v1/users", need("admin", a.handleListUsers))
 	authed.HandleFunc("POST /api/v1/users", need("admin", a.handleCreateUser))
@@ -315,6 +319,8 @@ var opsByName = map[string]opSpec{
 	"compose.save":           {op: agentv1.Op_OP_COMPOSE_SAVE, params: []string{"name", "yaml", "deploy"}, maxParam: 256 << 10},
 	"compose.action":         {op: agentv1.Op_OP_COMPOSE_ACTION, params: []string{"name", "action"}},
 	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current"}},
+	"app.deploy":             {op: agentv1.Op_OP_APP_DEPLOY, params: []string{"domain", "app", "name", "version", "steps", "version_steps", "vars"}, maxParam: 64 << 10},
+	"app.update":             {op: agentv1.Op_OP_APP_UPDATE, params: []string{"domain", "steps", "version_steps", "vars"}, maxParam: 64 << 10},
 	"backup.list":            {op: agentv1.Op_OP_BACKUP_LIST},
 	"backup.create":          {op: agentv1.Op_OP_BACKUP_CREATE, params: []string{"domain", "databases"}},
 	"backup.delete":          {op: agentv1.Op_OP_BACKUP_DELETE, params: []string{"domain", "file"}},
@@ -324,7 +330,7 @@ var opsByName = map[string]opSpec{
 
 // secretParams are forwarded to the agent but never stored in job history
 // or the audit log.
-var secretParams = []string{"password"}
+var secretParams = []string{"password", "vars"}
 
 // bulkyParams (file contents) are replaced by their size when stored.
 var bulkyParams = []string{"content", "content_b64", "yaml"}
