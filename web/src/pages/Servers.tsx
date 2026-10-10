@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/card";
 import { Meter } from "@/components/LiveChart";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { BulkDialog } from "@/components/BulkDialog";
+import { api } from "@/lib/api";
+import { outdated, useAgentBuild } from "@/lib/agentBuild";
 import { Button } from "@/components/ui/button";
 
 export function StatusBadge({ online }: { online: boolean }) {
@@ -35,6 +37,9 @@ export function Servers() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState(false);
   const picked = servers.filter((s) => selected.has(s.id));
+  const build = useAgentBuild();
+  const stale = servers.filter((s) => s.online && outdated(build, s.agent_version));
+  const [updateMsg, setUpdateMsg] = useState("");
   const toggle = (id: string) =>
     setSelected((cur) => {
       const n = new Set(cur);
@@ -65,6 +70,24 @@ export function Servers() {
           <AddServerDialog />
         </div>
       </div>
+      {stale.length > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-2.5 text-sm">
+          <span>
+            {updateMsg || `${stale.length} agent(s) can be updated to ${build?.version}.`}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={async () => {
+              const results = await Promise.allSettled(stale.map((s) => api.updateAgent(s.id)));
+              const ok = results.filter((r) => r.status === "fulfilled").length;
+              setUpdateMsg(`Update started on ${ok} of ${stale.length} server(s); agents reconnect in a few seconds.`);
+            }}
+          >
+            Update all agents
+          </Button>
+        </div>
+      )}
 
       {picked.length > 0 && (
         <div className="sticky top-16 z-30 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/40 bg-card/95 px-4 py-2.5 shadow-lg backdrop-blur">

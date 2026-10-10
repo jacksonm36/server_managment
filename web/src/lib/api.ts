@@ -276,6 +276,8 @@ export const api = {
   deleteAlertRule: (id: string) => request<void>("DELETE", `/api/v1/alert-rules/${id}`),
   alertEvents: () => request<AlertEvent[]>("GET", "/api/v1/alerts?limit=100"),
   firingAlerts: () => request<AlertEvent[]>("GET", "/api/v1/alerts?state=firing"),
+  agentBuild: () => request<{ version: string; sha256: Record<string, string> }>("GET", "/api/v1/agent-build"),
+  updateAgent: (id: string) => request<Job>("POST", `/api/v1/servers/${id}/agent-update`),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string, playbookId = "") =>
     request<JoinToken>("POST", "/api/v1/join-tokens", { name, playbook_id: playbookId }),

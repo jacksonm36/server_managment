@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LiveChart } from "@/components/LiveChart";
 import { StatusBadge } from "./Servers";
+import { outdated, useAgentBuild } from "@/lib/agentBuild";
 import { Updates } from "./server/Updates";
 import { Sites } from "./server/Sites";
 // xterm.js is large; load it only when the Terminal tab opens.
@@ -54,6 +55,8 @@ export function ServerDetail({ id }: { id: string }) {
   const [, navigate] = useLocation();
   const [tab, setTab] = useTab();
   const [logUnit, setLogUnit] = useState("");
+  const build = useAgentBuild();
+  const [updating, setUpdating] = useState("");
 
   useEffect(() => {
     void loadMetricsHistory(id);
@@ -99,9 +102,32 @@ export function ServerDetail({ id }: { id: string }) {
             {server.agent_version || "?"}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={remove}>
-          <Trash2 /> Remove
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {outdated(build, server.agent_version) && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={!server.online || !!updating}
+              title={`Installed ${server.agent_version}, panel has ${build?.version}`}
+              onClick={async () => {
+                setUpdating("Updating agent…");
+                try {
+                  await api.updateAgent(id);
+                  setUpdating("Agent is restarting with the new version…");
+                } catch (e) {
+                  setUpdating("");
+                  alert((e as Error).message);
+                }
+                setTimeout(() => setUpdating(""), 15000);
+              }}
+            >
+              <RefreshCw /> {updating || `Update agent to ${build?.version}`}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={remove}>
+            <Trash2 /> Remove
+          </Button>
+        </div>
       </div>
 
       <Tabs tab={tab} setTab={setTab} />

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T14:00:53Z",
+  "updated_at": "2026-10-10T14:03:35Z",
   "phases": [
     {
       "name": "MVP",
@@ -161,7 +161,7 @@
         },
         {
           "name": "Agent self-update",
-          "status": "todo"
+          "status": "done"
         }
       ]
     }
