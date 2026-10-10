@@ -61,6 +61,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/auth/logout", a.handleLogout)
 	mux.HandleFunc("POST /api/v1/enroll", a.handleEnroll)
 	mux.HandleFunc("GET /install.sh", a.handleInstallScript)
+	mux.HandleFunc("GET /ca.crt", a.handleCACert)
 	mux.HandleFunc("GET /download/{file}", a.handleDownload)
 
 	// Authenticated API.
@@ -507,6 +508,13 @@ func (a *API) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/octet-stream")
 	http.ServeFile(w, r, path)
+}
+
+// handleCACert serves the panel CA so browsers can trust the HTTPS listener.
+func (a *API) handleCACert(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
+	w.Header().Set("Content-Disposition", `attachment; filename="servermgr-ca.crt"`)
+	_, _ = w.Write(a.CA.CertPEM)
 }
 
 func (a *API) handleInstallScript(w http.ResponseWriter, r *http.Request) {

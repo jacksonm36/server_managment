@@ -146,3 +146,12 @@ scripts/check-mariadb.sh         # DB + backup integration tests against MariaDB
 
 The panel serves the UI from `SM_WEB_DIR` when set, so `npm run build` in
 `web/` goes live without a restart.
+
+### HTTPS for the UI
+
+The panel also serves the UI on `https://<panel>:8443` with a certificate
+signed by its internal CA. Download the CA from `http://<panel>:8090/ca.crt`
+and import it as a trusted root to avoid browser warnings; over HTTPS the
+session cookie is marked `Secure`. Plain HTTP on :8090 stays available for
+agent installs (the install command pins the CA fingerprint).
+`SM_HTTPS_ADDR=off` in `.env` disables the HTTPS listener.

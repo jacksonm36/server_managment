@@ -149,10 +149,30 @@ func run(log *slog.Logger) error {
 	go a.RunScheduler(ctx)
 	go a.RunAlerts(ctx)
 
+	handler := a.Handler() // one instance, so both listeners share rate limits
 	hs := &http.Server{
 		Addr:              httpAddr,
-		Handler:           a.Handler(),
+		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	// HTTPS for the UI, with a certificate from the panel CA (download it from
+	// /ca.crt to trust it). Plain HTTP stays up for agent install/enrollment,
+	// which pins the CA fingerprint itself. SM_HTTPS_ADDR=off disables it.
+	var hss *http.Server
+	if httpsAddr := env("SM_HTTPS_ADDR", ":8443"); httpsAddr != "off" {
+		hss = &http.Server{
+			Addr:              httpsAddr,
+			Handler:           handler,
+			ReadHeaderTimeout: 10 * time.Second,
+			TLSConfig:         &tls.Config{Certificates: []tls.Certificate{srvCert}, MinVersion: tls.VersionTLS12},
+		}
+		go func() {
+			log.Info("HTTPS listening", "addr", httpsAddr)
+			if err := hss.ListenAndServeTLS("", ""); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				log.Error("https serve", "err", err)
+			}
+		}()
 	}
 	go func() {
 		log.Info("HTTP listening", "addr", httpAddr, "public_url", a.Cfg.PublicURL)
@@ -182,6 +202,9 @@ func run(log *slog.Logger) error {
 	shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = hs.Shutdown(shutCtx)
+	if hss != nil {
+		_ = hss.Shutdown(shutCtx)
+	}
 	gs.Stop()
 	return nil
 }
