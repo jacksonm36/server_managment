@@ -112,6 +112,13 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/progress", a.handleProgress)
 	authed.HandleFunc("GET /api/v1/agent-build", a.handleAgentBuild)
 	authed.HandleFunc("GET /api/v1/apps", a.handleListApps)
+	authed.HandleFunc("GET /api/v1/crowdsec", need("operator", a.handleCrowdSecOverview))
+	authed.HandleFunc("POST /api/v1/crowdsec/decisions", need("operator", a.handleCrowdSecBan))
+	authed.HandleFunc("DELETE /api/v1/crowdsec/decisions/{id}", need("operator", a.handleCrowdSecUnban))
+	authed.HandleFunc("POST /api/v1/crowdsec/allowlist", need("admin", a.handleCrowdSecAllow))
+	authed.HandleFunc("POST /api/v1/crowdsec/enroll", need("admin", a.handleCrowdSecEnroll))
+	authed.HandleFunc("POST /api/v1/servers/{id}/crowdsec/install", need("operator", a.handleCrowdSecInstall))
+	authed.HandleFunc("POST /api/v1/servers/{id}/crowdsec/remove", need("operator", a.handleCrowdSecRemove))
 	authed.HandleFunc("POST /api/v1/servers/{id}/apps", need("operator", a.handleInstallApp))
 	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/update", need("operator", a.handleUpdateApp))
 	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/uninstall", need("operator", a.handleUninstallApp))
@@ -320,6 +327,10 @@ var opsByName = map[string]opSpec{
 	"compose.action":         {op: agentv1.Op_OP_COMPOSE_ACTION, params: []string{"name", "action"}},
 	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current"}},
 	"app.deploy":             {op: agentv1.Op_OP_APP_DEPLOY, params: []string{"domain", "app", "name", "version", "steps", "version_steps", "vars", "compose"}, maxParam: 64 << 10},
+	"crowdsec.status":        {op: agentv1.Op_OP_CROWDSEC_STATUS},
+	"crowdsec.install":       {op: agentv1.Op_OP_CROWDSEC_INSTALL, params: []string{"lapi_url", "machine", "password", "bouncer_key"}},
+	"crowdsec.hub":           {op: agentv1.Op_OP_CROWDSEC_HUB, params: []string{"action", "items"}},
+	"crowdsec.remove":        {op: agentv1.Op_OP_CROWDSEC_REMOVE},
 	"site.access":            {op: agentv1.Op_OP_SITE_ACCESS, params: []string{"domain", "auth", "auth_user", "auth_password", "allow_ips"}},
 	"app.update":             {op: agentv1.Op_OP_APP_UPDATE, params: []string{"domain", "steps", "version_steps", "vars"}, maxParam: 64 << 10},
 	"backup.list":            {op: agentv1.Op_OP_BACKUP_LIST},
@@ -331,7 +342,7 @@ var opsByName = map[string]opSpec{
 
 // secretParams are forwarded to the agent but never stored in job history
 // or the audit log.
-var secretParams = []string{"password", "vars", "auth_password"}
+var secretParams = []string{"password", "vars", "auth_password", "bouncer_key"}
 
 // bulkyParams (file contents) are replaced by their size when stored.
 var bulkyParams = []string{"content", "content_b64", "yaml"}
@@ -356,7 +367,7 @@ var readOnlyOps = map[string]bool{
 	"system.info": true, "packages.check_updates": true, "ssh_keys.list": true,
 	"firewall.status": true, "fail2ban.status": true, "web.status": true, "db.status": true,
 	"files.list": true, "files.read": true, "cron.list": true, "backup.list": true,
-	"services.list": true, "logs.read": true,
+	"services.list": true, "logs.read": true, "crowdsec.status": true,
 	"docker.status": true, "docker.logs": true, "compose.read": true,
 }
 

@@ -158,6 +158,14 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = composeSave(ctx, p, logf)
 	case agentv1.Op_OP_COMPOSE_ACTION:
 		result, err = composeAction(ctx, p, logf)
+	case agentv1.Op_OP_CROWDSEC_STATUS:
+		result, err = crowdsecStatus(ctx)
+	case agentv1.Op_OP_CROWDSEC_INSTALL:
+		result, err = crowdsecInstall(ctx, p, logf)
+	case agentv1.Op_OP_CROWDSEC_HUB:
+		result, err = crowdsecHub(ctx, p, logf)
+	case agentv1.Op_OP_CROWDSEC_REMOVE:
+		result, err = crowdsecRemove(ctx, logf)
 	case agentv1.Op_OP_SITE_ACCESS:
 		result, err = withSiteLock(func() (any, error) { return siteAccess(ctx, p, logf) })
 	case agentv1.Op_OP_APP_DEPLOY:

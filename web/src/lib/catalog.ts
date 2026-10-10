@@ -66,6 +66,7 @@ export const CATALOG: OpDef[] = [
     ],
   },
   { op: "fail2ban.install", label: "Install Fail2ban", group: "Security", fields: [] },
+  { op: "crowdsec.status", label: "CrowdSec status", group: "Security", fields: [] },
   {
     op: "fail2ban.configure",
     label: "Fail2ban settings",
