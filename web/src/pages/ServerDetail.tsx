@@ -5,6 +5,7 @@ import {
   Archive,
   ArrowLeft,
   Clock,
+  Cog,
   Database,
   FolderOpen,
   Globe,
@@ -13,6 +14,7 @@ import {
   ListTodo,
   PackageCheck,
   PackageSearch,
+  ScrollText,
   RefreshCw,
   Shield,
   ShieldBan,
@@ -34,6 +36,8 @@ const Terminal = lazy(() => import("./server/Terminal").then((m) => ({ default: 
 import { Databases } from "./server/Databases";
 import { Files } from "./server/Files";
 import { Cron } from "./server/Cron";
+import { Services } from "./server/Services";
+import { Logs } from "./server/Logs";
 import { Backups } from "./server/Backups";
 import { SSHKeys } from "./server/SSHKeys";
 import { Firewall } from "./server/Firewall";
@@ -47,6 +51,7 @@ export function ServerDetail({ id }: { id: string }) {
   const loaded = useLive((s) => s.servers.size > 0);
   const [, navigate] = useLocation();
   const [tab, setTab] = useTab();
+  const [logUnit, setLogUnit] = useState("");
 
   useEffect(() => {
     void loadMetricsHistory(id);
@@ -140,6 +145,17 @@ export function ServerDetail({ id }: { id: string }) {
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "databases" && <Databases serverId={id} online={server.online} />}
       {tab === "files" && <Files serverId={id} online={server.online} />}
+      {tab === "services" && (
+        <Services
+          serverId={id}
+          online={server.online}
+          onLogs={(u) => {
+            setLogUnit(u);
+            setTab("logs");
+          }}
+        />
+      )}
+      {tab === "logs" && <Logs serverId={id} online={server.online} unit={logUnit} />}
       {tab === "cron" && <Cron serverId={id} online={server.online} />}
       {tab === "backups" && <Backups serverId={id} online={server.online} />}
       {tab === "updates" && <Updates serverId={id} online={server.online} />}
@@ -157,6 +173,8 @@ const TABS = [
   { id: "sites", label: "Sites", icon: Globe },
   { id: "databases", label: "Databases", icon: Database },
   { id: "files", label: "Files", icon: FolderOpen },
+  { id: "services", label: "Services", icon: Cog },
+  { id: "logs", label: "Logs", icon: ScrollText },
   { id: "cron", label: "Cron", icon: Clock },
   { id: "backups", label: "Backups", icon: Archive },
   { id: "updates", label: "Updates", icon: PackageCheck },

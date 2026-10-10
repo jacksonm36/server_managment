@@ -134,6 +134,12 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = withSiteLock(func() (any, error) { return backupRestore(ctx, p, logf) })
 	case agentv1.Op_OP_BACKUP_POLICY:
 		result, err = backupPolicy(p, logf)
+	case agentv1.Op_OP_SERVICES_LIST:
+		result, err = servicesList(ctx)
+	case agentv1.Op_OP_SERVICE_ACTION:
+		result, err = serviceAction(ctx, p, logf)
+	case agentv1.Op_OP_LOGS_READ:
+		result, err = logsRead(ctx, p)
 	case agentv1.Op_OP_SITE_TLS:
 		result, err = withSiteLock(func() (any, error) { return siteTLS(ctx, p, logf) })
 	default:

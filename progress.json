@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T13:49:47Z",
+  "updated_at": "2026-10-10T13:53:32Z",
   "phases": [
     {
       "name": "MVP",
@@ -149,11 +149,11 @@
         },
         {
           "name": "Service manager (systemd units)",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "Log viewer",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "Multiple users & roles",

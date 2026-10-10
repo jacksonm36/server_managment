@@ -295,6 +295,9 @@ var opsByName = map[string]opSpec{
 	"cron.save":              {op: agentv1.Op_OP_CRON_SAVE, params: []string{"id", "schedule", "user", "command", "comment", "enabled"}},
 	"cron.delete":            {op: agentv1.Op_OP_CRON_DELETE, params: []string{"id"}},
 	"cron.run":               {op: agentv1.Op_OP_CRON_RUN, params: []string{"id"}},
+	"services.list":          {op: agentv1.Op_OP_SERVICES_LIST},
+	"services.action":        {op: agentv1.Op_OP_SERVICE_ACTION, params: []string{"name", "action"}},
+	"logs.read":              {op: agentv1.Op_OP_LOGS_READ, params: []string{"source", "unit", "priority", "since", "grep", "path", "lines"}},
 	"backup.list":            {op: agentv1.Op_OP_BACKUP_LIST},
 	"backup.create":          {op: agentv1.Op_OP_BACKUP_CREATE, params: []string{"domain", "databases"}},
 	"backup.delete":          {op: agentv1.Op_OP_BACKUP_DELETE, params: []string{"domain", "file"}},
@@ -329,6 +332,7 @@ var readOnlyOps = map[string]bool{
 	"system.info": true, "packages.check_updates": true, "ssh_keys.list": true,
 	"firewall.status": true, "fail2ban.status": true, "web.status": true, "db.status": true,
 	"files.list": true, "files.read": true, "cron.list": true, "backup.list": true,
+	"services.list": true, "logs.read": true,
 }
 
 func (s opSpec) checkParams(p map[string]string) error {

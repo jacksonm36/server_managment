@@ -124,6 +124,9 @@ const (
 	Op_OP_BACKUP_DELETE          Op = 45 // params: domain, file
 	Op_OP_BACKUP_RESTORE         Op = 46 // params: domain, file, files, databases
 	Op_OP_BACKUP_POLICY          Op = 47 // params: domain, enabled, every, hour, keep, databases
+	Op_OP_SERVICES_LIST          Op = 48
+	Op_OP_SERVICE_ACTION         Op = 49 // params: name, action
+	Op_OP_LOGS_READ              Op = 50 // params: source (journal|file|files), unit, priority, since, grep, path, lines
 )
 
 // Enum value maps for Op.
@@ -177,6 +180,9 @@ var (
 		45: "OP_BACKUP_DELETE",
 		46: "OP_BACKUP_RESTORE",
 		47: "OP_BACKUP_POLICY",
+		48: "OP_SERVICES_LIST",
+		49: "OP_SERVICE_ACTION",
+		50: "OP_LOGS_READ",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -227,6 +233,9 @@ var (
 		"OP_BACKUP_DELETE":          45,
 		"OP_BACKUP_RESTORE":         46,
 		"OP_BACKUP_POLICY":          47,
+		"OP_SERVICES_LIST":          48,
+		"OP_SERVICE_ACTION":         49,
+		"OP_LOGS_READ":              50,
 	}
 )
 
@@ -1287,7 +1296,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\x8b\b\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xca\b\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -1337,7 +1346,10 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x10OP_BACKUP_CREATE\x10,\x12\x14\n" +
 	"\x10OP_BACKUP_DELETE\x10-\x12\x15\n" +
 	"\x11OP_BACKUP_RESTORE\x10.\x12\x14\n" +
-	"\x10OP_BACKUP_POLICY\x10/2M\n" +
+	"\x10OP_BACKUP_POLICY\x10/\x12\x14\n" +
+	"\x10OP_SERVICES_LIST\x100\x12\x15\n" +
+	"\x11OP_SERVICE_ACTION\x101\x12\x10\n" +
+	"\fOP_LOGS_READ\x1022M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

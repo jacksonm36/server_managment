@@ -158,6 +158,9 @@ enum Op {
   OP_BACKUP_DELETE = 45;        // params: domain, file
   OP_BACKUP_RESTORE = 46;       // params: domain, file, files, databases
   OP_BACKUP_POLICY = 47;        // params: domain, enabled, every, hour, keep, databases
+  OP_SERVICES_LIST = 48;
+  OP_SERVICE_ACTION = 49;       // params: name, action
+  OP_LOGS_READ = 50;            // params: source (journal|file|files), unit, priority, since, grep, path, lines
 }
 
 message Job {
