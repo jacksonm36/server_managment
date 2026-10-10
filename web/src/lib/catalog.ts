@@ -95,6 +95,13 @@ export const CATALOG: OpDef[] = [
   },
   { op: "crowdsec.remove", label: "Remove CrowdSec", group: "Security", fields: [], danger: true },
   {
+    op: "ansible.prepare",
+    label: "Prepare for Ansible",
+    group: "Automation",
+    fields: [{ key: "address", label: "SSH address (default: the address the agent connects from)", placeholder: "10.0.0.5", optional: true }],
+  },
+  { op: "ansible.revoke", label: "Revoke Ansible access", group: "Automation", fields: [] },
+  {
     op: "fail2ban.configure",
     label: "Fail2ban settings",
     group: "Security",

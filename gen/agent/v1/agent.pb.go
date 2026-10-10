@@ -144,6 +144,8 @@ const (
 	Op_OP_CROWDSEC_INSTALL       Op = 65 // params: lapi_url, machine, password, bouncer_key
 	Op_OP_CROWDSEC_HUB           Op = 66 // params: action (install|remove), items
 	Op_OP_CROWDSEC_REMOVE        Op = 67
+	Op_OP_ANSIBLE_PREPARE        Op = 68 // params: pubkey, from
+	Op_OP_ANSIBLE_REVOKE         Op = 69
 )
 
 // Enum value maps for Op.
@@ -217,6 +219,8 @@ var (
 		65: "OP_CROWDSEC_INSTALL",
 		66: "OP_CROWDSEC_HUB",
 		67: "OP_CROWDSEC_REMOVE",
+		68: "OP_ANSIBLE_PREPARE",
+		69: "OP_ANSIBLE_REVOKE",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -287,6 +291,8 @@ var (
 		"OP_CROWDSEC_INSTALL":       65,
 		"OP_CROWDSEC_HUB":           66,
 		"OP_CROWDSEC_REMOVE":        67,
+		"OP_ANSIBLE_PREPARE":        68,
+		"OP_ANSIBLE_REVOKE":         69,
 	}
 )
 
@@ -1347,7 +1353,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xc3\v\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xf2\v\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -1417,7 +1423,9 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x12OP_CROWDSEC_STATUS\x10@\x12\x17\n" +
 	"\x13OP_CROWDSEC_INSTALL\x10A\x12\x13\n" +
 	"\x0fOP_CROWDSEC_HUB\x10B\x12\x16\n" +
-	"\x12OP_CROWDSEC_REMOVE\x10C2M\n" +
+	"\x12OP_CROWDSEC_REMOVE\x10C\x12\x16\n" +
+	"\x12OP_ANSIBLE_PREPARE\x10D\x12\x15\n" +
+	"\x11OP_ANSIBLE_REVOKE\x10E2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

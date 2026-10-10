@@ -58,6 +58,7 @@ type Hub struct {
 	subs         map[chan Event]struct{}
 	offlineSince map[string]time.Time
 	terms        map[string]*termSub
+	addrs        map[string]string // agent's remote IP, kept after disconnect
 }
 
 func New() *Hub {
@@ -66,7 +67,22 @@ func New() *Hub {
 		metrics:      map[string][]Metric{},
 		subs:         map[chan Event]struct{}{},
 		offlineSince: map[string]time.Time{},
+		addrs:        map[string]string{},
 	}
+}
+
+// SetAddr records the IP an agent connects from.
+func (h *Hub) SetAddr(serverID, ip string) {
+	h.mu.Lock()
+	h.addrs[serverID] = ip
+	h.mu.Unlock()
+}
+
+// Addr is the last IP the agent connected from ("" if never seen).
+func (h *Hub) Addr(serverID string) string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.addrs[serverID]
 }
 
 // Attach registers an agent stream. A newer connection for the same server

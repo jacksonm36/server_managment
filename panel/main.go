@@ -135,12 +135,16 @@ func run(log *slog.Logger) error {
 		}
 	}
 	_, grpcPort, _ := net.SplitHostPort(grpcAddr)
+	if err := st.FailStaleAnsibleRuns(ctx); err != nil {
+		log.Warn("ansible: mark interrupted runs", "err", err)
+	}
 	a := &api.API{
 		Cfg: api.Config{
 			PublicURL:    "http://" + net.JoinHostPort(publicHost, portOf(httpAddr)),
 			GRPCAddr:     net.JoinHostPort(publicHost, grpcPort),
 			AgentBinDir:  binDir,
 			ProgressFile: env("SM_PROGRESS_FILE", "./progress.json"),
+			DataDir:      dataDir,
 		},
 		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey, Ctx: ctx,
 	}

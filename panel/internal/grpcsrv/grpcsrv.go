@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
@@ -83,7 +84,15 @@ func (s *Server) Connect(stream agentv1.AgentService_ConnectServer) error {
 	}
 	log.Info("agent connected", "hostname", hello.Hostname, "version", hello.AgentVersion)
 
+	if err := s.Store.FailServerJobs(ctx, serverID); err != nil {
+		log.Warn("fail stale jobs", "err", err)
+	}
 	send, detach := s.Hub.Attach(serverID)
+	if p, ok := peer.FromContext(ctx); ok {
+		if host, _, err := net.SplitHostPort(p.Addr.String()); err == nil {
+			s.Hub.SetAddr(serverID, host)
+		}
+	}
 	if s.OnConnect != nil {
 		go s.OnConnect(serverID)
 	}

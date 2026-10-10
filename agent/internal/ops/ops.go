@@ -158,6 +158,10 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = composeSave(ctx, p, logf)
 	case agentv1.Op_OP_COMPOSE_ACTION:
 		result, err = composeAction(ctx, p, logf)
+	case agentv1.Op_OP_ANSIBLE_PREPARE:
+		result, err = ansiblePrepare(ctx, p, logf)
+	case agentv1.Op_OP_ANSIBLE_REVOKE:
+		result, err = ansibleRevoke(ctx, logf)
 	case agentv1.Op_OP_CROWDSEC_STATUS:
 		result, err = crowdsecStatus(ctx)
 	case agentv1.Op_OP_CROWDSEC_INSTALL:

@@ -334,6 +334,14 @@ func (s *Store) ListJobs(ctx context.Context, serverID string, limit int) ([]*Jo
 	return out, rows.Err()
 }
 
+// FailServerJobs fails a server's unfinished jobs when its agent
+// reconnects: the previous connection (and the work on it) is gone.
+func (s *Store) FailServerJobs(ctx context.Context, serverID string) error {
+	_, err := s.db.Exec(ctx, `UPDATE jobs SET status='failed', error='the agent restarted before the job finished', finished_at=now()
+		WHERE server_id::text = $1 AND status IN ('queued','running')`, serverID)
+	return err
+}
+
 // FailOrphanedJobs marks jobs that were running when the panel stopped.
 func (s *Store) FailOrphanedJobs(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, `UPDATE jobs SET status='failed', error='panel restarted', finished_at=now() WHERE status IN ('queued','running')`)

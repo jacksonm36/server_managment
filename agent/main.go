@@ -22,6 +22,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strings"
@@ -52,6 +53,7 @@ func main() {
 	case "enroll":
 		err = cmdEnroll(os.Args[2:])
 	case "run":
+		ensureUnitDropIn(log)
 		err = cmdRun(os.Args[2:], log)
 	case "version":
 		fmt.Println(version)
@@ -61,6 +63,23 @@ func main() {
 	if err != nil {
 		log.Error("fatal", "err", err)
 		os.Exit(1)
+	}
+}
+
+// ensureUnitDropIn makes systemd keep the agent running when a child it
+// started (apt, dnf…) is OOM-killed; the default policy stops the unit.
+func ensureUnitDropIn(log *slog.Logger) {
+	const dir = "/etc/systemd/system/servermgr-agent.service.d"
+	const path = dir + "/servermgr.conf"
+	want := "[Service]\nOOMPolicy=continue\n"
+	if b, err := os.ReadFile(path); err == nil && string(b) == want {
+		return
+	}
+	if os.MkdirAll(dir, 0o755) != nil || os.WriteFile(path, []byte(want), 0o644) != nil {
+		return
+	}
+	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+		log.Warn("systemctl daemon-reload", "err", err)
 	}
 }
 

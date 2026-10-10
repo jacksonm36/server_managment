@@ -50,7 +50,16 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 	if params == nil {
 		params = map[string]string{}
 	}
+	var after func(jobID string)
 	switch op {
+	case "ansible.prepare":
+		var addr string
+		if params, addr, err = a.ansiblePrepareParams(srv.ID, params); err != nil {
+			return nil, &DispatchError{http.StatusBadRequest, err.Error()}
+		}
+		after = func(id string) { go a.recordAnsibleHost(id, srv.ID, addr) }
+	case "ansible.revoke":
+		after = func(string) { _ = a.Store.DeleteAnsibleHost(a.baseCtx(), srv.ID) }
 	case "crowdsec.install":
 		// Machine + bouncer are created on the central LAPI here, never
 		// taken from the caller.
@@ -75,6 +84,9 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 		a.auditAs(ctx, who, "job.create", srv.Name, map[string]any{"op": op, "params": stored, "job_id": job.ID}, true)
 	}
 	a.Hub.JobChanged(serverID, job.ID)
+	if after != nil {
+		after(job.ID)
+	}
 	return job, nil
 }
 

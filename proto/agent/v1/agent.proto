@@ -178,6 +178,8 @@ enum Op {
   OP_CROWDSEC_INSTALL = 65;     // params: lapi_url, machine, password, bouncer_key
   OP_CROWDSEC_HUB = 66;         // params: action (install|remove), items
   OP_CROWDSEC_REMOVE = 67;
+  OP_ANSIBLE_PREPARE = 68;      // params: pubkey, from
+  OP_ANSIBLE_REVOKE = 69;
 }
 
 message Job {

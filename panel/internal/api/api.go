@@ -34,6 +34,8 @@ type Config struct {
 	// ProgressFile is the build-progress JSON shown on /progress. It is
 	// re-read on every request.
 	ProgressFile string
+	// DataDir holds panel state (PKI, Ansible venv and key).
+	DataDir string
 }
 
 type API struct {
@@ -112,6 +114,18 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/progress", a.handleProgress)
 	authed.HandleFunc("GET /api/v1/agent-build", a.handleAgentBuild)
 	authed.HandleFunc("GET /api/v1/apps", a.handleListApps)
+	authed.HandleFunc("GET /api/v1/ansible", need("operator", a.handleAnsibleOverview))
+	authed.HandleFunc("POST /api/v1/ansible/setup", need("admin", a.handleAnsibleSetup))
+	authed.HandleFunc("POST /api/v1/servers/{id}/ansible/prepare", need("admin", a.handleAnsiblePrepare))
+	authed.HandleFunc("POST /api/v1/servers/{id}/ansible/revoke", need("admin", a.handleAnsibleRevoke))
+	authed.HandleFunc("GET /api/v1/ansible/playbooks", need("operator", a.handleListAnsiblePlaybooks))
+	authed.HandleFunc("POST /api/v1/ansible/playbooks", need("admin", a.handleSaveAnsiblePlaybook))
+	authed.HandleFunc("PUT /api/v1/ansible/playbooks/{id}", need("admin", a.handleSaveAnsiblePlaybook))
+	authed.HandleFunc("DELETE /api/v1/ansible/playbooks/{id}", need("admin", a.handleDeleteAnsiblePlaybook))
+	authed.HandleFunc("POST /api/v1/ansible/playbooks/{id}/run", need("operator", a.handleRunAnsiblePlaybook))
+	authed.HandleFunc("GET /api/v1/ansible/runs", need("operator", a.handleListAnsibleRuns))
+	authed.HandleFunc("GET /api/v1/ansible/runs/{id}", need("operator", a.handleGetAnsibleRun))
+	authed.HandleFunc("POST /api/v1/ansible/runs/{id}/cancel", need("operator", a.handleCancelAnsibleRun))
 	authed.HandleFunc("GET /api/v1/crowdsec", need("operator", a.handleCrowdSecOverview))
 	authed.HandleFunc("POST /api/v1/crowdsec/decisions", need("operator", a.handleCrowdSecBan))
 	authed.HandleFunc("DELETE /api/v1/crowdsec/decisions/{id}", need("operator", a.handleCrowdSecUnban))
@@ -328,6 +342,8 @@ var opsByName = map[string]opSpec{
 	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current"}},
 	"app.deploy":             {op: agentv1.Op_OP_APP_DEPLOY, params: []string{"domain", "app", "name", "version", "steps", "version_steps", "vars", "compose"}, maxParam: 64 << 10},
 	"crowdsec.status":        {op: agentv1.Op_OP_CROWDSEC_STATUS},
+	"ansible.prepare":        {op: agentv1.Op_OP_ANSIBLE_PREPARE, params: []string{"address"}}, // key + source address are added by Dispatch
+	"ansible.revoke":         {op: agentv1.Op_OP_ANSIBLE_REVOKE},
 	"crowdsec.install":       {op: agentv1.Op_OP_CROWDSEC_INSTALL, params: []string{"trust_lan"}}, // credentials are added by Dispatch
 	"crowdsec.hub":           {op: agentv1.Op_OP_CROWDSEC_HUB, params: []string{"action", "items"}},
 	"crowdsec.remove":        {op: agentv1.Op_OP_CROWDSEC_REMOVE},
@@ -603,6 +619,7 @@ Wants=network-online.target
 ExecStart=/usr/local/bin/servermgr-agent run
 Restart=always
 RestartSec=5
+OOMPolicy=continue
 
 [Install]
 WantedBy=multi-user.target

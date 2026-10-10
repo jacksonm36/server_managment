@@ -76,6 +76,16 @@ func dnfRun(ctx context.Context, logf func(string, ...any), args ...string) erro
 // pkgInstall installs packages with the host's package manager; deb and
 // rpm name the same software on each family.
 func pkgInstall(ctx context.Context, logf func(string, ...any), deb, rpm []string) error {
+	if fam := osFamily(); fam == famRHEL || fam == famDebian {
+		want := deb
+		if fam == famRHEL {
+			want = rpm
+		}
+		if missing := missingPackages(ctx, fam, want); len(missing) == 0 {
+			logf("already installed: %s", strings.Join(want, " "))
+			return nil
+		}
+	}
 	switch osFamily() {
 	case famRHEL:
 		aptMu.Lock()
@@ -85,6 +95,23 @@ func pkgInstall(ctx context.Context, logf func(string, ...any), deb, rpm []strin
 		return aptInstall(ctx, logf, deb...)
 	}
 	return errors.New("unsupported operating system (Debian/Ubuntu and RHEL/AlmaLinux/Rocky are supported)")
+}
+
+func missingPackages(ctx context.Context, fam string, pkgs []string) []string {
+	var missing []string
+	for _, p := range pkgs {
+		var ok bool
+		if fam == famRHEL {
+			ok = exec.CommandContext(ctx, "rpm", "-q", "--whatprovides", p).Run() == nil
+		} else {
+			out, _ := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Status}", p).Output()
+			ok = strings.HasSuffix(strings.TrimSpace(string(out)), " installed")
+		}
+		if !ok {
+			missing = append(missing, p)
+		}
+	}
+	return missing
 }
 
 // ensureEPEL enables EPEL (fail2ban and friends live there on RHEL).
