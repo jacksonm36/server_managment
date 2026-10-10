@@ -52,17 +52,19 @@ type conn struct {
 }
 
 type Hub struct {
-	mu      sync.RWMutex
-	conns   map[string]*conn
-	metrics map[string][]Metric
-	subs    map[chan Event]struct{}
+	mu           sync.RWMutex
+	conns        map[string]*conn
+	metrics      map[string][]Metric
+	subs         map[chan Event]struct{}
+	offlineSince map[string]time.Time
 }
 
 func New() *Hub {
 	return &Hub{
-		conns:   map[string]*conn{},
-		metrics: map[string][]Metric{},
-		subs:    map[chan Event]struct{}{},
+		conns:        map[string]*conn{},
+		metrics:      map[string][]Metric{},
+		subs:         map[chan Event]struct{}{},
+		offlineSince: map[string]time.Time{},
 	}
 }
 
@@ -72,6 +74,7 @@ func (h *Hub) Attach(serverID string) (send <-chan *agentv1.PanelMessage, detach
 	c := &conn{send: make(chan *agentv1.PanelMessage, 16), connected: time.Now()}
 	h.mu.Lock()
 	h.conns[serverID] = c
+	delete(h.offlineSince, serverID)
 	h.mu.Unlock()
 	online := true
 	h.publish(Event{Type: "status", ServerID: serverID, Online: &online})
@@ -80,6 +83,7 @@ func (h *Hub) Attach(serverID string) (send <-chan *agentv1.PanelMessage, detach
 		cur := h.conns[serverID]
 		if cur == c {
 			delete(h.conns, serverID)
+			h.offlineSince[serverID] = time.Now()
 		}
 		h.mu.Unlock()
 		if cur == c {
@@ -137,6 +141,15 @@ func (h *Hub) LatestMetric(serverID string) *Metric {
 	}
 	m := buf[len(buf)-1]
 	return &m
+}
+
+// OfflineSince reports when the server's agent disconnected, if it did so
+// while this panel process was running.
+func (h *Hub) OfflineSince(serverID string) (time.Time, bool) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	t, ok := h.offlineSince[serverID]
+	return t, ok
 }
 
 func (h *Hub) Forget(serverID string) {

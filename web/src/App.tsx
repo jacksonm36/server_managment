@@ -50,6 +50,7 @@ export function App() {
             <NavLink href="/">Servers</NavLink>
             <NavLink href="/automation">
               <Workflow className="size-4" /> Automation
+              <FiringDot />
             </NavLink>
             <NavLink href="/activity">
               <History className="size-4" /> Activity
@@ -108,6 +109,22 @@ function NavLink({ href, children }: { href: string; children: ReactNode }) {
     >
       {children}
     </Link>
+  );
+}
+
+function FiringDot() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const load = () => api.firingAlerts().then((a) => setN(a.length)).catch(() => {});
+    void load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, []);
+  if (!n) return null;
+  return (
+    <span className="rounded-full bg-destructive px-1.5 text-[10px] font-semibold leading-4 text-white" title={`${n} alert(s) firing`}>
+      {n}
+    </span>
   );
 }
 

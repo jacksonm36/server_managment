@@ -124,6 +124,48 @@ export type Schedule = {
 
 type ScheduleBody = Omit<Schedule, "id" | "created_by" | "last_run" | "last_result" | "next_run" | "playbook_id"> & { playbook_id: string };
 
+export type Channel = {
+  id: string;
+  name: string;
+  type: "email" | "telegram" | "discord" | "webhook";
+  config: Record<string, string>;
+  enabled: boolean;
+  last_sent_at: string | null;
+  last_error: string;
+};
+
+export type AlertRule = {
+  id: string;
+  name: string;
+  metric: "cpu" | "mem" | "disk" | "load" | "offline";
+  threshold: number;
+  duration_sec: number;
+  server_ids: string[];
+  all_servers: boolean;
+  channel_ids: string[];
+  enabled: boolean;
+};
+
+export type AlertEvent = {
+  id: number;
+  rule_id: string;
+  rule_name: string;
+  server_id: string;
+  server_name: string;
+  metric: string;
+  value: number;
+  threshold: number;
+  state: "firing" | "resolved";
+  started_at: string;
+  resolved_at: string | null;
+};
+
+type ChannelBody = Pick<Channel, "name" | "type" | "config" | "enabled">;
+const ruleBody = (r: AlertRule) => {
+  const { name, metric, threshold, duration_sec, server_ids, all_servers, channel_ids, enabled } = r;
+  return { name, metric, threshold, duration_sec, server_ids, all_servers, channel_ids, enabled };
+};
+
 export type FeatureStatus = "done" | "in-progress" | "todo";
 
 export type Progress = {
@@ -205,6 +247,17 @@ export const api = {
   updateSchedule: (id: string, s: ScheduleBody) => request<Schedule>("PUT", `/api/v1/schedules/${id}`, pickSchedule(s)),
   deleteSchedule: (id: string) => request<void>("DELETE", `/api/v1/schedules/${id}`),
   runScheduleNow: (id: string) => request<{ result: string }>("POST", `/api/v1/schedules/${id}/run`),
+  channels: () => request<Channel[]>("GET", "/api/v1/channels"),
+  createChannel: (c: ChannelBody) => request<Channel>("POST", "/api/v1/channels", c),
+  updateChannel: (id: string, c: ChannelBody) => request<Channel>("PUT", `/api/v1/channels/${id}`, c),
+  deleteChannel: (id: string) => request<void>("DELETE", `/api/v1/channels/${id}`),
+  testChannel: (id: string) => request<{ result: string }>("POST", `/api/v1/channels/${id}/test`),
+  alertRules: () => request<AlertRule[]>("GET", "/api/v1/alert-rules"),
+  createAlertRule: (r: AlertRule) => request<AlertRule>("POST", "/api/v1/alert-rules", ruleBody(r)),
+  updateAlertRule: (id: string, r: AlertRule) => request<AlertRule>("PUT", `/api/v1/alert-rules/${id}`, ruleBody(r)),
+  deleteAlertRule: (id: string) => request<void>("DELETE", `/api/v1/alert-rules/${id}`),
+  alertEvents: () => request<AlertEvent[]>("GET", "/api/v1/alerts?limit=100"),
+  firingAlerts: () => request<AlertEvent[]>("GET", "/api/v1/alerts?state=firing"),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
   createJoinToken: (name: string, playbookId = "") =>
     request<JoinToken>("POST", "/api/v1/join-tokens", { name, playbook_id: playbookId }),

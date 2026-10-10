@@ -147,6 +147,7 @@ func run(log *slog.Logger) error {
 	applyBaseline := a.ApplyBaseline
 	onConnect.Store(&applyBaseline)
 	go a.RunScheduler(ctx)
+	go a.RunAlerts(ctx)
 
 	hs := &http.Server{
 		Addr:              httpAddr,

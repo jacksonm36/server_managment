@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T13:35:00Z",
+  "updated_at": "2026-10-10T13:43:50Z",
   "phases": [
     {
       "name": "MVP",
@@ -127,11 +127,11 @@
         },
         {
           "name": "Alerts: CPU / disk / memory / offline thresholds",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "Notifications: email, Telegram, Discord, webhook",
-          "status": "todo"
+          "status": "done"
         }
       ]
     },

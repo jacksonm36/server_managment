@@ -1,11 +1,14 @@
 import { useEffect, useState } from "react";
 import { Playbooks, Runs } from "./automation/Playbooks";
 import { Schedules } from "./automation/Schedules";
+import { Alerts, Notifications } from "./automation/Alerts";
 
 const TABS = [
   { id: "playbooks", label: "Playbooks" },
   { id: "runs", label: "Runs" },
   { id: "schedules", label: "Schedules" },
+  { id: "alerts", label: "Alerts" },
+  { id: "notifications", label: "Notifications" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -48,6 +51,8 @@ export function Automation() {
       {tab === "playbooks" && <Playbooks />}
       {tab === "runs" && <Runs />}
       {tab === "schedules" && <Schedules />}
+      {tab === "alerts" && <Alerts />}
+      {tab === "notifications" && <Notifications />}
     </div>
   );
 }
