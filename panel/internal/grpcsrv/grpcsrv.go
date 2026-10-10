@@ -128,6 +128,11 @@ func (s *Server) Connect(stream agentv1.AgentService_ConnectServer) error {
 			}
 		case *agentv1.AgentMessage_JobUpdate:
 			s.handleJobUpdate(ctx, serverID, m.JobUpdate, log)
+		case *agentv1.AgentMessage_TerminalOutput:
+			s.Hub.TerminalEvent(serverID, m.TerminalOutput.SessionId, hub.TermEvent{Data: m.TerminalOutput.Data})
+		case *agentv1.AgentMessage_TerminalExit:
+			e := m.TerminalExit
+			s.Hub.TerminalEvent(serverID, e.SessionId, hub.TermEvent{Exit: true, Code: e.Code, Error: e.Error})
 		}
 	}
 }

@@ -16,6 +16,7 @@ import {
   RefreshCw,
   Shield,
   ShieldBan,
+  SquareTerminal,
   Trash2,
 } from "lucide-react";
 import { api, type Job } from "@/lib/api";
@@ -28,6 +29,7 @@ import { LiveChart } from "@/components/LiveChart";
 import { StatusBadge } from "./Servers";
 import { Updates } from "./server/Updates";
 import { Sites } from "./server/Sites";
+import { Terminal } from "./server/Terminal";
 import { Databases } from "./server/Databases";
 import { Files } from "./server/Files";
 import { Cron } from "./server/Cron";
@@ -129,6 +131,7 @@ export function ServerDetail({ id }: { id: string }) {
           )}
         </>
       )}
+      {tab === "terminal" && <Terminal serverId={id} online={server.online} />}
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "databases" && <Databases serverId={id} online={server.online} />}
       {tab === "files" && <Files serverId={id} online={server.online} />}
@@ -145,6 +148,7 @@ export function ServerDetail({ id }: { id: string }) {
 
 const TABS = [
   { id: "overview", label: "Overview", icon: Activity },
+  { id: "terminal", label: "Terminal", icon: SquareTerminal },
   { id: "sites", label: "Sites", icon: Globe },
   { id: "databases", label: "Databases", icon: Database },
   { id: "files", label: "Files", icon: FolderOpen },

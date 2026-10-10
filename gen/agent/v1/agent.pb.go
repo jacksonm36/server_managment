@@ -264,6 +264,8 @@ type AgentMessage struct {
 	//	*AgentMessage_Hello
 	//	*AgentMessage_Metrics
 	//	*AgentMessage_JobUpdate
+	//	*AgentMessage_TerminalOutput
+	//	*AgentMessage_TerminalExit
 	Msg           isAgentMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -333,6 +335,24 @@ func (x *AgentMessage) GetJobUpdate() *JobUpdate {
 	return nil
 }
 
+func (x *AgentMessage) GetTerminalOutput() *TerminalOutput {
+	if x != nil {
+		if x, ok := x.Msg.(*AgentMessage_TerminalOutput); ok {
+			return x.TerminalOutput
+		}
+	}
+	return nil
+}
+
+func (x *AgentMessage) GetTerminalExit() *TerminalExit {
+	if x != nil {
+		if x, ok := x.Msg.(*AgentMessage_TerminalExit); ok {
+			return x.TerminalExit
+		}
+	}
+	return nil
+}
+
 type isAgentMessage_Msg interface {
 	isAgentMessage_Msg()
 }
@@ -349,11 +369,351 @@ type AgentMessage_JobUpdate struct {
 	JobUpdate *JobUpdate `protobuf:"bytes,3,opt,name=job_update,json=jobUpdate,proto3,oneof"`
 }
 
+type AgentMessage_TerminalOutput struct {
+	TerminalOutput *TerminalOutput `protobuf:"bytes,4,opt,name=terminal_output,json=terminalOutput,proto3,oneof"`
+}
+
+type AgentMessage_TerminalExit struct {
+	TerminalExit *TerminalExit `protobuf:"bytes,5,opt,name=terminal_exit,json=terminalExit,proto3,oneof"`
+}
+
 func (*AgentMessage_Hello) isAgentMessage_Msg() {}
 
 func (*AgentMessage_Metrics) isAgentMessage_Msg() {}
 
 func (*AgentMessage_JobUpdate) isAgentMessage_Msg() {}
+
+func (*AgentMessage_TerminalOutput) isAgentMessage_Msg() {}
+
+func (*AgentMessage_TerminalExit) isAgentMessage_Msg() {}
+
+type TerminalOutput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalOutput) Reset() {
+	*x = TerminalOutput{}
+	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalOutput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalOutput) ProtoMessage() {}
+
+func (x *TerminalOutput) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalOutput.ProtoReflect.Descriptor instead.
+func (*TerminalOutput) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *TerminalOutput) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *TerminalOutput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type TerminalExit struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Code          int32                  `protobuf:"varint,2,opt,name=code,proto3" json:"code,omitempty"`
+	Error         string                 `protobuf:"bytes,3,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalExit) Reset() {
+	*x = TerminalExit{}
+	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalExit) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalExit) ProtoMessage() {}
+
+func (x *TerminalExit) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalExit.ProtoReflect.Descriptor instead.
+func (*TerminalExit) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *TerminalExit) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *TerminalExit) GetCode() int32 {
+	if x != nil {
+		return x.Code
+	}
+	return 0
+}
+
+func (x *TerminalExit) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+type TerminalOpen struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Cols          uint32                 `protobuf:"varint,2,opt,name=cols,proto3" json:"cols,omitempty"`
+	Rows          uint32                 `protobuf:"varint,3,opt,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalOpen) Reset() {
+	*x = TerminalOpen{}
+	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalOpen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalOpen) ProtoMessage() {}
+
+func (x *TerminalOpen) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalOpen.ProtoReflect.Descriptor instead.
+func (*TerminalOpen) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *TerminalOpen) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *TerminalOpen) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
+func (x *TerminalOpen) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+type TerminalInput struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Data          []byte                 `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalInput) Reset() {
+	*x = TerminalInput{}
+	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalInput) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalInput) ProtoMessage() {}
+
+func (x *TerminalInput) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalInput.ProtoReflect.Descriptor instead.
+func (*TerminalInput) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *TerminalInput) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *TerminalInput) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+type TerminalResize struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	Cols          uint32                 `protobuf:"varint,2,opt,name=cols,proto3" json:"cols,omitempty"`
+	Rows          uint32                 `protobuf:"varint,3,opt,name=rows,proto3" json:"rows,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalResize) Reset() {
+	*x = TerminalResize{}
+	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalResize) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalResize) ProtoMessage() {}
+
+func (x *TerminalResize) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalResize.ProtoReflect.Descriptor instead.
+func (*TerminalResize) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *TerminalResize) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
+
+func (x *TerminalResize) GetCols() uint32 {
+	if x != nil {
+		return x.Cols
+	}
+	return 0
+}
+
+func (x *TerminalResize) GetRows() uint32 {
+	if x != nil {
+		return x.Rows
+	}
+	return 0
+}
+
+type TerminalClose struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	SessionId     string                 `protobuf:"bytes,1,opt,name=session_id,json=sessionId,proto3" json:"session_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TerminalClose) Reset() {
+	*x = TerminalClose{}
+	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TerminalClose) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TerminalClose) ProtoMessage() {}
+
+func (x *TerminalClose) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TerminalClose.ProtoReflect.Descriptor instead.
+func (*TerminalClose) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *TerminalClose) GetSessionId() string {
+	if x != nil {
+		return x.SessionId
+	}
+	return ""
+}
 
 // Hello must be the first message on every stream.
 type Hello struct {
@@ -372,7 +732,7 @@ type Hello struct {
 
 func (x *Hello) Reset() {
 	*x = Hello{}
-	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	mi := &file_agent_v1_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -384,7 +744,7 @@ func (x *Hello) String() string {
 func (*Hello) ProtoMessage() {}
 
 func (x *Hello) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	mi := &file_agent_v1_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -397,7 +757,7 @@ func (x *Hello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hello.ProtoReflect.Descriptor instead.
 func (*Hello) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *Hello) GetHostname() string {
@@ -474,7 +834,7 @@ type Metrics struct {
 
 func (x *Metrics) Reset() {
 	*x = Metrics{}
-	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_agent_v1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -486,7 +846,7 @@ func (x *Metrics) String() string {
 func (*Metrics) ProtoMessage() {}
 
 func (x *Metrics) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_agent_v1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -499,7 +859,7 @@ func (x *Metrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Metrics.ProtoReflect.Descriptor instead.
 func (*Metrics) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *Metrics) GetTsUnixMs() int64 {
@@ -586,7 +946,7 @@ type JobUpdate struct {
 
 func (x *JobUpdate) Reset() {
 	*x = JobUpdate{}
-	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_agent_v1_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -598,7 +958,7 @@ func (x *JobUpdate) String() string {
 func (*JobUpdate) ProtoMessage() {}
 
 func (x *JobUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_agent_v1_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -611,7 +971,7 @@ func (x *JobUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobUpdate.ProtoReflect.Descriptor instead.
 func (*JobUpdate) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *JobUpdate) GetJobId() string {
@@ -654,6 +1014,10 @@ type PanelMessage struct {
 	// Types that are valid to be assigned to Msg:
 	//
 	//	*PanelMessage_Job
+	//	*PanelMessage_TerminalOpen
+	//	*PanelMessage_TerminalInput
+	//	*PanelMessage_TerminalResize
+	//	*PanelMessage_TerminalClose
 	Msg           isPanelMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -661,7 +1025,7 @@ type PanelMessage struct {
 
 func (x *PanelMessage) Reset() {
 	*x = PanelMessage{}
-	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_agent_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -673,7 +1037,7 @@ func (x *PanelMessage) String() string {
 func (*PanelMessage) ProtoMessage() {}
 
 func (x *PanelMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_agent_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -686,7 +1050,7 @@ func (x *PanelMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PanelMessage.ProtoReflect.Descriptor instead.
 func (*PanelMessage) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *PanelMessage) GetMsg() isPanelMessage_Msg {
@@ -705,6 +1069,42 @@ func (x *PanelMessage) GetJob() *Job {
 	return nil
 }
 
+func (x *PanelMessage) GetTerminalOpen() *TerminalOpen {
+	if x != nil {
+		if x, ok := x.Msg.(*PanelMessage_TerminalOpen); ok {
+			return x.TerminalOpen
+		}
+	}
+	return nil
+}
+
+func (x *PanelMessage) GetTerminalInput() *TerminalInput {
+	if x != nil {
+		if x, ok := x.Msg.(*PanelMessage_TerminalInput); ok {
+			return x.TerminalInput
+		}
+	}
+	return nil
+}
+
+func (x *PanelMessage) GetTerminalResize() *TerminalResize {
+	if x != nil {
+		if x, ok := x.Msg.(*PanelMessage_TerminalResize); ok {
+			return x.TerminalResize
+		}
+	}
+	return nil
+}
+
+func (x *PanelMessage) GetTerminalClose() *TerminalClose {
+	if x != nil {
+		if x, ok := x.Msg.(*PanelMessage_TerminalClose); ok {
+			return x.TerminalClose
+		}
+	}
+	return nil
+}
+
 type isPanelMessage_Msg interface {
 	isPanelMessage_Msg()
 }
@@ -713,7 +1113,31 @@ type PanelMessage_Job struct {
 	Job *Job `protobuf:"bytes,1,opt,name=job,proto3,oneof"`
 }
 
+type PanelMessage_TerminalOpen struct {
+	TerminalOpen *TerminalOpen `protobuf:"bytes,2,opt,name=terminal_open,json=terminalOpen,proto3,oneof"`
+}
+
+type PanelMessage_TerminalInput struct {
+	TerminalInput *TerminalInput `protobuf:"bytes,3,opt,name=terminal_input,json=terminalInput,proto3,oneof"`
+}
+
+type PanelMessage_TerminalResize struct {
+	TerminalResize *TerminalResize `protobuf:"bytes,4,opt,name=terminal_resize,json=terminalResize,proto3,oneof"`
+}
+
+type PanelMessage_TerminalClose struct {
+	TerminalClose *TerminalClose `protobuf:"bytes,5,opt,name=terminal_close,json=terminalClose,proto3,oneof"`
+}
+
 func (*PanelMessage_Job) isPanelMessage_Msg() {}
+
+func (*PanelMessage_TerminalOpen) isPanelMessage_Msg() {}
+
+func (*PanelMessage_TerminalInput) isPanelMessage_Msg() {}
+
+func (*PanelMessage_TerminalResize) isPanelMessage_Msg() {}
+
+func (*PanelMessage_TerminalClose) isPanelMessage_Msg() {}
 
 type Job struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -726,7 +1150,7 @@ type Job struct {
 
 func (x *Job) Reset() {
 	*x = Job{}
-	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_agent_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -738,7 +1162,7 @@ func (x *Job) String() string {
 func (*Job) ProtoMessage() {}
 
 func (x *Job) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_agent_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -751,7 +1175,7 @@ func (x *Job) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Job.ProtoReflect.Descriptor instead.
 func (*Job) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *Job) GetId() string {
@@ -779,13 +1203,41 @@ var File_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x14agent/v1/agent.proto\x12\bagent.v1\"\xa3\x01\n" +
+	"\x14agent/v1/agent.proto\x12\bagent.v1\"\xa7\x02\n" +
 	"\fAgentMessage\x12'\n" +
 	"\x05hello\x18\x01 \x01(\v2\x0f.agent.v1.HelloH\x00R\x05hello\x12-\n" +
 	"\ametrics\x18\x02 \x01(\v2\x11.agent.v1.MetricsH\x00R\ametrics\x124\n" +
 	"\n" +
-	"job_update\x18\x03 \x01(\v2\x13.agent.v1.JobUpdateH\x00R\tjobUpdateB\x05\n" +
-	"\x03msg\"\xdd\x01\n" +
+	"job_update\x18\x03 \x01(\v2\x13.agent.v1.JobUpdateH\x00R\tjobUpdate\x12C\n" +
+	"\x0fterminal_output\x18\x04 \x01(\v2\x18.agent.v1.TerminalOutputH\x00R\x0eterminalOutput\x12=\n" +
+	"\rterminal_exit\x18\x05 \x01(\v2\x16.agent.v1.TerminalExitH\x00R\fterminalExitB\x05\n" +
+	"\x03msg\"C\n" +
+	"\x0eTerminalOutput\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"W\n" +
+	"\fTerminalExit\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
+	"\x04code\x18\x02 \x01(\x05R\x04code\x12\x14\n" +
+	"\x05error\x18\x03 \x01(\tR\x05error\"U\n" +
+	"\fTerminalOpen\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
+	"\x04cols\x18\x02 \x01(\rR\x04cols\x12\x12\n" +
+	"\x04rows\x18\x03 \x01(\rR\x04rows\"B\n" +
+	"\rTerminalInput\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\"W\n" +
+	"\x0eTerminalResize\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
+	"\x04cols\x18\x02 \x01(\rR\x04cols\x12\x12\n" +
+	"\x04rows\x18\x03 \x01(\rR\x04rows\".\n" +
+	"\rTerminalClose\x12\x1d\n" +
+	"\n" +
+	"session_id\x18\x01 \x01(\tR\tsessionId\"\xdd\x01\n" +
 	"\x05Hello\x12\x1a\n" +
 	"\bhostname\x18\x01 \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x02 \x01(\tR\x02os\x12\x1d\n" +
@@ -816,9 +1268,13 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\tlog_lines\x18\x03 \x03(\tR\blogLines\x12\x1f\n" +
 	"\vresult_json\x18\x04 \x01(\tR\n" +
 	"resultJson\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05error\"8\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\"\xc0\x02\n" +
 	"\fPanelMessage\x12!\n" +
-	"\x03job\x18\x01 \x01(\v2\r.agent.v1.JobH\x00R\x03jobB\x05\n" +
+	"\x03job\x18\x01 \x01(\v2\r.agent.v1.JobH\x00R\x03job\x12=\n" +
+	"\rterminal_open\x18\x02 \x01(\v2\x16.agent.v1.TerminalOpenH\x00R\fterminalOpen\x12@\n" +
+	"\x0eterminal_input\x18\x03 \x01(\v2\x17.agent.v1.TerminalInputH\x00R\rterminalInput\x12C\n" +
+	"\x0fterminal_resize\x18\x04 \x01(\v2\x18.agent.v1.TerminalResizeH\x00R\x0eterminalResize\x12@\n" +
+	"\x0eterminal_close\x18\x05 \x01(\v2\x17.agent.v1.TerminalCloseH\x00R\rterminalCloseB\x05\n" +
 	"\x03msg\"\xa1\x01\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
@@ -898,33 +1354,45 @@ func file_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_agent_v1_agent_proto_goTypes = []any{
-	(JobStatus)(0),       // 0: agent.v1.JobStatus
-	(Op)(0),              // 1: agent.v1.Op
-	(*AgentMessage)(nil), // 2: agent.v1.AgentMessage
-	(*Hello)(nil),        // 3: agent.v1.Hello
-	(*Metrics)(nil),      // 4: agent.v1.Metrics
-	(*JobUpdate)(nil),    // 5: agent.v1.JobUpdate
-	(*PanelMessage)(nil), // 6: agent.v1.PanelMessage
-	(*Job)(nil),          // 7: agent.v1.Job
-	nil,                  // 8: agent.v1.Job.ParamsEntry
+	(JobStatus)(0),         // 0: agent.v1.JobStatus
+	(Op)(0),                // 1: agent.v1.Op
+	(*AgentMessage)(nil),   // 2: agent.v1.AgentMessage
+	(*TerminalOutput)(nil), // 3: agent.v1.TerminalOutput
+	(*TerminalExit)(nil),   // 4: agent.v1.TerminalExit
+	(*TerminalOpen)(nil),   // 5: agent.v1.TerminalOpen
+	(*TerminalInput)(nil),  // 6: agent.v1.TerminalInput
+	(*TerminalResize)(nil), // 7: agent.v1.TerminalResize
+	(*TerminalClose)(nil),  // 8: agent.v1.TerminalClose
+	(*Hello)(nil),          // 9: agent.v1.Hello
+	(*Metrics)(nil),        // 10: agent.v1.Metrics
+	(*JobUpdate)(nil),      // 11: agent.v1.JobUpdate
+	(*PanelMessage)(nil),   // 12: agent.v1.PanelMessage
+	(*Job)(nil),            // 13: agent.v1.Job
+	nil,                    // 14: agent.v1.Job.ParamsEntry
 }
 var file_agent_v1_agent_proto_depIdxs = []int32{
-	3, // 0: agent.v1.AgentMessage.hello:type_name -> agent.v1.Hello
-	4, // 1: agent.v1.AgentMessage.metrics:type_name -> agent.v1.Metrics
-	5, // 2: agent.v1.AgentMessage.job_update:type_name -> agent.v1.JobUpdate
-	0, // 3: agent.v1.JobUpdate.status:type_name -> agent.v1.JobStatus
-	7, // 4: agent.v1.PanelMessage.job:type_name -> agent.v1.Job
-	1, // 5: agent.v1.Job.op:type_name -> agent.v1.Op
-	8, // 6: agent.v1.Job.params:type_name -> agent.v1.Job.ParamsEntry
-	2, // 7: agent.v1.AgentService.Connect:input_type -> agent.v1.AgentMessage
-	6, // 8: agent.v1.AgentService.Connect:output_type -> agent.v1.PanelMessage
-	8, // [8:9] is the sub-list for method output_type
-	7, // [7:8] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	9,  // 0: agent.v1.AgentMessage.hello:type_name -> agent.v1.Hello
+	10, // 1: agent.v1.AgentMessage.metrics:type_name -> agent.v1.Metrics
+	11, // 2: agent.v1.AgentMessage.job_update:type_name -> agent.v1.JobUpdate
+	3,  // 3: agent.v1.AgentMessage.terminal_output:type_name -> agent.v1.TerminalOutput
+	4,  // 4: agent.v1.AgentMessage.terminal_exit:type_name -> agent.v1.TerminalExit
+	0,  // 5: agent.v1.JobUpdate.status:type_name -> agent.v1.JobStatus
+	13, // 6: agent.v1.PanelMessage.job:type_name -> agent.v1.Job
+	5,  // 7: agent.v1.PanelMessage.terminal_open:type_name -> agent.v1.TerminalOpen
+	6,  // 8: agent.v1.PanelMessage.terminal_input:type_name -> agent.v1.TerminalInput
+	7,  // 9: agent.v1.PanelMessage.terminal_resize:type_name -> agent.v1.TerminalResize
+	8,  // 10: agent.v1.PanelMessage.terminal_close:type_name -> agent.v1.TerminalClose
+	1,  // 11: agent.v1.Job.op:type_name -> agent.v1.Op
+	14, // 12: agent.v1.Job.params:type_name -> agent.v1.Job.ParamsEntry
+	2,  // 13: agent.v1.AgentService.Connect:input_type -> agent.v1.AgentMessage
+	12, // 14: agent.v1.AgentService.Connect:output_type -> agent.v1.PanelMessage
+	14, // [14:15] is the sub-list for method output_type
+	13, // [13:14] is the sub-list for method input_type
+	13, // [13:13] is the sub-list for extension type_name
+	13, // [13:13] is the sub-list for extension extendee
+	0,  // [0:13] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_proto_init() }
@@ -936,9 +1404,15 @@ func file_agent_v1_agent_proto_init() {
 		(*AgentMessage_Hello)(nil),
 		(*AgentMessage_Metrics)(nil),
 		(*AgentMessage_JobUpdate)(nil),
+		(*AgentMessage_TerminalOutput)(nil),
+		(*AgentMessage_TerminalExit)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[4].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[10].OneofWrappers = []any{
 		(*PanelMessage_Job)(nil),
+		(*PanelMessage_TerminalOpen)(nil),
+		(*PanelMessage_TerminalInput)(nil),
+		(*PanelMessage_TerminalResize)(nil),
+		(*PanelMessage_TerminalClose)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -946,7 +1420,7 @@ func file_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_agent_proto_rawDesc), len(file_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   7,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

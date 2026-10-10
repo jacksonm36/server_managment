@@ -13,6 +13,7 @@ import (
 
 	"github.com/jacksonm36/servermgr/agent/internal/ops"
 	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
+	"github.com/jacksonm36/servermgr/agent/internal/term"
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 )
 
@@ -110,6 +111,14 @@ func (c *client) session(ctx context.Context) error {
 		}
 	}()
 
+	terms := term.NewManager(func(m *agentv1.AgentMessage) {
+		select {
+		case out <- m:
+		case <-ctx.Done():
+		}
+	})
+	defer terms.Close()
+
 	for {
 		msg, err := stream.Recv()
 		if err != nil {
@@ -119,6 +128,20 @@ func (c *client) session(ctx context.Context) error {
 			default:
 				return err
 			}
+		}
+		switch {
+		case msg.GetTerminalOpen() != nil:
+			terms.Open(msg.GetTerminalOpen())
+			continue
+		case msg.GetTerminalInput() != nil:
+			terms.Input(msg.GetTerminalInput())
+			continue
+		case msg.GetTerminalResize() != nil:
+			terms.Resize(msg.GetTerminalResize())
+			continue
+		case msg.GetTerminalClose() != nil:
+			terms.Kill(msg.GetTerminalClose().SessionId)
+			continue
 		}
 		if job := msg.GetJob(); job != nil {
 			go ops.Run(ctx, job, func(u *agentv1.JobUpdate) {

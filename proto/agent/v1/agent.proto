@@ -17,7 +17,43 @@ message AgentMessage {
     Hello hello = 1;
     Metrics metrics = 2;
     JobUpdate job_update = 3;
+    TerminalOutput terminal_output = 4;
+    TerminalExit terminal_exit = 5;
   }
+}
+
+// ---- web terminal ----
+
+message TerminalOutput {
+  string session_id = 1;
+  bytes data = 2;
+}
+
+message TerminalExit {
+  string session_id = 1;
+  int32 code = 2;
+  string error = 3;
+}
+
+message TerminalOpen {
+  string session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+message TerminalInput {
+  string session_id = 1;
+  bytes data = 2;
+}
+
+message TerminalResize {
+  string session_id = 1;
+  uint32 cols = 2;
+  uint32 rows = 3;
+}
+
+message TerminalClose {
+  string session_id = 1;
 }
 
 // Hello must be the first message on every stream.
@@ -66,6 +102,10 @@ message JobUpdate {
 message PanelMessage {
   oneof msg {
     Job job = 1;
+    TerminalOpen terminal_open = 2;
+    TerminalInput terminal_input = 3;
+    TerminalResize terminal_resize = 4;
+    TerminalClose terminal_close = 5;
   }
 }
 

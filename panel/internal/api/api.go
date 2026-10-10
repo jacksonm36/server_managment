@@ -77,6 +77,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/servers/{id}", a.handleGetServer)
 	authed.HandleFunc("DELETE /api/v1/servers/{id}", a.handleDeleteServer)
 	authed.HandleFunc("GET /api/v1/servers/{id}/metrics", a.handleMetrics)
+	authed.HandleFunc("GET /api/v1/servers/{id}/terminal", a.handleTerminal)
 	authed.HandleFunc("GET /api/v1/servers/{id}/jobs", a.handleListJobs)
 	authed.HandleFunc("POST /api/v1/servers/{id}/jobs", a.handleCreateJob)
 	authed.HandleFunc("GET /api/v1/jobs/{id}", a.handleGetJob)

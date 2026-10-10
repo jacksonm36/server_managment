@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T13:43:50Z",
+  "updated_at": "2026-10-10T13:49:47Z",
   "phases": [
     {
       "name": "MVP",
@@ -141,7 +141,7 @@
       "features": [
         {
           "name": "Web terminal",
-          "status": "todo"
+          "status": "done"
         },
         {
           "name": "Docker containers",

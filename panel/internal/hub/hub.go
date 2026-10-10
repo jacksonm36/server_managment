@@ -57,6 +57,7 @@ type Hub struct {
 	metrics      map[string][]Metric
 	subs         map[chan Event]struct{}
 	offlineSince map[string]time.Time
+	terms        map[string]*termSub
 }
 
 func New() *Hub {
