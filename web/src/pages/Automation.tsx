@@ -3,11 +3,13 @@ import { Playbooks, Runs } from "./automation/Playbooks";
 import { Schedules } from "./automation/Schedules";
 import { Alerts, Notifications } from "./automation/Alerts";
 import { Ansible } from "./automation/Ansible";
+import { Tofu } from "./automation/Tofu";
 
 const TABS = [
   { id: "playbooks", label: "Playbooks" },
   { id: "runs", label: "Runs" },
   { id: "ansible", label: "Ansible" },
+  { id: "tofu", label: "OpenTofu" },
   { id: "schedules", label: "Schedules" },
   { id: "alerts", label: "Alerts" },
   { id: "notifications", label: "Notifications" },
@@ -30,7 +32,7 @@ export function Automation() {
     <div className="grid gap-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Automation</h1>
-        <p className="text-sm text-muted-foreground">Reusable playbooks, Ansible, run history, schedules and alerts.</p>
+        <p className="text-sm text-muted-foreground">Reusable playbooks, Ansible, OpenTofu, run history, schedules and alerts.</p>
       </div>
       <div role="tablist" className="-mx-1 flex gap-1 overflow-x-auto border-b px-1">
         {TABS.map((t) => (
@@ -53,6 +55,7 @@ export function Automation() {
       {tab === "playbooks" && <Playbooks />}
       {tab === "runs" && <Runs />}
       {tab === "ansible" && <Ansible />}
+      {tab === "tofu" && <Tofu />}
       {tab === "schedules" && <Schedules />}
       {tab === "alerts" && <Alerts />}
       {tab === "notifications" && <Notifications />}

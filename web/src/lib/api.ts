@@ -198,6 +198,58 @@ export type CatalogApp = {
   protect: boolean;
 };
 
+export type TofuVar = { key: string; value: string; kind: "tf" | "env"; sensitive: boolean };
+export type TofuWorkspace = {
+  id: string;
+  name: string;
+  description: string;
+  source: "inline" | "git";
+  files: Record<string, string>;
+  git_url: string;
+  git_ref: string;
+  git_path: string;
+  created_at: string;
+  updated_at: string;
+};
+export type TofuSummary = {
+  changes?: boolean;
+  add?: number;
+  change?: number;
+  destroy?: number;
+  added?: number;
+  changed?: number;
+  destroyed?: number;
+  outputs?: Record<string, unknown>;
+};
+export type TofuRun = {
+  id: string;
+  workspace_id: string;
+  workspace_name: string;
+  kind: "plan" | "destroy-plan" | "apply";
+  plan_run_id: string | null;
+  status: "running" | "succeeded" | "failed" | "cancelled";
+  summary: TofuSummary | null;
+  applied: boolean;
+  created_by: string;
+  created_at: string;
+  finished_at: string | null;
+};
+export type TofuWorkspaceView = {
+  workspace: TofuWorkspace;
+  vars: (TofuVar & { has_value: boolean })[];
+  vars_error?: string;
+  state?: { serial: number; updated_at: string; resources: string[] | null };
+  locked?: boolean;
+  latest_plan?: TofuRun;
+  active_run: string;
+};
+export type TofuOverview = {
+  installed: boolean;
+  version: string;
+  setup: { running: boolean; error: string };
+  workspaces: TofuWorkspaceView[];
+};
+
 export type AnsibleHost = {
   server_id: string;
   name: string;
@@ -369,6 +421,20 @@ export const api = {
   uninstallApp: (id: string, domain: string, db: string, compose = "") =>
     request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/uninstall`, { db, compose }),
   progress: () => request<Progress>("GET", "/api/v1/progress"),
+  tofu: () => request<TofuOverview>("GET", "/api/v1/tofu"),
+  tofuSetup: () => request<void>("POST", "/api/v1/tofu/setup"),
+  saveTofuWorkspace: (
+    id: string,
+    w: Omit<TofuWorkspace, "id" | "created_at" | "updated_at"> & { vars: (TofuVar & { keep: boolean })[] },
+  ) => (id ? request<TofuWorkspaceView>("PUT", `/api/v1/tofu/workspaces/${id}`, w) : request<TofuWorkspaceView>("POST", "/api/v1/tofu/workspaces", w)),
+  deleteTofuWorkspace: (id: string) => request<void>("DELETE", `/api/v1/tofu/workspaces/${id}`),
+  tofuUnlock: (id: string) => request<void>("POST", `/api/v1/tofu/workspaces/${id}/unlock`),
+  tofuPlan: (id: string, destroy: boolean) => request<TofuRun>("POST", `/api/v1/tofu/workspaces/${id}/plan`, { destroy }),
+  tofuApply: (planRunId: string, confirm: string) => request<TofuRun>("POST", `/api/v1/tofu/runs/${planRunId}/apply`, { confirm }),
+  tofuRuns: () => request<TofuRun[]>("GET", "/api/v1/tofu/runs"),
+  tofuRun: (id: string, offset: number) =>
+    request<{ run: TofuRun; output: string; total: number }>("GET", `/api/v1/tofu/runs/${id}?offset=${offset}`),
+  cancelTofuRun: (id: string) => request<void>("POST", `/api/v1/tofu/runs/${id}/cancel`),
   ansible: () => request<AnsibleOverview>("GET", "/api/v1/ansible"),
   ansibleSetup: () => request<void>("POST", "/api/v1/ansible/setup"),
   ansiblePrepare: (id: string, address: string) =>
