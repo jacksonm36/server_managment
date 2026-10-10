@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +45,9 @@ type API struct {
 	Web   fs.FS // built UI (web/dist), may be nil
 	// SecretKey (32 bytes) encrypts TOTP secrets at rest.
 	SecretKey []byte
+	// Ctx lives as long as the panel; background work (playbooks,
+	// schedules, alerts) uses it instead of a request context.
+	Ctx context.Context
 
 	limiter *loginLimiter
 }
@@ -77,6 +81,12 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/jobs/{id}", a.handleGetJob)
 	authed.HandleFunc("GET /api/v1/jobs", a.handleRecentJobs)
 	authed.HandleFunc("POST /api/v1/bulk", a.handleBulk)
+	authed.HandleFunc("GET /api/v1/playbooks", a.handleListPlaybooks)
+	authed.HandleFunc("POST /api/v1/playbooks", a.handleSavePlaybook)
+	authed.HandleFunc("PUT /api/v1/playbooks/{id}", a.handleSavePlaybook)
+	authed.HandleFunc("DELETE /api/v1/playbooks/{id}", a.handleDeletePlaybook)
+	authed.HandleFunc("POST /api/v1/playbooks/{id}/run", a.handleRunPlaybook)
+	authed.HandleFunc("GET /api/v1/playbook-runs", a.handleListRuns)
 	authed.HandleFunc("GET /api/v1/audit", a.handleListAudit)
 	authed.HandleFunc("POST /api/v1/join-tokens", a.handleCreateJoinToken)
 	authed.HandleFunc("GET /api/v1/events", a.handleEvents)

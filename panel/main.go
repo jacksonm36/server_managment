@@ -65,6 +65,9 @@ func run(log *slog.Logger) error {
 	if err := st.FailOrphanedJobs(ctx); err != nil {
 		return err
 	}
+	if err := st.FailOrphanedRuns(ctx); err != nil {
+		return err
+	}
 	if err := bootstrapAdmin(ctx, st, log); err != nil {
 		return err
 	}
@@ -131,7 +134,7 @@ func run(log *slog.Logger) error {
 			AgentBinDir:  binDir,
 			ProgressFile: env("SM_PROGRESS_FILE", "./progress.json"),
 		},
-		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey,
+		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey, Ctx: ctx,
 	}
 	hs := &http.Server{
 		Addr:              httpAddr,

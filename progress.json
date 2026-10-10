@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T03:03:56Z",
+  "updated_at": "2026-10-10T03:07:33Z",
   "phases": [
     {
       "name": "MVP",
@@ -115,7 +115,7 @@
         },
         {
           "name": "Playbooks (saved sequences of operations)",
-          "status": "in-progress"
+          "status": "done"
         },
         {
           "name": "Scheduled tasks and playbooks",

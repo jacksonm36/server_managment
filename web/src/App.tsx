@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { History, ListChecks, LogOut, Server } from "lucide-react";
+import { History, ListChecks, LogOut, Server, Workflow } from "lucide-react";
 import { api } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import { ServerDetail } from "@/pages/ServerDetail";
 import { Progress } from "@/pages/Progress";
 import { Activity } from "@/pages/Activity";
 import { Account } from "@/pages/Account";
+import { Automation } from "@/pages/Automation";
 
 export function App() {
   const [user, setUser] = useState<string | null | undefined>(undefined);
@@ -45,8 +46,11 @@ export function App() {
             </span>
             servermgr
           </Link>
-          <nav className="mr-auto flex items-center gap-1 text-sm">
+          <nav className="mr-auto flex min-w-0 items-center gap-1 overflow-x-auto text-sm">
             <NavLink href="/">Servers</NavLink>
+            <NavLink href="/automation">
+              <Workflow className="size-4" /> Automation
+            </NavLink>
             <NavLink href="/activity">
               <History className="size-4" /> Activity
             </NavLink>
@@ -69,6 +73,9 @@ export function App() {
         <Switch>
           <Route path="/">
             <Servers />
+          </Route>
+          <Route path="/automation">
+            <Automation />
           </Route>
           <Route path="/account">
             <Account />
