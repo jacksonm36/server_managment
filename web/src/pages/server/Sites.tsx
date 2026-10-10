@@ -20,6 +20,8 @@ type Site = {
   root: string;
   tls: "" | "selfsigned" | "letsencrypt";
   tls_email?: string;
+  tls_staging?: boolean;
+  tls_directory?: string;
   tls_expires?: string;
   force_https: boolean;
   created_at: string;
@@ -297,7 +299,8 @@ function SiteDialog(props: {
 function TLSDialog({ site, onClose, onSubmit }: { site: Site; onClose: () => void; onSubmit: (p: Record<string, string>) => void }) {
   const [mode, setMode] = useState<string>(site.tls || "letsencrypt");
   const [email, setEmail] = useState(site.tls_email ?? "");
-  const [staging, setStaging] = useState(false);
+  const [staging, setStaging] = useState(!!site.tls_staging);
+  const [acmeDir, setAcmeDir] = useState(site.tls_directory ?? "");
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -314,6 +317,7 @@ function TLSDialog({ site, onClose, onSubmit }: { site: Site; onClose: () => voi
             if (mode === "letsencrypt") {
               if (email.trim()) p.email = email.trim();
               p.staging = String(staging);
+              if (acmeDir.trim()) p.acme_directory = acmeDir.trim();
             }
             onSubmit(p);
           }}
@@ -343,6 +347,18 @@ function TLSDialog({ site, onClose, onSubmit }: { site: Site; onClose: () => voi
                 <input type="checkbox" className="accent-[var(--color-brand)]" checked={staging} onChange={(e) => setStaging(e.target.checked)} />
                 Use the staging environment (testing, untrusted)
               </label>
+              <details className="text-sm" open={!!acmeDir}>
+                <summary className="cursor-pointer text-muted-foreground">Other ACME server</summary>
+                <div className="mt-2 grid gap-1.5">
+                  <Input
+                    value={acmeDir}
+                    onChange={(e) => setAcmeDir(e.target.value)}
+                    placeholder="https://acme.zerossl.com/v2/DV90"
+                    aria-label="ACME directory URL"
+                  />
+                  <span className="text-xs text-muted-foreground">Leave empty for Let's Encrypt. Any ACME CA without account binding works, e.g. Buypass or your own step-ca.</span>
+                </div>
+              </details>
             </>
           )}
           <div className="flex justify-end gap-2">

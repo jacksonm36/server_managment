@@ -1,13 +1,12 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { Boxes, History, LayoutDashboard, ListChecks, LogOut, Server, ShieldCheck, Users as UsersIcon, Workflow } from "lucide-react";
+import { Boxes, History, LayoutDashboard, LogOut, Server, ShieldCheck, Users as UsersIcon, Workflow } from "lucide-react";
 import { api, type Role } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Login } from "@/pages/Login";
 import { Servers } from "@/pages/Servers";
 import { ServerDetail } from "@/pages/ServerDetail";
-import { Progress } from "@/pages/Progress";
 import { Activity } from "@/pages/Activity";
 import { Account } from "@/pages/Account";
 import { Automation } from "@/pages/Automation";
@@ -90,9 +89,6 @@ export function App() {
                 <UsersIcon className="size-4" />
               </NavLink>
             )}
-            <NavLink href="/progress" label="Progress">
-              <ListChecks className="size-4" />
-            </NavLink>
           </nav>
           <div className="flex items-center gap-3 text-sm">
             <ConnectionDot />
@@ -136,9 +132,6 @@ export function App() {
           </Route>
           <Route path="/activity">
             <Activity />
-          </Route>
-          <Route path="/progress">
-            <Progress />
           </Route>
           <Route path="/servers/:id">{(p) => <ServerDetail id={p.id} />}</Route>
           <Route>

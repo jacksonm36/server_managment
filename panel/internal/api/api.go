@@ -338,7 +338,7 @@ var opsByName = map[string]opSpec{
 	"site.create":            {op: agentv1.Op_OP_SITE_CREATE, params: []string{"domain", "aliases", "type", "php_version", "proxy_target"}},
 	"site.update":            {op: agentv1.Op_OP_SITE_UPDATE, params: []string{"domain", "aliases", "type", "php_version", "proxy_target", "force_https"}},
 	"site.delete":            {op: agentv1.Op_OP_SITE_DELETE, params: []string{"domain", "delete_files"}},
-	"site.tls":               {op: agentv1.Op_OP_SITE_TLS, params: []string{"domain", "mode", "email", "staging"}},
+	"site.tls":               {op: agentv1.Op_OP_SITE_TLS, params: []string{"domain", "mode", "email", "staging", "acme_directory"}},
 	"db.status":              {op: agentv1.Op_OP_DB_STATUS},
 	"db.install":             {op: agentv1.Op_OP_DB_INSTALL},
 	"db.create":              {op: agentv1.Op_OP_DB_CREATE, params: []string{"name", "user", "host", "password"}},

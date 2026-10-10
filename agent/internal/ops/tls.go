@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/big"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -106,7 +107,10 @@ func letsEncrypt(ctx context.Context, s *Site, logf func(string, ...any)) (time.
 		return time.Time{}, err
 	}
 	dir := leProduction
-	if s.TLSStaging {
+	switch {
+	case s.TLSDirectory != "":
+		dir = s.TLSDirectory
+	case s.TLSStaging:
 		dir = leStaging
 	}
 	client := &acme.Client{Key: accountKey, DirectoryURL: dir, UserAgent: "servermgr-agent"}
@@ -168,10 +172,13 @@ func letsEncrypt(ctx context.Context, s *Site, logf func(string, ...any)) (time.
 	if err != nil {
 		return time.Time{}, err
 	}
-	if _, err := client.WaitOrder(ctx, order.URI); err != nil {
+	ready, err := client.WaitOrder(ctx, order.URI)
+	if err != nil {
 		return time.Time{}, err
 	}
-	chain, _, err := client.CreateOrderCert(ctx, order.FinalizeURL, csr, true)
+	// CreateCertFromOrder (not CreateOrderCert) keeps the order URL, needed
+	// to poll when the CA issues asynchronously ("processing").
+	chain, _, err := client.CreateCertFromOrder(ctx, ready, csr, true)
 	if err != nil {
 		return time.Time{}, fmt.Errorf("ACME finalize: %w", err)
 	}
@@ -212,6 +219,13 @@ func siteTLS(ctx context.Context, p map[string]string, logf func(string, ...any)
 	case "selfsigned", "letsencrypt":
 		s.TLS = mode
 		s.TLSStaging = p["staging"] == "true"
+		s.TLSDirectory = ""
+		if d := strings.TrimSpace(p["acme_directory"]); d != "" && mode == "letsencrypt" {
+			if u, err := url.Parse(d); err != nil || u.Scheme != "https" || u.Host == "" {
+				return nil, errors.New("ACME directory must be an https:// URL")
+			}
+			s.TLSDirectory = d
+		}
 		if e := strings.TrimSpace(p["email"]); e != "" {
 			if !emailRe.MatchString(strings.ToLower(e)) {
 				return nil, errors.New("invalid email address")

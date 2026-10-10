@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T20:31:00Z",
+  "updated_at": "2026-10-10T21:25:43Z",
   "phases": [
     {
       "name": "MVP",
@@ -81,7 +81,7 @@
         },
         {
           "name": "Let's Encrypt certificates",
-          "status": "in-progress"
+          "status": "done"
         },
         {
           "name": "PHP-FPM versions per site",

@@ -42,22 +42,24 @@ var (
 )
 
 type Site struct {
-	Domain      string        `json:"domain"`
-	Aliases     []string      `json:"aliases"`
-	Type        string        `json:"type"` // static | php | proxy
-	PHPVersion  string        `json:"php_version,omitempty"`
-	ProxyTarget string        `json:"proxy_target,omitempty"`
-	User        string        `json:"user"`
-	Root        string        `json:"root"`
-	TLS         string        `json:"tls"` // "" | selfsigned | letsencrypt
-	TLSEmail    string        `json:"tls_email,omitempty"`
-	TLSStaging  bool          `json:"tls_staging,omitempty"`
-	TLSExpires  time.Time     `json:"tls_expires,omitzero"`
-	ForceHTTPS  bool          `json:"force_https"`
-	CreatedAt   time.Time     `json:"created_at"`
-	Backup      *BackupPolicy `json:"backup,omitempty"`
-	App         *SiteApp      `json:"app,omitempty"`
-	Access      *SiteAccess   `json:"access,omitempty"`
+	Domain      string   `json:"domain"`
+	Aliases     []string `json:"aliases"`
+	Type        string   `json:"type"` // static | php | proxy
+	PHPVersion  string   `json:"php_version,omitempty"`
+	ProxyTarget string   `json:"proxy_target,omitempty"`
+	User        string   `json:"user"`
+	Root        string   `json:"root"`
+	TLS         string   `json:"tls"` // "" | selfsigned | letsencrypt
+	TLSEmail    string   `json:"tls_email,omitempty"`
+	TLSStaging  bool     `json:"tls_staging,omitempty"`
+	// TLSDirectory is a custom ACME directory URL ("" = Let's Encrypt).
+	TLSDirectory string        `json:"tls_directory,omitempty"`
+	TLSExpires   time.Time     `json:"tls_expires,omitzero"`
+	ForceHTTPS   bool          `json:"force_https"`
+	CreatedAt    time.Time     `json:"created_at"`
+	Backup       *BackupPolicy `json:"backup,omitempty"`
+	App          *SiteApp      `json:"app,omitempty"`
+	Access       *SiteAccess   `json:"access,omitempty"`
 }
 
 func (s *Site) home() string    { return filepath.Join(sitesRoot, s.Domain) }
