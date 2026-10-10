@@ -196,7 +196,7 @@ func dockerStatus(ctx context.Context) (any, error) {
 }
 
 func dockerInstall(ctx context.Context, logf func(string, ...any)) (any, error) {
-	if err := aptInstall(ctx, logf, "docker.io", "docker-compose"); err != nil {
+	if err := aptInstall(ctx, logf, "docker.io", "docker-cli", "docker-compose"); err != nil {
 		return nil, err
 	}
 	if err := run(ctx, logf, "systemctl", "enable", "--now", "docker"); err != nil {
@@ -344,7 +344,11 @@ func composeSave(ctx context.Context, p map[string]string, logf func(string, ...
 		} else {
 			_ = os.RemoveAll(dir)
 		}
-		return nil, fmt.Errorf("invalid compose file, nothing changed: %s", strings.TrimSpace(string(out)))
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error() // e.g. the docker CLI is missing
+		}
+		return nil, fmt.Errorf("invalid compose file, nothing changed: %s", msg)
 	}
 	logf("saved %s", composeFile(name))
 	if p["deploy"] == "true" {
@@ -362,6 +366,9 @@ func composeAction(ctx context.Context, p map[string]string, logf func(string, .
 	}
 	if _, err := os.Stat(composeFile(name)); err != nil {
 		return nil, fmt.Errorf("app %s has no compose file on this server", name)
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		return nil, errors.New("the docker CLI is missing; use Install Docker to repair")
 	}
 	var err error
 	switch p["action"] {

@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T14:03:35Z",
+  "updated_at": "2026-10-10T14:39:57Z",
   "phases": [
     {
       "name": "MVP",
@@ -145,7 +145,7 @@
         },
         {
           "name": "Docker containers",
-          "status": "in-progress"
+          "status": "done"
         },
         {
           "name": "Service manager (systemd units)",
@@ -162,6 +162,40 @@
         {
           "name": "Agent self-update",
           "status": "done"
+        },
+        {
+          "name": "RHEL family support (AlmaLinux / Rocky)",
+          "status": "todo"
+        },
+        {
+          "name": "UI polish + dashboard overview",
+          "status": "todo"
+        },
+        {
+          "name": "Code backup to private GitHub repo",
+          "status": "todo"
+        }
+      ]
+    },
+    {
+      "name": "Integrations",
+      "description": "App catalog, Ansible, OpenTofu and Proxmox",
+      "features": [
+        {
+          "name": "One-click app catalog (WordPress, Joomla, Drupal, Nextcloud, Ghost, phpMyAdmin)",
+          "status": "todo"
+        },
+        {
+          "name": "Ansible (venv, inventory, managed SSH key, playbooks, live output)",
+          "status": "todo"
+        },
+        {
+          "name": "OpenTofu workspaces (plan/apply, encrypted vars, state in panel)",
+          "status": "todo"
+        },
+        {
+          "name": "Proxmox VE node management (VMs/LXC, snapshots, cloud-init enroll)",
+          "status": "todo"
         }
       ]
     }
