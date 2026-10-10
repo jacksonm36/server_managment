@@ -156,6 +156,9 @@ bantime = %s
 findtime = %s
 maxretry = %s
 ignoreip = %s
+# nftables works the same on Debian and RHEL, with or without firewalld.
+banaction = nftables[type=multiport]
+banaction_allports = nftables[type=allports]
 
 [sshd]
 enabled = true
@@ -168,7 +171,7 @@ backend = systemd
 }
 
 func fail2banInstall(ctx context.Context, logf func(string, ...any)) (any, error) {
-	if err := aptInstall(ctx, logf, "fail2ban", "python3-systemd", "nftables"); err != nil {
+	if err := installFail2banPkgs(ctx, logf); err != nil {
 		return nil, err
 	}
 	if _, err := os.Stat(f2bConfPath); errors.Is(err, os.ErrNotExist) {

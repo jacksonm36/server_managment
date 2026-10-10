@@ -16,6 +16,7 @@ type FW = {
   logging?: string;
   ssh_port?: string;
   rules?: Rule[];
+  backend?: "ufw" | "firewalld";
 };
 
 const PRESETS = [
@@ -33,6 +34,7 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
   const [from, setFrom] = useState("");
   const [comment, setComment] = useState("");
   const disabled = !online || !!busy;
+  const fw = data?.backend === "firewalld" ? "firewalld" : "UFW";
 
   async function addRule(e: React.FormEvent) {
     e.preventDefault();
@@ -56,7 +58,7 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
       if (!confirm("Disable the firewall? All incoming traffic will be allowed.")) return;
       await run("firewall.disable");
     } else {
-      if (!confirm(`Enable UFW? SSH (port ${data?.ssh_port ?? 22}/tcp) is allowed with rate limiting first, so you stay connected.`))
+      if (!confirm(`Enable ${fw}? SSH (port ${data?.ssh_port ?? 22}/tcp) is allowed with rate limiting first, so you stay connected.`))
         return;
       await run("firewall.enable");
     }
@@ -66,10 +68,10 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
     return (
       <Card className="flex flex-col items-center gap-3 p-10 text-center">
         <ShieldOff className="size-8 text-muted-foreground" />
-        <div className="font-medium">UFW is not installed</div>
-        <p className="max-w-sm text-sm text-muted-foreground">Install UFW to manage this server's firewall from the panel.</p>
+        <div className="font-medium">{fw} is not installed</div>
+        <p className="max-w-sm text-sm text-muted-foreground">Install {fw} to manage this server's firewall from the panel.</p>
         <Button variant="brand" disabled={disabled} onClick={() => run("firewall.install")}>
-          <Download /> Install UFW
+          <Download /> Install {fw}
         </Button>
         <div className="w-full max-w-xl text-left">
           <OpStatus busy={busy} error={error} job={job} />
@@ -84,7 +86,7 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
         <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2">
-              Firewall (UFW)
+              Firewall ({fw})
               {data && (data.active ? <Badge variant="success"><ShieldCheck className="size-3" /> active</Badge> : <Badge variant="outline">inactive</Badge>)}
             </CardTitle>
             <CardDescription>{data?.defaults ? `Default: ${data.defaults}` : "Loading…"}</CardDescription>

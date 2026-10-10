@@ -211,6 +211,9 @@ type pkgUpdate struct {
 var aptUpgradable = regexp.MustCompile(`^(\S+)/(\S+)\s+(\S+)\s+\S+\s+\[upgradable from:\s+([^\]]+)\]`)
 
 func checkUpdates(ctx context.Context, logf func(string, ...any)) (any, error) {
+	if isRHEL() {
+		return dnfCheckUpdates(ctx, logf)
+	}
 	if _, err := exec.LookPath("apt-get"); err != nil {
 		return nil, errors.New("apt-get not found: only Debian/Ubuntu are supported for now")
 	}

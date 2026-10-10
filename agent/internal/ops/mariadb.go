@@ -124,7 +124,7 @@ SELECT Db, User, Host FROM mysql.db;`)
 }
 
 func dbInstall(ctx context.Context, logf func(string, ...any)) (any, error) {
-	if err := aptInstall(ctx, logf, "mariadb-server", "mariadb-client"); err != nil {
+	if err := pkgInstall(ctx, logf, []string{"mariadb-server", "mariadb-client"}, []string{"mariadb-server"}); err != nil {
 		return nil, err
 	}
 	if err := run(ctx, logf, "systemctl", "enable", "--now", "mariadb"); err != nil {

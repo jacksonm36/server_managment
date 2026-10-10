@@ -98,6 +98,16 @@ sudo iptables -I DOCKER-USER -i incusbr0 -j ACCEPT
 sudo iptables -I DOCKER-USER -o incusbr0 -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 ```
 
+## Supported servers
+
+| Family | Tested on | Packages | Firewall | PHP | Notes |
+| ------ | --------- | -------- | -------- | --- | ----- |
+| Debian / Ubuntu | Debian 13 | apt | UFW | Debian packages + packages.sury.org | |
+| RHEL family | AlmaLinux 9 (Rocky / RHEL 9-10 use the same code path) | dnf (+ EPEL) | firewalld | Remi (php84-php-fpm, ...) | nginx from AppStream; before nginx 1.25.1 the old `listen ... http2` syntax is used automatically. With SELinux enforcing, `/srv/sites` is labelled for nginx/php-fpm and nginx may proxy to local apps. |
+
+Fail2ban bans through nftables on both families. Docker on RHEL comes from Docker's own repository.
+The panel refuses to delete the firewall rule that keeps SSH reachable.
+
 ## Features
 
 Per server (tabs on the server page):

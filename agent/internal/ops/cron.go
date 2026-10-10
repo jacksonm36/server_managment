@@ -144,6 +144,9 @@ func cronStatus() (any, error) {
 	}
 	sort.Slice(jobs, func(a, b int) bool { return jobs[a].Created.Before(jobs[b].Created) })
 	_, hasCron := exec.LookPath("cron")
+	if hasCron != nil {
+		_, hasCron = exec.LookPath("crond") // cronie on RHEL
+	}
 	return map[string]any{"jobs": jobs, "users": loginUsersAndSites(), "cron_installed": hasCron == nil}, nil
 }
 

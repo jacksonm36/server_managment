@@ -74,6 +74,9 @@ func aptInstall(ctx context.Context, logf func(string, ...any), pkgs ...string) 
 // upgradePackages upgrades everything (params: dist=true for full-upgrade) or
 // only the space-separated list in params["packages"].
 func upgradePackages(ctx context.Context, params map[string]string, logf func(string, ...any)) (any, error) {
+	if isRHEL() {
+		return dnfUpgrade(ctx, params, logf)
+	}
 	pkgs := strings.Fields(params["packages"])
 	for _, p := range pkgs {
 		if !debPkgName.MatchString(p) {

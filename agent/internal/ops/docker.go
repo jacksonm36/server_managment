@@ -196,7 +196,7 @@ func dockerStatus(ctx context.Context) (any, error) {
 }
 
 func dockerInstall(ctx context.Context, logf func(string, ...any)) (any, error) {
-	if err := aptInstall(ctx, logf, "docker.io", "docker-cli", "docker-compose"); err != nil {
+	if err := installDockerPkgs(ctx, logf); err != nil {
 		return nil, err
 	}
 	if err := run(ctx, logf, "systemctl", "enable", "--now", "docker"); err != nil {

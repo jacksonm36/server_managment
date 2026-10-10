@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"text/template"
@@ -60,16 +61,53 @@ type Site struct {
 func (s *Site) home() string    { return filepath.Join(sitesRoot, s.Domain) }
 func (s *Site) names() []string { return append([]string{s.Domain}, s.Aliases...) }
 func (s *Site) certDir() string { return filepath.Join(certsDir, s.Domain) }
+
+// nginxConf is the vhost file. Debian uses sites-available + a symlink in
+// sites-enabled; RHEL nginx only reads conf.d, so nginxLink is empty there.
 func (s *Site) nginxConf() string {
+	if isRHEL() {
+		return "/etc/nginx/conf.d/servermgr-" + s.Domain + ".conf"
+	}
 	return "/etc/nginx/sites-available/servermgr-" + s.Domain + ".conf"
 }
 func (s *Site) nginxLink() string {
+	if isRHEL() {
+		return ""
+	}
 	return "/etc/nginx/sites-enabled/servermgr-" + s.Domain + ".conf"
 }
-func (s *Site) fpmPool() string {
-	return fmt.Sprintf("/etc/php/%s/fpm/pool.d/servermgr-%s.conf", s.PHPVersion, s.Domain)
+func (s *Site) fpmPool() string { return phpLayoutFor(s.PHPVersion).poolFile(s.Domain) }
+func (s *Site) fpmSocket() string {
+	return filepath.Join(phpLayoutFor(s.PHPVersion).sockDir, "servermgr-"+s.Domain+".sock")
 }
-func (s *Site) fpmSocket() string { return "/run/php/servermgr-" + s.Domain + ".sock" }
+
+// phpLayout is where one PHP version keeps its FPM pieces: Debian/sury
+// packages (php8.4-fpm) or Remi's parallel installs on RHEL (php84-php-fpm).
+type phpLayout struct {
+	poolDir, bin, service, sockDir string
+}
+
+func (l phpLayout) poolFile(domain string) string {
+	return filepath.Join(l.poolDir, "servermgr-"+domain+".conf")
+}
+
+func phpLayoutFor(v string) phpLayout {
+	if isRHEL() {
+		xy := strings.ReplaceAll(v, ".", "")
+		return phpLayout{
+			poolDir: "/etc/opt/remi/php" + xy + "/php-fpm.d",
+			bin:     "/opt/remi/php" + xy + "/root/usr/sbin/php-fpm",
+			service: "php" + xy + "-php-fpm",
+			sockDir: "/var/opt/remi/php" + xy + "/run/php-fpm",
+		}
+	}
+	return phpLayout{
+		poolDir: "/etc/php/" + v + "/fpm/pool.d",
+		bin:     "/usr/sbin/php-fpm" + v,
+		service: "php" + v + "-fpm",
+		sockDir: "/run/php",
+	}
+}
 
 var (
 	domainRe     = regexp.MustCompile(`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$`)
@@ -165,16 +203,44 @@ func run(ctx context.Context, logf func(string, ...any), name string, args ...st
 // ---- status & install ----
 
 func phpVersions() []string {
-	dirs, _ := filepath.Glob("/etc/php/*/fpm")
+	var cands []string
+	if isRHEL() {
+		dirs, _ := filepath.Glob("/etc/opt/remi/php[0-9][0-9]")
+		for _, d := range dirs {
+			xy := strings.TrimPrefix(filepath.Base(d), "php")
+			cands = append(cands, xy[:1]+"."+xy[1:])
+		}
+	} else {
+		dirs, _ := filepath.Glob("/etc/php/*/fpm")
+		for _, d := range dirs {
+			cands = append(cands, filepath.Base(filepath.Dir(d)))
+		}
+	}
 	out := []string{}
-	for _, d := range dirs {
-		v := filepath.Base(filepath.Dir(d))
-		if _, err := os.Stat("/usr/sbin/php-fpm" + v); err == nil {
+	for _, v := range cands {
+		if _, err := os.Stat(phpLayoutFor(v).bin); err == nil {
 			out = append(out, v)
 		}
 	}
 	sort.Sort(sort.Reverse(sort.StringSlice(out)))
 	return out
+}
+
+// nginxModernHTTP2 reports whether nginx understands `http2 on;` (1.25.1+).
+// Older builds (e.g. RHEL 9 AppStream) need `listen 443 ssl http2;`.
+func nginxModernHTTP2() bool {
+	out, err := exec.Command("nginx", "-v").CombinedOutput()
+	if err != nil {
+		return true
+	}
+	m := regexp.MustCompile(`nginx/(\d+)\.(\d+)\.(\d+)`).FindStringSubmatch(string(out))
+	if m == nil {
+		return true
+	}
+	maj, _ := strconv.Atoi(m[1])
+	min, _ := strconv.Atoi(m[2])
+	patch, _ := strconv.Atoi(m[3])
+	return maj > 1 || min > 25 || (min == 25 && patch >= 1)
 }
 
 func webStatus(ctx context.Context) (any, error) {
@@ -201,7 +267,7 @@ map $http_upgrade $sm_connection_upgrade {
 `
 
 func webInstall(ctx context.Context, p map[string]string, logf func(string, ...any)) (any, error) {
-	if err := aptInstall(ctx, logf, "nginx", "ssl-cert"); err != nil {
+	if err := pkgInstall(ctx, logf, []string{"nginx", "ssl-cert"}, []string{"nginx"}); err != nil {
 		return nil, err
 	}
 	const snippet = "/etc/nginx/conf.d/servermgr.conf"
@@ -237,6 +303,9 @@ var phpExtensions = []string{"fpm", "cli", "mysql", "curl", "gd", "mbstring", "x
 func installPHP(ctx context.Context, v string, logf func(string, ...any)) error {
 	if !phpVersionRe.MatchString(v) {
 		return fmt.Errorf("invalid PHP version %q", v)
+	}
+	if isRHEL() {
+		return installPHPRemi(ctx, v, logf)
 	}
 	pkgs := make([]string, 0, len(phpExtensions))
 	for _, e := range phpExtensions {
@@ -288,6 +357,36 @@ func addSuryRepo(ctx context.Context, logf func(string, ...any)) error {
 	return os.WriteFile(list, []byte(src), 0o644)
 }
 
+// installPHPRemi installs a PHP version from Remi's repository, which ships
+// every supported version side by side (php84-php-fpm, php83-php-fpm, …).
+func installPHPRemi(ctx context.Context, v string, logf func(string, ...any)) error {
+	if err := ensureEPEL(ctx, logf); err != nil {
+		return err
+	}
+	if exec.CommandContext(ctx, "rpm", "-q", "remi-release").Run() != nil {
+		osFamily()
+		if famMajor < 8 {
+			return errors.New("RHEL 8 or newer is required")
+		}
+		logf("adding the Remi PHP repository")
+		aptMu.Lock()
+		err := dnfRun(ctx, logf, "install", fmt.Sprintf("https://rpms.remirepo.net/enterprise/remi-release-%d.rpm", famMajor))
+		aptMu.Unlock()
+		if err != nil {
+			return err
+		}
+	}
+	xy := strings.ReplaceAll(v, ".", "")
+	pkgs := []string{}
+	for _, e := range []string{"fpm", "cli", "mysqlnd", "gd", "mbstring", "xml", "pecl-zip", "intl", "bcmath", "opcache"} {
+		pkgs = append(pkgs, "php"+xy+"-php-"+e)
+	}
+	if err := pkgInstall(ctx, logf, nil, pkgs); err != nil {
+		return err
+	}
+	return run(ctx, logf, "systemctl", "enable", "--now", phpLayoutFor(v).service)
+}
+
 func phpInstall(ctx context.Context, p map[string]string, logf func(string, ...any)) (any, error) {
 	if err := installPHP(ctx, p["version"], logf); err != nil {
 		return nil, err
@@ -316,16 +415,20 @@ server {
 }
 
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl{{if not .HTTP2On}} http2{{end}};
+    listen [::]:443 ssl{{if not .HTTP2On}} http2{{end}};
+{{- if .HTTP2On}}
     http2 on;
+{{- end}}
     server_name {{.Names}};
 {{- end}}
 {{- if .HasCert}}
 {{- if not $s.ForceHTTPS}}
-    listen 443 ssl;
-    listen [::]:443 ssl;
+    listen 443 ssl{{if not .HTTP2On}} http2{{end}};
+    listen [::]:443 ssl{{if not .HTTP2On}} http2{{end}};
+{{- if .HTTP2On}}
     http2 on;
+{{- end}}
 {{- end}}
     ssl_certificate     {{.CertDir}}/fullchain.pem;
     ssl_certificate_key {{.CertDir}}/privkey.pem;
@@ -387,8 +490,8 @@ var fpmTmpl = template.Must(template.New("pool").Parse(`; Managed by servermgr. 
 user = {{.User}}
 group = {{.User}}
 listen = {{.Socket}}
-listen.owner = www-data
-listen.group = www-data
+listen.owner = {{.WebGroup}}
+listen.group = {{.WebGroup}}
 listen.mode = 0660
 pm = ondemand
 pm.max_children = 10
@@ -414,7 +517,7 @@ func renderNginxWith(s *Site, hasCert bool) ([]byte, error) {
 	var b bytes.Buffer
 	err := nginxTmpl.Execute(&b, map[string]any{
 		"Site": s, "Names": strings.Join(s.names(), " "), "ACME": acmeWebroot, "Home": s.home(),
-		"HasCert": hasCert, "CertDir": s.certDir(), "Socket": s.fpmSocket(),
+		"HasCert": hasCert, "CertDir": s.certDir(), "Socket": s.fpmSocket(), "HTTP2On": nginxModernHTTP2(),
 	})
 	return b.Bytes(), err
 }
@@ -440,16 +543,20 @@ func applyNginx(ctx context.Context, s *Site, logf func(string, ...any)) error {
 	if err := writeFileAtomic(s.nginxConf(), conf, 0o644); err != nil {
 		return err
 	}
-	if _, err := os.Lstat(s.nginxLink()); errors.Is(err, os.ErrNotExist) {
-		if err := os.Symlink(s.nginxConf(), s.nginxLink()); err != nil {
-			return err
+	if link := s.nginxLink(); link != "" {
+		if _, err := os.Lstat(link); errors.Is(err, os.ErrNotExist) {
+			if err := os.Symlink(s.nginxConf(), link); err != nil {
+				return err
+			}
 		}
 	}
 	if err := nginxReload(ctx, logf); err != nil {
 		if prevErr == nil {
 			_ = writeFileAtomic(s.nginxConf(), prev, 0o644)
 		} else {
-			_ = os.Remove(s.nginxLink())
+			if link := s.nginxLink(); link != "" {
+				_ = os.Remove(link)
+			}
 			_ = os.Remove(s.nginxConf())
 		}
 		_ = run(ctx, logf, "nginx", "-t")
@@ -460,18 +567,18 @@ func applyNginx(ctx context.Context, s *Site, logf func(string, ...any)) error {
 
 func applyFPM(ctx context.Context, s *Site, logf func(string, ...any)) error {
 	var b bytes.Buffer
-	if err := fpmTmpl.Execute(&b, map[string]any{"Domain": s.Domain, "User": s.User, "Socket": s.fpmSocket(), "Home": s.home()}); err != nil {
+	if err := fpmTmpl.Execute(&b, map[string]any{"Domain": s.Domain, "User": s.User, "Socket": s.fpmSocket(), "Home": s.home(), "WebGroup": webGroup()}); err != nil {
 		return err
 	}
 	if err := writeFileAtomic(s.fpmPool(), b.Bytes(), 0o644); err != nil {
 		return err
 	}
-	svc := "php" + s.PHPVersion + "-fpm"
-	if err := run(ctx, logf, "php-fpm"+s.PHPVersion, "-t"); err != nil {
+	l := phpLayoutFor(s.PHPVersion)
+	if err := run(ctx, logf, l.bin, "-t"); err != nil {
 		_ = os.Remove(s.fpmPool())
 		return err
 	}
-	return run(ctx, logf, "systemctl", "reload", svc)
+	return run(ctx, logf, "systemctl", "reload-or-restart", l.service)
 }
 
 // removeFPMPools deletes this site's pool from every PHP version except keep.
@@ -480,13 +587,15 @@ func removeFPMPools(ctx context.Context, s *Site, keep string, logf func(string,
 		if v == keep {
 			continue
 		}
-		pool := fmt.Sprintf("/etc/php/%s/fpm/pool.d/servermgr-%s.conf", v, s.Domain)
-		if _, err := os.Stat(pool); err == nil {
+		l := phpLayoutFor(v)
+		if pool := l.poolFile(s.Domain); fileExists(pool) {
 			_ = os.Remove(pool)
-			_ = run(ctx, logf, "systemctl", "reload", "php"+v+"-fpm")
+			_ = run(ctx, logf, "systemctl", "reload-or-restart", l.service)
 		}
 	}
 }
+
+func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
 
 // ---- create / update / delete ----
 
@@ -567,7 +676,7 @@ func siteCreate(ctx context.Context, p map[string]string, logf func(string, ...a
 		if err := os.Chmod(d.path, d.mode); err != nil {
 			return nil, err
 		}
-		group := "www-data"
+		group := webGroup()
 		if strings.HasSuffix(d.path, "/tmp") {
 			group = s.User
 		}
@@ -579,8 +688,11 @@ func siteCreate(ctx context.Context, p map[string]string, logf func(string, ...a
 		idx := filepath.Join(s.Root, "index.html")
 		if _, err := os.Stat(idx); errors.Is(err, os.ErrNotExist) {
 			_ = os.WriteFile(idx, []byte(fmt.Sprintf(welcomePage, domain)), 0o640)
-			_ = run(ctx, func(string, ...any) {}, "chown", s.User+":www-data", idx)
+			_ = run(ctx, func(string, ...any) {}, "chown", s.User+":"+webGroup(), idx)
 		}
+	}
+	if err := selinuxWeb(ctx, logf, s.Type == "proxy"); err != nil {
+		return nil, err
 	}
 	if s.Type == "php" {
 		if err := applyFPM(ctx, s, logf); err != nil {
@@ -606,6 +718,9 @@ func siteUpdate(ctx context.Context, p map[string]string, logf func(string, ...a
 	if err := parseSiteParams(p, s); err != nil {
 		return nil, err
 	}
+	if err := selinuxWeb(ctx, logf, s.Type == "proxy"); err != nil {
+		return nil, err
+	}
 	if s.Type == "php" {
 		if err := applyFPM(ctx, s, logf); err != nil {
 			return nil, err
@@ -629,7 +744,9 @@ func siteDelete(ctx context.Context, p map[string]string, logf func(string, ...a
 	if err != nil {
 		return nil, err
 	}
-	_ = os.Remove(s.nginxLink())
+	if link := s.nginxLink(); link != "" {
+		_ = os.Remove(link)
+	}
 	_ = os.Remove(s.nginxConf())
 	if err := nginxReload(ctx, logf); err != nil {
 		return nil, err

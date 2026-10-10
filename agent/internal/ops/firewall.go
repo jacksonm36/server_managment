@@ -35,6 +35,9 @@ func ufwCmd(ctx context.Context, args ...string) (string, error) {
 }
 
 func firewallStatus(ctx context.Context) (any, error) {
+	if isRHEL() {
+		return firewalldStatus(ctx)
+	}
 	if _, err := exec.LookPath("ufw"); err != nil {
 		return map[string]any{"installed": false}, nil
 	}
@@ -102,6 +105,9 @@ func validPort(p string) bool {
 }
 
 func firewallInstall(ctx context.Context, logf func(string, ...any)) (any, error) {
+	if isRHEL() {
+		return firewalldInstall(ctx, logf)
+	}
 	if err := aptInstall(ctx, logf, "ufw"); err != nil {
 		return nil, err
 	}
@@ -109,6 +115,9 @@ func firewallInstall(ctx context.Context, logf func(string, ...any)) (any, error
 }
 
 func firewallEnable(ctx context.Context, logf func(string, ...any)) (any, error) {
+	if isRHEL() {
+		return firewalldEnable(ctx, logf)
+	}
 	if _, err := exec.LookPath("ufw"); err != nil {
 		return nil, errors.New("ufw is not installed")
 	}
@@ -127,6 +136,9 @@ func firewallEnable(ctx context.Context, logf func(string, ...any)) (any, error)
 }
 
 func firewallDisable(ctx context.Context, logf func(string, ...any)) (any, error) {
+	if isRHEL() {
+		return firewalldDisable(ctx, logf)
+	}
 	logf("$ ufw disable")
 	out, err := ufwCmd(ctx, "disable")
 	if err != nil {
@@ -139,6 +151,9 @@ func firewallDisable(ctx context.Context, logf func(string, ...any)) (any, error
 var safeComment = regexp.MustCompile(`^[A-Za-z0-9 _.,:/()-]{0,64}$`)
 
 func firewallRuleAdd(ctx context.Context, p map[string]string, logf func(string, ...any)) (any, error) {
+	if isRHEL() {
+		return firewalldRuleAdd(ctx, p, logf)
+	}
 	action := p["action"]
 	switch action {
 	case "allow", "deny", "reject", "limit":
@@ -189,9 +204,22 @@ func firewallRuleAdd(ctx context.Context, p map[string]string, logf func(string,
 }
 
 func firewallRuleDelete(ctx context.Context, p map[string]string, logf func(string, ...any)) (any, error) {
+	if isRHEL() {
+		return firewalldRuleDelete(ctx, p, logf)
+	}
 	n, err := strconv.Atoi(p["num"])
 	if err != nil || n < 1 {
 		return nil, errors.New("invalid rule number")
+	}
+	// Refuse to delete the rule that keeps SSH reachable.
+	if st, err := firewallStatus(ctx); err == nil {
+		ssh := sshPort() + "/tcp"
+		for _, r := range st.(map[string]any)["rules"].([]fwRule) {
+			to := strings.TrimSuffix(r.To, " (v6)")
+			if r.Num == n && (to == ssh || to == "OpenSSH" || (ssh == "22/tcp" && to == "22")) && !strings.HasPrefix(r.Action, "DENY") && !strings.HasPrefix(r.Action, "REJECT") {
+				return nil, errors.New("this rule keeps SSH reachable; removing it could lock you out (use the terminal if you really need to)")
+			}
+		}
 	}
 	logf("$ ufw --force delete %d", n)
 	out, err := ufwCmd(ctx, "--force", "delete", strconv.Itoa(n))
