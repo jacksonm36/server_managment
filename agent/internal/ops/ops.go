@@ -140,6 +140,24 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = serviceAction(ctx, p, logf)
 	case agentv1.Op_OP_LOGS_READ:
 		result, err = logsRead(ctx, p)
+	case agentv1.Op_OP_DOCKER_STATUS:
+		result, err = dockerStatus(ctx)
+	case agentv1.Op_OP_DOCKER_INSTALL:
+		result, err = dockerInstall(ctx, logf)
+	case agentv1.Op_OP_DOCKER_CONTAINER:
+		result, err = dockerContainerAction(ctx, p, logf)
+	case agentv1.Op_OP_DOCKER_LOGS:
+		result, err = dockerLogs(ctx, p)
+	case agentv1.Op_OP_DOCKER_IMAGE_REMOVE:
+		result, err = dockerImageRemove(ctx, p, logf)
+	case agentv1.Op_OP_DOCKER_PRUNE:
+		result, err = dockerPrune(ctx, logf)
+	case agentv1.Op_OP_COMPOSE_READ:
+		result, err = composeRead(p)
+	case agentv1.Op_OP_COMPOSE_SAVE:
+		result, err = composeSave(ctx, p, logf)
+	case agentv1.Op_OP_COMPOSE_ACTION:
+		result, err = composeAction(ctx, p, logf)
 	case agentv1.Op_OP_SITE_TLS:
 		result, err = withSiteLock(func() (any, error) { return siteTLS(ctx, p, logf) })
 	default:

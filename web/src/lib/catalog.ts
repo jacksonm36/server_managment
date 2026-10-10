@@ -84,6 +84,8 @@ export const CATALOG: OpDef[] = [
     fields: [{ key: "php", label: "PHP version", placeholder: "8.4", optional: true }],
   },
   { op: "db.install", label: "Install MariaDB", group: "Web", fields: [] },
+  { op: "docker.install", label: "Install Docker", group: "Docker", fields: [] },
+  { op: "docker.prune", label: "Prune stopped containers & dangling images", group: "Docker", fields: [] },
 ];
 
 export const opDef = (op: string) => CATALOG.find((d) => d.op === op);

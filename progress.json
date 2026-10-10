@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-10T13:53:32Z",
+  "updated_at": "2026-10-10T13:57:09Z",
   "phases": [
     {
       "name": "MVP",
@@ -145,7 +145,7 @@
         },
         {
           "name": "Docker containers",
-          "status": "todo"
+          "status": "in-progress"
         },
         {
           "name": "Service manager (systemd units)",

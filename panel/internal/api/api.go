@@ -298,6 +298,15 @@ var opsByName = map[string]opSpec{
 	"services.list":          {op: agentv1.Op_OP_SERVICES_LIST},
 	"services.action":        {op: agentv1.Op_OP_SERVICE_ACTION, params: []string{"name", "action"}},
 	"logs.read":              {op: agentv1.Op_OP_LOGS_READ, params: []string{"source", "unit", "priority", "since", "grep", "path", "lines"}},
+	"docker.status":          {op: agentv1.Op_OP_DOCKER_STATUS},
+	"docker.install":         {op: agentv1.Op_OP_DOCKER_INSTALL},
+	"docker.container":       {op: agentv1.Op_OP_DOCKER_CONTAINER, params: []string{"id", "action"}},
+	"docker.logs":            {op: agentv1.Op_OP_DOCKER_LOGS, params: []string{"id", "lines"}},
+	"docker.image_remove":    {op: agentv1.Op_OP_DOCKER_IMAGE_REMOVE, params: []string{"id"}},
+	"docker.prune":           {op: agentv1.Op_OP_DOCKER_PRUNE},
+	"compose.read":           {op: agentv1.Op_OP_COMPOSE_READ, params: []string{"name"}},
+	"compose.save":           {op: agentv1.Op_OP_COMPOSE_SAVE, params: []string{"name", "yaml", "deploy"}, maxParam: 256 << 10},
+	"compose.action":         {op: agentv1.Op_OP_COMPOSE_ACTION, params: []string{"name", "action"}},
 	"backup.list":            {op: agentv1.Op_OP_BACKUP_LIST},
 	"backup.create":          {op: agentv1.Op_OP_BACKUP_CREATE, params: []string{"domain", "databases"}},
 	"backup.delete":          {op: agentv1.Op_OP_BACKUP_DELETE, params: []string{"domain", "file"}},
@@ -310,7 +319,7 @@ var opsByName = map[string]opSpec{
 var secretParams = []string{"password"}
 
 // bulkyParams (file contents) are replaced by their size when stored.
-var bulkyParams = []string{"content", "content_b64"}
+var bulkyParams = []string{"content", "content_b64", "yaml"}
 
 func redact(p map[string]string) map[string]string {
 	out := make(map[string]string, len(p))
@@ -333,6 +342,7 @@ var readOnlyOps = map[string]bool{
 	"firewall.status": true, "fail2ban.status": true, "web.status": true, "db.status": true,
 	"files.list": true, "files.read": true, "cron.list": true, "backup.list": true,
 	"services.list": true, "logs.read": true,
+	"docker.status": true, "docker.logs": true, "compose.read": true,
 }
 
 func (s opSpec) checkParams(p map[string]string) error {

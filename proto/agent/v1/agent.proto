@@ -161,6 +161,15 @@ enum Op {
   OP_SERVICES_LIST = 48;
   OP_SERVICE_ACTION = 49;       // params: name, action
   OP_LOGS_READ = 50;            // params: source (journal|file|files), unit, priority, since, grep, path, lines
+  OP_DOCKER_STATUS = 51;
+  OP_DOCKER_INSTALL = 52;
+  OP_DOCKER_CONTAINER = 53;     // params: id, action (start|stop|restart|kill|remove)
+  OP_DOCKER_LOGS = 54;          // params: id, lines
+  OP_DOCKER_IMAGE_REMOVE = 55;  // params: id
+  OP_DOCKER_PRUNE = 56;
+  OP_COMPOSE_READ = 57;         // params: name
+  OP_COMPOSE_SAVE = 58;         // params: name, yaml, deploy
+  OP_COMPOSE_ACTION = 59;       // params: name, action (up|down|restart|pull|delete)
 }
 
 message Job {

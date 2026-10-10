@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Clock,
   Cog,
+  Container,
   Database,
   FolderOpen,
   Globe,
@@ -34,6 +35,7 @@ import { Sites } from "./server/Sites";
 // xterm.js is large; load it only when the Terminal tab opens.
 const Terminal = lazy(() => import("./server/Terminal").then((m) => ({ default: m.Terminal })));
 import { Databases } from "./server/Databases";
+import { Docker } from "./server/Docker";
 import { Files } from "./server/Files";
 import { Cron } from "./server/Cron";
 import { Services } from "./server/Services";
@@ -143,6 +145,7 @@ export function ServerDetail({ id }: { id: string }) {
         </Suspense>
       )}
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
+      {tab === "docker" && <Docker serverId={id} online={server.online} />}
       {tab === "databases" && <Databases serverId={id} online={server.online} />}
       {tab === "files" && <Files serverId={id} online={server.online} />}
       {tab === "services" && (
@@ -172,6 +175,7 @@ const TABS = [
   { id: "terminal", label: "Terminal", icon: SquareTerminal },
   { id: "sites", label: "Sites", icon: Globe },
   { id: "databases", label: "Databases", icon: Database },
+  { id: "docker", label: "Docker", icon: Container },
   { id: "files", label: "Files", icon: FolderOpen },
   { id: "services", label: "Services", icon: Cog },
   { id: "logs", label: "Logs", icon: ScrollText },

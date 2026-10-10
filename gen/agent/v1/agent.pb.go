@@ -127,6 +127,15 @@ const (
 	Op_OP_SERVICES_LIST          Op = 48
 	Op_OP_SERVICE_ACTION         Op = 49 // params: name, action
 	Op_OP_LOGS_READ              Op = 50 // params: source (journal|file|files), unit, priority, since, grep, path, lines
+	Op_OP_DOCKER_STATUS          Op = 51
+	Op_OP_DOCKER_INSTALL         Op = 52
+	Op_OP_DOCKER_CONTAINER       Op = 53 // params: id, action (start|stop|restart|kill|remove)
+	Op_OP_DOCKER_LOGS            Op = 54 // params: id, lines
+	Op_OP_DOCKER_IMAGE_REMOVE    Op = 55 // params: id
+	Op_OP_DOCKER_PRUNE           Op = 56
+	Op_OP_COMPOSE_READ           Op = 57 // params: name
+	Op_OP_COMPOSE_SAVE           Op = 58 // params: name, yaml, deploy
+	Op_OP_COMPOSE_ACTION         Op = 59 // params: name, action (up|down|restart|pull|delete)
 )
 
 // Enum value maps for Op.
@@ -183,6 +192,15 @@ var (
 		48: "OP_SERVICES_LIST",
 		49: "OP_SERVICE_ACTION",
 		50: "OP_LOGS_READ",
+		51: "OP_DOCKER_STATUS",
+		52: "OP_DOCKER_INSTALL",
+		53: "OP_DOCKER_CONTAINER",
+		54: "OP_DOCKER_LOGS",
+		55: "OP_DOCKER_IMAGE_REMOVE",
+		56: "OP_DOCKER_PRUNE",
+		57: "OP_COMPOSE_READ",
+		58: "OP_COMPOSE_SAVE",
+		59: "OP_COMPOSE_ACTION",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -236,6 +254,15 @@ var (
 		"OP_SERVICES_LIST":          48,
 		"OP_SERVICE_ACTION":         49,
 		"OP_LOGS_READ":              50,
+		"OP_DOCKER_STATUS":          51,
+		"OP_DOCKER_INSTALL":         52,
+		"OP_DOCKER_CONTAINER":       53,
+		"OP_DOCKER_LOGS":            54,
+		"OP_DOCKER_IMAGE_REMOVE":    55,
+		"OP_DOCKER_PRUNE":           56,
+		"OP_COMPOSE_READ":           57,
+		"OP_COMPOSE_SAVE":           58,
+		"OP_COMPOSE_ACTION":         59,
 	}
 )
 
@@ -1296,7 +1323,8 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xca\b\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\x96\n" +
+	"\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -1349,7 +1377,16 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x10OP_BACKUP_POLICY\x10/\x12\x14\n" +
 	"\x10OP_SERVICES_LIST\x100\x12\x15\n" +
 	"\x11OP_SERVICE_ACTION\x101\x12\x10\n" +
-	"\fOP_LOGS_READ\x1022M\n" +
+	"\fOP_LOGS_READ\x102\x12\x14\n" +
+	"\x10OP_DOCKER_STATUS\x103\x12\x15\n" +
+	"\x11OP_DOCKER_INSTALL\x104\x12\x17\n" +
+	"\x13OP_DOCKER_CONTAINER\x105\x12\x12\n" +
+	"\x0eOP_DOCKER_LOGS\x106\x12\x1a\n" +
+	"\x16OP_DOCKER_IMAGE_REMOVE\x107\x12\x13\n" +
+	"\x0fOP_DOCKER_PRUNE\x108\x12\x13\n" +
+	"\x0fOP_COMPOSE_READ\x109\x12\x13\n" +
+	"\x0fOP_COMPOSE_SAVE\x10:\x12\x15\n" +
+	"\x11OP_COMPOSE_ACTION\x10;2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

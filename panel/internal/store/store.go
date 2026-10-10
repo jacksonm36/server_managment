@@ -149,7 +149,7 @@ func (s *Store) PurgeExpired(ctx context.Context) error {
 		return err
 	}
 	// File browsing jobs carry file contents; they are only useful briefly.
-	_, err = s.db.Exec(ctx, `DELETE FROM jobs WHERE op IN ('files.list', 'files.read', 'logs.read', 'services.list') AND created_at < now() - interval '1 hour'`)
+	_, err = s.db.Exec(ctx, `DELETE FROM jobs WHERE op IN ('files.list', 'files.read', 'logs.read', 'services.list', 'docker.logs', 'compose.read') AND created_at < now() - interval '1 hour'`)
 	return err
 }
 
