@@ -74,6 +74,13 @@ curl -fsSL http://10.0.1.240:8090/install.sh | sudo sh -s -- --token <one-time> 
 ```
 
 It downloads the agent, enrolls it and installs `servermgr-agent.service`.
+The same script is in the repo as [`scripts/install-agent.sh`](scripts/install-agent.sh):
+
+```sh
+sudo sh scripts/install-agent.sh --panel http://10.0.1.240:8090 --token <one-time> --ca-sha256 <fingerprint>
+sudo sh scripts/install-agent.sh --panel http://10.0.1.240:8090   # update an installed agent
+sudo sh scripts/install-agent.sh --uninstall
+```
 
 ### Test servers with Incus
 
@@ -149,6 +156,35 @@ Panel-wide: **Activity** (audit log + task history), **Users & access**
   its last enabled admin.
 - Every API route and agent op is checked server-side; lists, live events,
   jobs and alerts only show servers the user may see.
+
+### SSH key library
+
+**Keys** in the top bar. Drop `.pub` files (and optionally your
+`~/.ssh/config`) and each key is recognised: type, size, SHA256 fingerprint,
+warnings for weak keys, and private keys are refused. Names are filled in from
+the ssh config (the host that uses the key, or "<user> main" for a key used by
+many hosts), else a unique comment, else the file name. Then:
+
+- **Deploy** a key to any servers or a whole server group, for any login user,
+  in one click (or **Add** on a server's SSH keys tab). **Remove** takes it off
+  again.
+- **Check servers** reads every login user's `authorized_keys` on all online
+  servers, shows where each key is installed and lists keys that aren't in
+  the library.
+
+### Secrets vault
+
+The key library, Proxmox API tokens, OpenTofu variables and state, and
+notification settings are sealed by the vault: a random data key that only
+lives in the panel's memory, stored wrapped by your passphrase (argon2id) and
+by a recovery key shown once at setup. A copy of the disk and the database is
+not enough to read them. Setting up the vault moves existing secrets into it.
+
+After every panel restart the vault is locked: a banner asks admins to unlock
+it, and until then Proxmox, OpenTofu, notifications and key deploys wait.
+2FA secrets are not in the vault, so you can always sign in to unlock it.
+Lose both the passphrase and the recovery key and those secrets are gone
+(re-enter them).
 
 ### Hosting layout on managed servers
 

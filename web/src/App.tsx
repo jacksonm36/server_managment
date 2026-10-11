@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
-import { Boxes, History, LayoutDashboard, LogOut, Server, ShieldCheck, Users as UsersIcon, Workflow } from "lucide-react";
+import { Boxes, History, KeyRound, LayoutDashboard, LogOut, Server, ShieldCheck, Users as UsersIcon, Workflow } from "lucide-react";
 import { api, type Me } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
@@ -14,6 +14,9 @@ import { Users } from "@/pages/Users";
 import { Dashboard } from "@/pages/Dashboard";
 import { CrowdSec } from "@/pages/CrowdSec";
 import { Proxmox } from "@/pages/Proxmox";
+import { Keys } from "@/pages/Keys";
+import { VaultBanner } from "@/components/Vault";
+import { setVaultStatus } from "@/lib/vault";
 import { AccessContext, accessFromMe, noAccess, readOnly } from "@/lib/access";
 import { reloadServerGroups } from "@/lib/groups";
 
@@ -23,7 +26,10 @@ export function App() {
   const loadMe = () =>
     api
       .me()
-      .then(setMe)
+      .then((m) => {
+        setMe(m);
+        if (m.vault) setVaultStatus(m.vault);
+      })
       .catch(() => setMe(null));
   const user = me?.username;
   const ready = !!me && !me.must_change_password;
@@ -91,6 +97,11 @@ export function App() {
                 <ShieldCheck className="size-4" />
               </NavLink>
             )}
+            {access.perms.has("keys.manage") && (
+              <NavLink href="/keys" label="Keys">
+                <KeyRound className="size-4" />
+              </NavLink>
+            )}
             <NavLink href="/activity" label="Activity">
               <History className="size-4" />
             </NavLink>
@@ -113,6 +124,7 @@ export function App() {
       </header>
       <AccessContext.Provider value={access}>
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <VaultBanner />
         {readOnly(access) && (
           <p className="mb-6 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
             You have read-only access. Actions that change servers are disabled for your account.
@@ -139,6 +151,9 @@ export function App() {
           </Route>
           <Route path="/security">
             <CrowdSec />
+          </Route>
+          <Route path="/keys">
+            <Keys />
           </Route>
           <Route path="/activity">
             <Activity />

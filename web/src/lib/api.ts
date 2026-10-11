@@ -194,6 +194,47 @@ export type UserBody = {
   groups: number[];
 };
 
+export type VaultStatus = { configured: boolean; unlocked: boolean };
+
+export type SSHKey = {
+  id: number;
+  name: string;
+  type: string;
+  bits: number;
+  fingerprint: string;
+  comment: string;
+  source: string;
+  created_by: string;
+  created_at: string;
+  warning?: string;
+};
+
+export type KeyCandidate = {
+  line?: string;
+  file?: string;
+  type?: string;
+  bits?: number;
+  fingerprint?: string;
+  comment?: string;
+  name?: string;
+  name_from?: string;
+  hosts?: string[];
+  existing?: string;
+  warning?: string;
+  error?: string;
+};
+
+export type ScannedServer = {
+  server_id: string;
+  name: string;
+  users: { user: string; keys: { type: string; fingerprint: string; comment: string }[] }[];
+  error?: string;
+};
+
+export type KeyTarget = { server_ids?: string[]; server_group_id?: number; user: string };
+
+export type BulkResult = { server_id: string; job_id?: string; error?: string };
+
 export type Me = {
   username: string;
   display_name: string;
@@ -201,6 +242,7 @@ export type Me = {
   must_change_password: boolean;
   permissions: string[];
   server_permissions: Record<string, string[]>;
+  vault: VaultStatus;
 };
 
 export type Permission = { key: string; label: string; group: string; server: boolean };
@@ -447,6 +489,22 @@ export const api = {
     request<void>("POST", `/api/v1/users/${id}/password`, { password, reset_2fa: reset2fa, must_change: mustChange }),
   endUserSessions: (id: number) => request<{ ended: number }>("POST", `/api/v1/users/${id}/sign-out`),
   deleteUser: (id: number) => request<void>("DELETE", `/api/v1/users/${id}`),
+  vault: () => request<VaultStatus>("GET", "/api/v1/vault"),
+  vaultSetup: (passphrase: string) => request<{ recovery_key: string; secrets_moved: number }>("POST", "/api/v1/vault/setup", { passphrase }),
+  vaultUnlock: (passphrase: string) => request<VaultStatus>("POST", "/api/v1/vault/unlock", { passphrase }),
+  vaultLock: () => request<VaultStatus>("POST", "/api/v1/vault/lock"),
+  vaultPassphrase: (current: string, next: string) => request<void>("POST", "/api/v1/vault/passphrase", { current, new: next }),
+  sshKeys: () => request<{ keys: SSHKey[]; vault: VaultStatus }>("GET", "/api/v1/ssh-keys"),
+  parseSSHKeys: (b: { files: { name: string; content: string }[]; text: string; ssh_config: string }) =>
+    request<KeyCandidate[]>("POST", "/api/v1/ssh-keys/parse", b),
+  importSSHKeys: (keys: { line: string; name: string; source: string }[]) =>
+    request<{ name: string; id?: number; error?: string }[]>("POST", "/api/v1/ssh-keys", { keys }),
+  renameSSHKey: (id: number, name: string) => request<void>("PUT", `/api/v1/ssh-keys/${id}`, { name }),
+  deleteSSHKey: (id: number) => request<void>("DELETE", `/api/v1/ssh-keys/${id}`),
+  sshKeyPublic: (id: number) => request<{ line: string }>("GET", `/api/v1/ssh-keys/${id}/public`),
+  deploySSHKey: (id: number, t: KeyTarget) => request<BulkResult[]>("POST", `/api/v1/ssh-keys/${id}/deploy`, t),
+  undeploySSHKey: (id: number, t: KeyTarget) => request<BulkResult[]>("POST", `/api/v1/ssh-keys/${id}/undeploy`, t),
+  scanSSHKeys: () => request<ScannedServer[]>("POST", "/api/v1/ssh-keys/scan"),
   permissions: () => request<{ permissions: Permission[]; builtin: Record<string, string[]> }>("GET", "/api/v1/permissions"),
   roles: () => request<RoleInfo[]>("GET", "/api/v1/roles"),
   saveRole: (r: Pick<RoleInfo, "name" | "description" | "permissions">, id?: number) =>

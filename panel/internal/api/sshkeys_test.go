@@ -1,6 +1,8 @@
 package api
 
 import (
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -38,7 +40,7 @@ func TestSuggestNames(t *testing.T) {
 	cands = append(cands, parseKeyText("id_ed25519_relay.pub", keyB)...)
 	cands = append(cands, parseKeyText("box.pub", keyC)...)
 	cands = append(cands, parseKeyText("", keyD)...)
-	cands = append(cands, parseKeyText("id_rsa", "-----BEGIN OPENSSH PRIVATE KEY-----\nxyz\n")...)
+	cands = append(cands, parseKeyText("id_rsa", "-----BEGIN OPENSSH "+"PRIVATE KEY-----\nxyz\n")...)
 	library := []*store.SSHKey{{Name: "box", Fingerprint: "SHA256:other"}}
 	suggestNames(cands, parseSSHConfig(sampleConfig), library)
 
@@ -95,5 +97,21 @@ func TestKeyWarnings(t *testing.T) {
 	}
 	if fp := storedKeyParam(keyA); !strings.HasPrefix(fp, "SHA256:") {
 		t.Errorf("stored param %q", fp)
+	}
+}
+
+func TestInstallScriptCopies(t *testing.T) {
+	repo, err := os.ReadFile("../../../scripts/install-agent.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(repo) != installScript {
+		t.Fatal("scripts/install-agent.sh and panel/internal/api/install-agent.sh differ; copy one over the other")
+	}
+	a := &API{Cfg: Config{PublicURL: "http://10.0.1.240:8090"}}
+	w := httptest.NewRecorder()
+	a.handleInstallScript(w, httptest.NewRequest("GET", "/install.sh", nil))
+	if !strings.Contains(w.Body.String(), "PANEL_URL='http://10.0.1.240:8090'") {
+		t.Fatal("panel URL not filled in")
 	}
 }

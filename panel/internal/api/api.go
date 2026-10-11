@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -656,57 +657,16 @@ func (a *API) handleCACert(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(a.CA.CertPEM)
 }
 
+// installScript is scripts/install-agent.sh (a test keeps the copies equal).
+//
+//go:embed install-agent.sh
+var installScript string
+
 func (a *API) handleInstallScript(w http.ResponseWriter, r *http.Request) {
+	if strings.ContainsAny(a.Cfg.PublicURL, "'\\\n") {
+		writeErr(w, http.StatusInternalServerError, "the panel URL can't be put in a shell script")
+		return
+	}
 	w.Header().Set("Content-Type", "text/x-shellscript")
-	fmt.Fprintf(w, installScript, a.Cfg.PublicURL)
+	_, _ = io.WriteString(w, strings.Replace(installScript, "__PANEL_URL__", a.Cfg.PublicURL, 1))
 }
-
-const installScript = `#!/bin/sh
-# servermgr agent installer
-set -eu
-PANEL_URL=%q
-TOKEN=""
-CA_SHA256=""
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --token) TOKEN="$2"; shift 2 ;;
-    --ca-sha256) CA_SHA256="$2"; shift 2 ;;
-    *) echo "unknown argument: $1" >&2; exit 1 ;;
-  esac
-done
-[ -n "$TOKEN" ] || { echo "--token is required" >&2; exit 1; }
-[ -n "$CA_SHA256" ] || { echo "--ca-sha256 is required" >&2; exit 1; }
-[ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
-
-case "$(uname -m)" in
-  x86_64) ARCH=amd64 ;;
-  aarch64|arm64) ARCH=arm64 ;;
-  *) echo "unsupported architecture: $(uname -m)" >&2; exit 1 ;;
-esac
-
-TMP=$(mktemp)
-curl -fsSL "$PANEL_URL/download/servermgr-agent-linux-$ARCH" -o "$TMP"
-install -m 0755 "$TMP" /usr/local/bin/servermgr-agent
-rm -f "$TMP"
-
-/usr/local/bin/servermgr-agent enroll --panel "$PANEL_URL" --token "$TOKEN" --ca-sha256 "$CA_SHA256"
-
-cat > /etc/systemd/system/servermgr-agent.service <<'EOF'
-[Unit]
-Description=servermgr agent
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=/usr/local/bin/servermgr-agent run
-Restart=always
-RestartSec=5
-OOMPolicy=continue
-
-[Install]
-WantedBy=multi-user.target
-EOF
-systemctl daemon-reload
-systemctl enable --now servermgr-agent
-echo "servermgr agent installed and running."
-`
