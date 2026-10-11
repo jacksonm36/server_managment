@@ -74,6 +74,9 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
 	secretKey, err := api.LoadOrCreateKey(dataDir + "/secret.key")
 	if err != nil {
 		return err

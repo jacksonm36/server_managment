@@ -4,7 +4,7 @@ VERSION ?= $(shell git describe --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
 export PATH := $(HOME)/go/bin:$(PATH)
 
-.PHONY: all proto web panel agent run dev-web vet clean
+.PHONY: all proto web panel agent run deploy dev-web vet clean
 
 all: web panel agent
 
@@ -31,6 +31,10 @@ agent:
 ## run: run the panel in the foreground with settings from .env
 run: panel
 	set -a; . ./.env; set +a; ./bin/panel
+
+## deploy: build everything and (re)start the servermgr-panel systemd service
+deploy:
+	sh scripts/deploy-panel.sh
 
 ## dev-web: Vite dev server with API proxied to the panel on :8090
 dev-web:

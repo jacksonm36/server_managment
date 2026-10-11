@@ -54,7 +54,20 @@ On first start the panel creates the admin user from `SM_ADMIN_USER` /
 `SM_ADMIN_PASSWORD` in `.env`. After that you can remove `SM_ADMIN_PASSWORD`
 from `.env`.
 
-Systemd unit used on the dev server (`/etc/systemd/system/servermgr-panel.service`):
+### Run it as a service
+
+```sh
+scripts/deploy-panel.sh          # or: make deploy
+scripts/deploy-panel.sh --pull   # pull the latest code first
+```
+
+Run it as the user that owns the checkout. The first run creates the
+database and `.env`, builds everything, installs and enables
+`servermgr-panel.service` and checks that the panel answers. Later runs
+rebuild and restart it. An existing unit file is left as it is.
+
+The unit it installs looks like the one on the dev server
+(`/etc/systemd/system/servermgr-panel.service`):
 
 ```ini
 [Service]
