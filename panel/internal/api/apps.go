@@ -99,6 +99,9 @@ func (a *API) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		scheme = "https"
 	}
 	creds := map[string]string{"url": scheme + "://" + req.Domain + "/"}
+	if app.Wizard {
+		creds["installer_url"] = scheme + "://" + req.Domain + app.AdminPath
+	}
 	if app.Kind == "compose" {
 		admin := map[string]string{"title": req.Title}
 		if app.Admin {

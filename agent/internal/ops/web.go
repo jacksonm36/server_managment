@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/exec"
@@ -278,6 +279,7 @@ func webInstall(ctx context.Context, p map[string]string, logf func(string, ...a
 	if err := os.WriteFile(snippet, []byte(nginxHardening), 0o644); err != nil {
 		return nil, err
 	}
+	disableStockIPv6(logf)
 	if err := run(ctx, logf, "nginx", "-t"); err != nil {
 		_ = os.Remove(snippet)
 		return nil, fmt.Errorf("nginx rejected servermgr.conf, removed it: %w", err)
@@ -404,7 +406,9 @@ var nginxTmpl = template.Must(template.New("site").Parse(`# Managed by servermgr
 {{- $s := .Site}}
 server {
     listen 80;
+{{- if .IPv6}}
     listen [::]:80;
+{{- end}}
     server_name {{.Names}};
 
     location ^~ /.well-known/acme-challenge/ {
@@ -422,7 +426,9 @@ server {
 
 server {
     listen 443 ssl{{if not .HTTP2On}} http2{{end}};
+{{- if .IPv6}}
     listen [::]:443 ssl{{if not .HTTP2On}} http2{{end}};
+{{- end}}
 {{- if .HTTP2On}}
     http2 on;
 {{- end}}
@@ -431,7 +437,9 @@ server {
 {{- if .HasCert}}
 {{- if not $s.ForceHTTPS}}
     listen 443 ssl{{if not .HTTP2On}} http2{{end}};
+{{- if .IPv6}}
     listen [::]:443 ssl{{if not .HTTP2On}} http2{{end}};
+{{- end}}
 {{- if .HTTP2On}}
     http2 on;
 {{- end}}
@@ -477,6 +485,11 @@ server {
 
     location / {
         try_files $uri $uri/ /index.php?$args;
+    }
+
+    # Data files apps keep in the web root (protected only by .htaccess on Apache).
+    location ~* \.(sqlite3?|db|sql|bak|old|orig|swp|env|log|ini|ya?ml|lock|dist)$ {
+        deny all;
     }
 
     location ~ \.php$ {
@@ -530,13 +543,43 @@ func (s *Site) hasCert() bool {
 	return s.TLS != "" && err == nil
 }
 
+// hostHasIPv6 reports whether the kernel supports IPv6 sockets. Without it
+// nginx refuses "listen [::]:80", so sites listen on IPv4 only.
+var hostHasIPv6 = sync.OnceValue(func() bool {
+	l, err := net.Listen("tcp6", "[::1]:0")
+	if err != nil {
+		return false
+	}
+	l.Close()
+	return true
+})
+
+var ipv6Listen = regexp.MustCompile(`(?m)^(\s*)(listen\s+\[::\]:[^\n]*)$`)
+
+// disableStockIPv6 comments out IPv6 listens in the distro's default site
+// on hosts without IPv6, where they stop nginx from starting at all.
+func disableStockIPv6(logf func(string, ...any)) {
+	if hostHasIPv6() {
+		return
+	}
+	for _, f := range []string{"/etc/nginx/sites-available/default", "/etc/nginx/conf.d/default.conf"} {
+		b, err := os.ReadFile(f)
+		if err != nil || !ipv6Listen.Match(b) {
+			continue
+		}
+		if os.WriteFile(f, ipv6Listen.ReplaceAll(b, []byte("${1}# ${2} # disabled by servermgr: this host has no IPv6")), 0o644) == nil {
+			logf("this host has no IPv6: disabled the IPv6 listen in %s", f)
+		}
+	}
+}
+
 func renderNginx(s *Site) ([]byte, error) { return renderNginxWith(s, s.hasCert()) }
 
 func renderNginxWith(s *Site, hasCert bool) ([]byte, error) {
 	var b bytes.Buffer
 	err := nginxTmpl.Execute(&b, map[string]any{
 		"Site": s, "Names": strings.Join(s.names(), " "), "ACME": acmeWebroot, "Home": s.home(),
-		"HasCert": hasCert, "CertDir": s.certDir(), "Socket": s.fpmSocket(), "HTTP2On": nginxModernHTTP2(), "Htpasswd": s.htpasswdFile(),
+		"HasCert": hasCert, "CertDir": s.certDir(), "Socket": s.fpmSocket(), "HTTP2On": nginxModernHTTP2(), "Htpasswd": s.htpasswdFile(), "IPv6": hostHasIPv6(),
 	})
 	return b.Bytes(), err
 }

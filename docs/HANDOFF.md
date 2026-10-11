@@ -83,47 +83,47 @@ cd web && npx tsc -b && npm run build   # then: git checkout web/dist/.gitkeep
 
 Template fields: id, name, category, description, version, homepage, notes (shown after install), protect (HTTP basic auth on by default), min_ram_mb, needs_docker, admin_path.
 
-## In progress (2026-10-11)
+## App store status (2026-10-11)
 
-### Batch 1: 21 Docker apps
+### Batch 1: Docker apps
 
-Templates written and image tags checked on Docker Hub / ghcr. Store got search and category chips.
+21 templates in `apps/`. Image tags were checked on Docker Hub / ghcr.
 
-- **Apps:** actual, changedetection, code-server, dozzle, gitea, gotify, grafana, it-tools, jellyfin, matomo, metabase, n8n, navidrome, ntfy, paperless-ngx, pgadmin, portainer, stirling-pdf, uptime-kuma, vikunja, wikijs.
-- **Remaining:**
-  1. Test-install each through the panel on a sandbox with Docker and check the site answers.
-  2. Watch Vikunja's volume permissions, Matomo behind the HTTPS proxy, and n8n's secure cookie.
-  3. Then merge to main.
+- **Test:** `compose_test.go` checks their shape (pinned images, one loopback port, no stray keys).
+- **Installed and answering through the panel on a sandbox:** uptime-kuma, grafana, gitea, code-server, gotify, it-tools, dozzle, ntfy, navidrome, and the others listed in the commit.
+- **Fixed while testing:**
+  - pgAdmin needs `PGADMIN_LISTEN_ADDRESS` on hosts without IPv6.
+  - Vikunja needs `user: "0:0"` because named volumes are root-owned.
+- **Not testable in the cloud sandbox:** paperless-ngx and wikijs (ghcr blobs are blocked there).
 
-### Batch 2: "all Softaculous apps" (owner's request), mostly PHP
+### Batch 2: installer apps (Softaculous style)
 
-The cloud sandbox cannot download from GitHub release assets or project sites (network policy), so checksums cannot be pinned from there.
+Implemented as the in-panel refresher.
 
-**Agreed design:** the panel refreshes the catalog itself, since the panel host has internet.
+- **Code:**
+  - `panel/internal/catalog/refresh.go` with `sources.yaml`.
+  - `panel/internal/api/catalog_refresh.go`: setting `catalog_pinned`, routes `GET /api/v1/apps/catalog` and `POST /api/v1/apps/catalog/refresh` (settings.manage).
+  - The refresh card is in the store.
+- **Sources:**
+  - GitHub releases (API, falling back to the release pages when rate limited).
+  - Fixed URLs (redirect followed and pinned).
+  - `scrape` steps over download index pages, used for MediaWiki and phpBB.
+- **Checks:**
+  - The final URL must be https.
+  - The web root is found from the shallowest index.php; a Laravel-style `public/` goes in with `into: "."`.
+  - A composer.json without vendor/ is refused unless `allow_no_vendor`.
+- **Install:** generated apps are `Wizard` installs. The credentials dialog shows "Finish setup at" (`installer_url`).
+- **Tested in the sandbox:**
+  - A pinned demo release installed end to end: site, fetch, PHP answered.
+  - The new nginx rule denies `.sqlite`/`.sql`/`.env`/`.log`/`.yml`... on PHP sites.
+  - A real refresh from the cloud fails every source (network policy), which exercises the "kept last good / error" paths.
+- **Real sources:** each entry in sources.yaml has NOT been verified against the live internet. The first refresh on the real panel shows which ones fail and why; fix their `github`/`asset`/`scrape` there.
+- **Left out on purpose:** apps that rely on Apache .htaccess to hide data files in the web root (DokuWiki, Grav, Kanboard, PluXml, PrivateBin, FreshRSS, WonderCMS, Roundcube's temp/logs). They need per-app nginx deny rules or a `public_html` web-root mapping first. That would be a good next feature: a per-source `deny:` list rendered into the site's nginx config.
 
-1. **Sources list:** add `panel/internal/catalog/sources.yaml` with per-app metadata (id, name, Softaculous category, description, homepage, php_min, database, installer_path, notes) and a source:
-   - `github: owner/repo` + `asset` regex (latest non-prerelease release asset); or
-   - a fixed download URL (follow redirects; the final URL must end in a known archive suffix).
-2. **Admin action** "Refresh catalog" (plus a weekly schedule) runs these steps per source:
-   1. resolve the latest version;
-   2. download it (size cap ~300 MB);
-   3. compute the sha256;
-   4. inspect the archive to find the web root: the shallowest dir with `index.php`. If that dir is `public/` next to `vendor/` or `artisan`, use `into: "."` with the matching `strip`;
-   5. reject archives with `composer.json` but no `vendor/`.
-3. **Storage:** results go in a DB table (new migration). The catalog merges embedded templates with refreshed ones. Failures show per app with a reason.
-4. **Install:** generated apps are "wizard" installs: `site.create` + `db.create` + `fetch`. The credentials dialog shows the DB name, user and password and the installer URL.
-5. **Candidate apps:**
-   - **Blogs:** Serendipity, Dotclear, b2evolution, Textpattern, Chyrp Lite, HTMLy, FlatPress, Bludit, PluXml.
-   - **Micro blogs:** Friendica, Shaarli.
-   - **CMS:** Concrete CMS, Backdrop, TYPO3, ProcessWire, MODX, Grav, e107, XOOPS, PHPFusion, CMS Made Simple, ImpressCMS, Microweber, WonderCMS, GetSimple CE, phpwcms, Geeklog.
-   - **Wikis:** MediaWiki, DokuWiki, Tiki, PmWiki, WikkaWiki, WackoWiki, YesWiki.
-   - **Galleries:** Piwigo, Zenphoto, Coppermine, Lychee.
-   - **Forums:** phpBB, SMF, MyBB, FluxBB/PunBB, Flarum (needs vendor), Vanilla.
-   - **E-commerce / ERP:** PrestaShop, OpenCart, Magento (heavy), Dolibarr, FrontAccounting, Invoice Ninja, Akaunting, Crater, FOSSBilling, Bagisto.
-   - **Project management and support:** Kanboard, Leantime, Taiga (no), osTicket, FreeScout, UVdesk, LimeSurvey, Moodle, Chamilo.
-   - **Files and RSS:** FileGator, Tiny File Manager, YOURLS, Polr, PrivateBin, FreshRSS, Tiny Tiny RSS, Selfoss.
-   - **Mail:** Roundcube, phpList, Mautic.
-   - **Other:** Matomo (PHP), Snipe-IT, phpIPAM, Monica, Firefly III, Shlink, BookStack.
+### Agent changes in this batch (agents need updating)
+
+- nginx sites listen on `[::]` only when the host has IPv6. On hosts without IPv6, the IPv6 listen in the distro default site is commented out.
+- PHP sites deny common data-file extensions.
 
 ## Owner preferences
 

@@ -24,6 +24,7 @@ compose: |
         PGADMIN_DEFAULT_EMAIL: "${admin_email}"
         PGADMIN_DEFAULT_PASSWORD: "${admin_password}"
         PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: "False"
+        PGADMIN_LISTEN_ADDRESS: "0.0.0.0"
       extra_hosts:
         - "host.docker.internal:host-gateway"
       volumes:

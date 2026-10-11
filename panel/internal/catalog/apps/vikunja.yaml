@@ -16,11 +16,13 @@ compose: |
     vikunja:
       image: vikunja/vikunja:2.7.0
       restart: unless-stopped
+      # Named volumes are created root-owned; the image runs as uid 1000.
+      user: "0:0"
       ports:
         - "127.0.0.1:${port}:3456"
       environment:
         VIKUNJA_SERVICE_PUBLICURL: "${site_url}/"
-        VIKUNJA_SERVICE_JWTSECRET: ${secret_64}
+        VIKUNJA_SERVICE_SECRET: ${secret_64}
         VIKUNJA_DATABASE_TYPE: sqlite
         VIKUNJA_DATABASE_PATH: /db/vikunja.db
       volumes:

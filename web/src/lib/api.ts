@@ -282,6 +282,7 @@ export type CatalogApp = {
   database: boolean;
   admin: boolean;
   login?: "email" | "password";
+  wizard?: boolean;
   admin_path: string;
   homepage: string;
   notes?: string;
@@ -291,6 +292,17 @@ export type CatalogApp = {
   min_ram_mb?: number;
   protect: boolean;
 };
+
+export type CatalogSource = {
+  id: string;
+  name: string;
+  category: string;
+  homepage: string;
+  github?: string;
+  url?: string;
+  pinned?: { version?: string; url?: string; sha256?: string; checked_at: string; error?: string };
+};
+export type CatalogStatus = { running: boolean; done: number; total: number; last_run: string | null; sources: CatalogSource[] };
 
 export type PVECluster = { id: string; name: string; url: string; token_id: string; fingerprint: string; created_at: string; updated_at: string };
 export type PVEResource = {
@@ -567,6 +579,8 @@ export const api = {
   firingAlerts: () => request<AlertEvent[]>("GET", "/api/v1/alerts?state=firing"),
   agentBuild: () => request<{ version: string; sha256: Record<string, string> }>("GET", "/api/v1/agent-build"),
   updateAgent: (id: string) => request<Job>("POST", `/api/v1/servers/${id}/agent-update`),
+  catalogStatus: () => request<CatalogStatus>("GET", "/api/v1/apps/catalog"),
+  refreshCatalog: () => request<{ status: string }>("POST", "/api/v1/apps/catalog/refresh"),
   apps: () => request<CatalogApp[]>("GET", "/api/v1/apps"),
   installApp: (id: string, body: Record<string, string | boolean>) =>
     request<{ runs: PlaybookRun[]; credentials: Record<string, string>; notes?: string }>("POST", `/api/v1/servers/${id}/apps`, body),

@@ -1,6 +1,6 @@
 id: joomla
 name: Joomla
-category: CMS
+category: Portals/CMS
 description: Flexible open-source CMS for websites and portals. Installed with Joomla's command-line installer.
 version: "5.4.9"
 php_min: "8.1"

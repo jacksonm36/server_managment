@@ -36,6 +36,9 @@ type App struct {
 	Homepage  string `yaml:"homepage" json:"homepage"`
 	Notes     string `yaml:"notes" json:"notes,omitempty"` // shown after install
 	Updatable bool   `json:"updatable"`
+	// Wizard apps are pinned by "Refresh catalog" and finished in the app's
+	// own web installer at AdminPath.
+	Wizard bool `json:"wizard,omitempty"`
 
 	// Kind is "php" (default: steps run in a PHP site) or "compose" (a Docker
 	// compose app behind an nginx proxy site).
@@ -80,6 +83,7 @@ func init() {
 		a.Updatable = len(a.Update) > 0
 		apps[a.ID] = a
 	}
+	loadSources()
 }
 
 var (
@@ -100,18 +104,36 @@ func checkComposeQuoting(compose string) error {
 	return nil
 }
 
+// List returns the built-in apps plus every refreshed app that has a pinned
+// release.
 func List() []*App {
-	out := make([]*App, 0, len(apps))
+	out := make([]*App, 0, len(apps)+len(sources))
 	for _, a := range apps {
 		out = append(out, a)
 	}
+	pinnedMu.RLock()
+	for _, s := range sources {
+		if p := pinnedMap[s.ID]; p != nil && p.SHA256 != "" {
+			out = append(out, sourceApp(s, p))
+		}
+	}
+	pinnedMu.RUnlock()
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 
 func Get(id string) (*App, bool) {
-	a, ok := apps[id]
-	return a, ok
+	if a, ok := apps[id]; ok {
+		return a, true
+	}
+	pinnedMu.RLock()
+	defer pinnedMu.RUnlock()
+	for _, s := range sources {
+		if p := pinnedMap[s.ID]; s.ID == id && p != nil && p.SHA256 != "" {
+			return sourceApp(s, p), true
+		}
+	}
+	return nil, false
 }
 
 // StepsJSON renders a step list as the JSON the agent expects.

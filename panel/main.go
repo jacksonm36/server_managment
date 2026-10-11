@@ -171,6 +171,7 @@ func run(log *slog.Logger) error {
 	onConnect.Store(&applyBaseline)
 	go a.RunScheduler(ctx)
 	go a.RunAlerts(ctx)
+	go a.RunCatalogRefresh(ctx)
 
 	handler := a.Handler() // one instance, so both listeners share rate limits
 	hs := &http.Server{

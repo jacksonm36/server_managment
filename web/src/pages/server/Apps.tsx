@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Copy, Download, ExternalLink, LayoutGrid, Loader2, RefreshCw, Search, Trash2, TriangleAlert } from "lucide-react";
-import { api, type CatalogApp, type PlaybookRun } from "@/lib/api";
+import { api, type CatalogApp, type CatalogStatus, type PlaybookRun } from "@/lib/api";
 import { useAgentState } from "@/lib/ops";
 import { useLive } from "@/lib/live";
 import { useAccess } from "@/lib/access";
@@ -46,9 +46,8 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
     );
   }, [catalog, query, category]);
 
-  useEffect(() => {
-    void api.apps().then(setCatalog);
-  }, []);
+  const loadCatalog = useCallback(() => void api.apps().then(setCatalog), []);
+  useEffect(loadCatalog, [loadCatalog]);
   // Opened from the Databases tab picker: jump straight into that app's install dialog.
   useEffect(() => {
     if (!initialApp || catalog.length === 0) return;
@@ -173,6 +172,7 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
           <Input aria-label="Search apps" placeholder="Search apps" className="pl-8" value={query} onChange={(e) => setQuery(e.target.value)} />
         </div>
       </div>
+      {can("settings.manage") && <CatalogRefreshCard onRefreshed={loadCatalog} />}
       <div className="flex flex-wrap gap-1.5">
         {[["", catalog.length] as [string, number], ...categories].map(([cat, n]) => (
           <button
@@ -208,6 +208,7 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
               <div className="flex gap-1">
                 {c.database && <Badge variant="outline">MariaDB</Badge>}
                 {c.needs_docker && <Badge variant="outline">Docker</Badge>}
+                {c.wizard && <Badge variant="outline">Web installer</Badge>}
               </div>
             </div>
             <p className="flex-1 text-sm text-muted-foreground">{c.description}</p>
@@ -284,6 +285,7 @@ function Credentials({ creds, notes, onClose }: { creds: Record<string, string>;
   const [copied, setCopied] = useState("");
   const rows: [string, string][] = [
     ["Site", creds.url],
+    ["Finish setup at", creds.installer_url],
     ["Admin URL", creds.admin_url],
     ["Admin user", creds.admin_user],
     ["Admin password", creds.admin_password],
@@ -473,5 +475,94 @@ function InstallDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Admins: state of the self-refreshing PHP app catalog, with a Refresh button. */
+function CatalogRefreshCard({ onRefreshed }: { onRefreshed: () => void }) {
+  const [st, setSt] = useState<CatalogStatus | null>(null);
+  const [showProblems, setShowProblems] = useState(false);
+  const [error, setError] = useState("");
+  const wasRunning = useRef(false);
+
+  useEffect(() => {
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const load = () =>
+      api
+        .catalogStatus()
+        .then((s) => {
+          if (stop) return;
+          setSt(s);
+          if (wasRunning.current && !s.running) onRefreshed();
+          wasRunning.current = s.running;
+          timer = setTimeout(load, s.running ? 2000 : 30000);
+        })
+        .catch(() => {});
+    void load();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [onRefreshed]);
+
+  if (!st || st.sources.length === 0) return null;
+  const ready = st.sources.filter((s) => s.pinned?.sha256).length;
+  const problems = st.sources.filter((s) => s.pinned?.error);
+  return (
+    <div className="grid gap-2 rounded-lg border px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <RefreshCw className={`size-4 shrink-0 text-brand ${st.running ? "animate-spin" : ""}`} />
+        <div className="min-w-0 flex-1">
+          {st.running ? (
+            <span>
+              Refreshing the app catalog: {st.done} of {st.total} checked…
+            </span>
+          ) : (
+            <span>
+              <span className="font-medium">{ready}</span> of {st.sources.length} installer apps are ready
+              {st.last_run ? `, checked ${timeAgo(st.last_run)}` : ", not checked yet"}.
+            </span>
+          )}
+          <p className="text-xs text-muted-foreground">
+            The panel downloads each app's latest release, pins its checksum and checks it is ready to run. It does this weekly.
+          </p>
+        </div>
+        {problems.length > 0 && !st.running && (
+          <button className="cursor-pointer text-xs text-muted-foreground hover:text-foreground" onClick={() => setShowProblems(!showProblems)}>
+            {showProblems ? "Hide" : "Show"} {problems.length} problem{problems.length > 1 ? "s" : ""}
+          </button>
+        )}
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={st.running}
+          onClick={() => {
+            setError("");
+            api
+              .refreshCatalog()
+              .then(() => setSt({ ...st, running: true, done: 0, total: st.sources.length }))
+              .then(() => (wasRunning.current = true))
+              .catch((e) => setError((e as Error).message));
+          }}
+        >
+          <RefreshCw /> Refresh now
+        </Button>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {showProblems && (
+        <ul className="grid max-h-64 gap-1 overflow-y-auto border-t pt-2 text-xs">
+          {problems.map((s) => (
+            <li key={s.id} className="flex gap-2">
+              <span className="w-40 shrink-0 truncate font-medium">{s.name}</span>
+              <span className={s.pinned?.sha256 ? "text-warning" : "text-destructive"}>
+                {s.pinned?.sha256 ? `kept ${s.pinned.version}; ` : ""}
+                {s.pinned?.error}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

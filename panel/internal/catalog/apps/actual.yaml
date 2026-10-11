@@ -18,6 +18,8 @@ compose: |
       restart: unless-stopped
       ports:
         - "127.0.0.1:${port}:5006"
+      environment:
+        ACTUAL_HOSTNAME: "0.0.0.0"
       volumes:
         - data:/data
   volumes:
