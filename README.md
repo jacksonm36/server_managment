@@ -191,6 +191,11 @@ once.
   release; you finish in the app's own web installer. Set
   `SM_GITHUB_TOKEN` (any read-only token) if the refresh hits GitHub's
   anonymous rate limit.
+- **Apps written for Apache** (DokuWiki, Grav, FreshRSS, Kanboard,
+  PrivateBin): nginx ignores `.htaccess`, so each of these lists the folders
+  and files nginx must refuse (`deny:`), or names its own public folder
+  (`public:`) so only that folder is served. PHP sites also pass
+  `PATH_INFO` (`/index.php/some/path`).
 
 ### SSH key library
 

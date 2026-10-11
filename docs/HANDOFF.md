@@ -118,12 +118,14 @@ Implemented as the in-panel refresher.
   - The new nginx rule denies `.sqlite`/`.sql`/`.env`/`.log`/`.yml`... on PHP sites.
   - A real refresh from the cloud fails every source (network policy), which exercises the "kept last good / error" paths.
 - **Real sources:** each entry in sources.yaml has NOT been verified against the live internet. The first refresh on the real panel shows which ones fail and why; fix their `github`/`asset`/`scrape` there.
-- **Left out on purpose:** apps that rely on Apache .htaccess to hide data files in the web root (DokuWiki, Grav, Kanboard, PluXml, PrivateBin, FreshRSS, WonderCMS, Roundcube's temp/logs). They need per-app nginx deny rules or a `public_html` web-root mapping first. That would be a good next feature: a per-source `deny:` list rendered into the site's nginx config.
+- **Apps that rely on .htaccess** (added 2026-10-11, batch 3): a source can list `deny:` paths under the web root (`data/` folder, `install.php` file, `user/*.md,twig` by extension; rendered as nginx locations ahead of the PHP location) and/or `public:` (its own public folder: the release goes to `app/` and the site serves `app/<public>`). `protect: true` turns on the site password by default (Kanboard starts with admin/admin). These become a typed `nginx` app step (`agent/internal/ops/apps.go` `applyNginxStep`, `web.go` `denyLocation`); agents older than this fail the step ("step 1 is empty"), so the install rolls back instead of exposing data. Added: DokuWiki, Grav, FreshRSS, Kanboard, PrivateBin. Tested in the sandbox with demo archives of the same layouts (data/ denied with 403, PATH_INFO works, app/p web root). Still left out: PluXml and WonderCMS (public uploads share a folder with private data) and Roundcube (installer needs config).
+- **PHP sites pass PATH_INFO** now (`location ~ [^/]\.php(/|$)` with `fastcgi_split_path_info`), needed by FreshRSS's API and others.
 
-### Agent changes in this batch (agents need updating)
+### Agent changes (agents need updating)
 
 - nginx sites listen on `[::]` only when the host has IPv6. On hosts without IPv6, the IPv6 listen in the distro default site is commented out.
 - PHP sites deny common data-file extensions.
+- The `nginx` app step (per-app deny rules and web root) and PATH_INFO for PHP sites.
 
 ## Owner preferences
 

@@ -61,6 +61,10 @@ type Site struct {
 	Backup       *BackupPolicy `json:"backup,omitempty"`
 	App          *SiteApp      `json:"app,omitempty"`
 	Access       *SiteAccess   `json:"access,omitempty"`
+	// Deny lists paths under the web root that nginx refuses to serve, for
+	// apps that keep data next to their PHP files (protected only by
+	// .htaccess on Apache). See denyLocation for the forms.
+	Deny []string `json:"deny,omitempty"`
 }
 
 func (s *Site) home() string    { return filepath.Join(sitesRoot, s.Domain) }
@@ -476,6 +480,12 @@ server {
     location ~ /\.(?!well-known) {
         deny all;
     }
+{{- range .Deny}}
+
+    location {{.}} {
+        deny all;
+    }
+{{- end}}
 {{- if eq $s.Type "static"}}
 
     location / {
@@ -492,10 +502,13 @@ server {
         deny all;
     }
 
-    location ~ \.php$ {
-        try_files $uri =404;
+    location ~ [^/]\.php(/|$) {
+        fastcgi_split_path_info ^(.+?\.php)(/.*)$;
+        try_files $fastcgi_script_name =404;
+        set $path_info $fastcgi_path_info;
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        fastcgi_param PATH_INFO $path_info;
         fastcgi_param HTTPS $https if_not_empty;
         fastcgi_pass unix:{{.Socket}};
         fastcgi_read_timeout 300;
@@ -576,12 +589,51 @@ func disableStockIPv6(logf func(string, ...any)) {
 func renderNginx(s *Site) ([]byte, error) { return renderNginxWith(s, s.hasCert()) }
 
 func renderNginxWith(s *Site, hasCert bool) ([]byte, error) {
+	deny := make([]string, 0, len(s.Deny))
+	for _, d := range s.Deny {
+		loc, err := denyLocation(d)
+		if err != nil {
+			return nil, err
+		}
+		deny = append(deny, loc)
+	}
 	var b bytes.Buffer
-	err := nginxTmpl.Execute(&b, map[string]any{
+	err := nginxTmpl.Execute(&b, map[string]any{"Deny": deny,
 		"Site": s, "Names": strings.Join(s.names(), " "), "ACME": acmeWebroot, "Home": s.home(),
 		"HasCert": hasCert, "CertDir": s.certDir(), "Socket": s.fpmSocket(), "HTTP2On": nginxModernHTTP2(), "Htpasswd": s.htpasswdFile(), "IPv6": hostHasIPv6(),
 	})
 	return b.Bytes(), err
+}
+
+var (
+	denyPathRe = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$`)
+	denyExtRe  = regexp.MustCompile(`^[A-Za-z0-9]+(,[A-Za-z0-9]+)*$`)
+)
+
+// denyLocation turns a deny entry (relative to the web root) into an nginx
+// location match:
+//
+//	"data/"            the whole folder         location ^~ /data/
+//	"install.php"      one file                 location ~ ^/install\.php(/|$)
+//	"user/*.md,twig"   files by extension       location ~* ^/user/.*\.(md|twig)(/|$)
+func denyLocation(d string) (string, error) {
+	if dir, exts, ok := strings.Cut(d, "/*."); ok {
+		if !denyPathRe.MatchString(dir) || !denyExtRe.MatchString(exts) {
+			return "", fmt.Errorf("invalid deny entry %q", d)
+		}
+		return `~* ^/` + strings.ReplaceAll(dir, ".", `\.`) + `/.*\.(` + strings.ReplaceAll(exts, ",", "|") + `)(/|$)`, nil
+	}
+	if dir, ok := strings.CutSuffix(d, "/"); ok {
+		if !denyPathRe.MatchString(dir) {
+			return "", fmt.Errorf("invalid deny entry %q", d)
+		}
+		return "^~ /" + dir + "/", nil
+	}
+	if !denyPathRe.MatchString(d) {
+		return "", fmt.Errorf("invalid deny entry %q", d)
+	}
+	// A regex so "/install.php/x" (PATH_INFO) is caught too.
+	return `~ ^/` + strings.ReplaceAll(d, ".", `\.`) + `(/|$)`, nil
 }
 
 func nginxReload(ctx context.Context, logf func(string, ...any)) error {

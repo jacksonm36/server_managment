@@ -56,6 +56,17 @@ type Source struct {
 	// AllowNoVendor accepts a composer.json without vendor/ (the project
 	// bundles its libraries elsewhere).
 	AllowNoVendor bool `yaml:"allow_no_vendor" json:"-"`
+
+	// Public is the app's own public folder (e.g. "p"): the release goes to
+	// the site's app/ folder and only app/<public> is served.
+	Public string `yaml:"public" json:"public,omitempty"`
+	// Deny lists paths under the web root that nginx must not serve, for
+	// apps that rely on .htaccess: "data/" (folder), "install.php" (file) or
+	// "user/*.md,twig" (files by extension).
+	Deny []string `yaml:"deny" json:"deny,omitempty"`
+	// Protect turns on the site's password protection by default (apps
+	// that start with a well-known default login).
+	Protect bool `yaml:"protect" json:"protect,omitempty"`
 }
 
 type ScrapeStep struct {
@@ -70,6 +81,7 @@ type Pinned struct {
 	SHA256    string    `json:"sha256,omitempty"`
 	Strip     int       `json:"strip"`
 	Into      string    `json:"into,omitempty"`
+	WebRoot   string    `json:"web_root,omitempty"` // relative to the site home when not public/
 	Size      int64     `json:"size,omitempty"`
 	CheckedAt time.Time `json:"checked_at"`
 	Error     string    `json:"error,omitempty"`
@@ -111,6 +123,14 @@ func loadSources() {
 				panic("catalog sources.yaml: " + s.ID + " scrape regex needs one capture group")
 			}
 		}
+		if s.Public != "" && !denyPathRe.MatchString(s.Public) {
+			panic("catalog sources.yaml: " + s.ID + " bad public folder")
+		}
+		for _, d := range s.Deny {
+			if !validDeny(d) {
+				panic("catalog sources.yaml: " + s.ID + " bad deny entry " + d)
+			}
+		}
 		if s.InstallerPath == "" {
 			s.InstallerPath = "/"
 		}
@@ -122,7 +142,19 @@ func loadSources() {
 	sort.Slice(sources, func(i, j int) bool { return sources[i].Name < sources[j].Name })
 }
 
-var idRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}$`)
+var (
+	idRe       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,40}$`)
+	denyPathRe = regexp.MustCompile(`^[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$`)
+	denyExtRe  = regexp.MustCompile(`^[A-Za-z0-9]+(,[A-Za-z0-9]+)*$`)
+)
+
+// validDeny mirrors the agent's check of deny entries.
+func validDeny(d string) bool {
+	if dir, exts, ok := strings.Cut(d, "/*."); ok {
+		return denyPathRe.MatchString(dir) && denyExtRe.MatchString(exts)
+	}
+	return denyPathRe.MatchString(strings.TrimSuffix(d, "/"))
+}
 
 // Sources lists the refreshable apps.
 func Sources() []*Source { return sources }
@@ -157,9 +189,19 @@ func sourceApp(s *Source, p *Pinned) *App {
 	return &App{
 		ID: s.ID, Name: s.Name, Category: s.Category, Description: s.Description, Version: p.Version,
 		PHPMin: s.PHPMin, Database: s.Database, AdminPath: s.InstallerPath, Homepage: s.Homepage,
-		Notes: notes, Kind: "php", MinRAMMB: s.MinRAMMB, Wizard: true,
-		Install: []map[string]any{{"fetch": map[string]any{"url": p.URL, "sha256": p.SHA256, "strip": p.Strip, "into": p.Into}}},
+		Notes: notes, Kind: "php", MinRAMMB: s.MinRAMMB, Wizard: true, Protect: s.Protect,
+		Install: sourceSteps(s, p),
 	}
+}
+
+func sourceSteps(s *Source, p *Pinned) []map[string]any {
+	var steps []map[string]any
+	if p.WebRoot != "" || len(s.Deny) > 0 {
+		// Agents that predate this step fail it, so the install rolls back
+		// instead of serving the app's data folders.
+		steps = append(steps, map[string]any{"nginx": map[string]any{"web_root": p.WebRoot, "deny": s.Deny}})
+	}
+	return append(steps, map[string]any{"fetch": map[string]any{"url": p.URL, "sha256": p.SHA256, "strip": p.Strip, "into": p.Into}})
 }
 
 // ---- refreshing ----
@@ -245,11 +287,11 @@ func (r *Refresher) Pin(ctx context.Context, s *Source) (*Pinned, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading the archive: %w", err)
 	}
-	strip, into, err := webRoot(names, s.AllowNoVendor)
+	strip, into, webroot, err := appLayout(names, s)
 	if err != nil {
 		return nil, err
 	}
-	return &Pinned{Version: version, URL: url, SHA256: sum, Strip: strip, Into: into, Size: size, CheckedAt: time.Now().UTC()}, nil
+	return &Pinned{Version: version, URL: url, SHA256: sum, Strip: strip, Into: into, WebRoot: webroot, Size: size, CheckedAt: time.Now().UTC()}, nil
 }
 
 func (r *Refresher) client() *http.Client {
@@ -524,11 +566,53 @@ func listArchive(file, url string) ([]string, error) {
 // archive so it ends up as the site's public/ folder. An app that ships its
 // own public/ next to vendor/ (Laravel style) is extracted into the site
 // home instead. Releases that need "composer install" are refused.
-func webRoot(names []string, allowNoVendor bool) (strip int, into string, err error) {
+// appLayout says where a release goes in the site: apps with their own
+// public folder go to app/ and serve app/<public>; others go through webRoot.
+func appLayout(names []string, s *Source) (strip int, into, webroot string, err error) {
+	if s.Public == "" {
+		strip, into, err = webRoot(names, s.AllowNoVendor)
+		return strip, into, "", err
+	}
+	depth := -1
+	top := ""
+	for _, n := range names {
+		if path.Base(n) != "index.php" || strings.Contains("/"+n, "/vendor/") {
+			continue
+		}
+		d := path.Dir(n)
+		if d == s.Public {
+			d = "."
+		} else if top, ok := strings.CutSuffix(d, "/"+s.Public); ok {
+			d = top
+		} else {
+			continue
+		}
+		if c := strings.Count(n, "/"); depth == -1 || c < depth {
+			depth, top = c, d
+		}
+	}
+	if depth == -1 {
+		return 0, "", "", fmt.Errorf("no %s/index.php in the release", s.Public)
+	}
+	if set := names2set(names); !s.AllowNoVendor && hasAny(set, top, "composer.json") && !hasAny(set, top, "vendor/autoload.php") {
+		return 0, "", "", errors.New("the release has no vendor/ folder (it needs composer install), so it cannot be installed as is")
+	}
+	if top != "." {
+		strip = strings.Count(top, "/") + 1
+	}
+	return strip, "app", "app/" + s.Public, nil
+}
+
+func names2set(names []string) map[string]bool {
 	set := make(map[string]bool, len(names))
 	for _, n := range names {
 		set[n] = true
 	}
+	return set
+}
+
+func webRoot(names []string, allowNoVendor bool) (strip int, into string, err error) {
+	set := names2set(names)
 	best := ""
 	depth := -1
 	for _, n := range names {

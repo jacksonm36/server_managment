@@ -31,7 +31,7 @@ func TestValidDomain(t *testing.T) {
 func TestRenderNginx(t *testing.T) {
 	for _, s := range []*Site{
 		{Domain: "static.test", Type: "static", Root: "/srv/sites/static.test/public"},
-		{Domain: "php.test", Aliases: []string{"www.php.test"}, Type: "php", PHPVersion: "8.4", Root: "/srv/sites/php.test/public"},
+		{Domain: "php.test", Aliases: []string{"www.php.test"}, Type: "php", PHPVersion: "8.4", Root: "/srv/sites/php.test/public", Deny: []string{"data/", "install.php", "user/*.md,twig"}},
 		{Domain: "app.test", Type: "proxy", ProxyTarget: "http://127.0.0.1:3000", Root: "/srv/sites/app.test/public"},
 	} {
 		b, err := renderNginx(s)
@@ -55,6 +55,11 @@ func TestRenderNginx(t *testing.T) {
 			}
 			if !strings.Contains(conf, "sqlite3?|db|sql") {
 				t.Errorf("php: missing data-file deny:\n%s", conf)
+			}
+			// App deny rules come before the regex locations that would serve or run the files.
+			if i, j := strings.Index(conf, "location ~* ^/user/.*\\.(md|twig)(/|$) {"), strings.Index(conf, "location ~ [^/]\\.php(/|$)"); i < 0 || j < i ||
+				!strings.Contains(conf, "location ^~ /data/ {") || !strings.Contains(conf, "location ~ ^/install\\.php(/|$) {") {
+				t.Errorf("php: app deny rules missing or misplaced:\n%s", conf)
 			}
 		case "proxy":
 			if !strings.Contains(conf, "proxy_pass http://127.0.0.1:3000;") {
@@ -87,5 +92,24 @@ func TestIPv6ListenRegex(t *testing.T) {
 	}
 	if strings.Count(out, "disabled by servermgr") != 1 {
 		t.Fatalf("commented lines must stay untouched:\n%s", out)
+	}
+}
+
+func TestDenyLocation(t *testing.T) {
+	for in, want := range map[string]string{
+		"data/":          "^~ /data/",
+		"conf/local/":    "^~ /conf/local/",
+		"install.php":    `~ ^/install\.php(/|$)`,
+		"user/*.md,twig": `~* ^/user/.*\.(md|twig)(/|$)`,
+		"a.b/*.php":      `~* ^/a\.b/.*\.(php)(/|$)`,
+	} {
+		if got, err := denyLocation(in); err != nil || got != want {
+			t.Errorf("denyLocation(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, bad := range []string{"", "/", "../etc/", "data/;", "a b/", ".git/", "x/*.p|hp", "x/*.", "data/{}", "a//b"} {
+		if _, err := denyLocation(bad); err == nil {
+			t.Errorf("denyLocation(%q) accepted", bad)
+		}
 	}
 }

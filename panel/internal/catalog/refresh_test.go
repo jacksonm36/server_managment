@@ -178,3 +178,37 @@ func TestScrape(t *testing.T) {
 		t.Fatalf("%+v %v", p, err)
 	}
 }
+
+func TestAppLayoutPublicFolder(t *testing.T) {
+	s := &Source{ID: "rss", Public: "p", AllowNoVendor: true}
+	strip, into, root, err := appLayout([]string{"FreshRSS-1.2/index.php", "FreshRSS-1.2/p/index.php", "FreshRSS-1.2/p/i/index.php", "FreshRSS-1.2/data/x"}, s)
+	if err != nil || strip != 1 || into != "app" || root != "app/p" {
+		t.Errorf("got strip=%d into=%q root=%q err=%v", strip, into, root, err)
+	}
+	if strip, _, _, err := appLayout([]string{"p/index.php", "lib/a.php"}, s); err != nil || strip != 0 {
+		t.Errorf("flat archive: strip=%d err=%v", strip, err)
+	}
+	if _, _, _, err := appLayout([]string{"x/index.php"}, s); err == nil {
+		t.Error("archive without p/index.php accepted")
+	}
+	// Without a public folder the regular detection applies.
+	if _, into, root, err := appLayout([]string{"w/index.php"}, &Source{}); err != nil || into != "public" || root != "" {
+		t.Errorf("plain: into=%q root=%q err=%v", into, root, err)
+	}
+}
+
+func TestSourceSteps(t *testing.T) {
+	p := &Pinned{URL: "https://x/a.zip", SHA256: "ab", Strip: 1, Into: "app", WebRoot: "app/p"}
+	steps := sourceSteps(&Source{Deny: []string{"data/"}}, p)
+	if len(steps) != 2 || steps[0]["nginx"] == nil || steps[1]["fetch"] == nil {
+		t.Fatalf("steps = %v", steps)
+	}
+	if steps := sourceSteps(&Source{}, &Pinned{Into: "public"}); len(steps) != 1 {
+		t.Errorf("plain app got an nginx step: %v", steps)
+	}
+	for d, ok := range map[string]bool{"data/": true, "install.php": true, "user/*.md,twig": true, "../x/": false, ".git/": false, "a b": false, "x/*.p|q": false} {
+		if validDeny(d) != ok {
+			t.Errorf("validDeny(%q) = %v", d, !ok)
+		}
+	}
+}

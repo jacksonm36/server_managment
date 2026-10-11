@@ -5,10 +5,11 @@
 # listed with the reason. Install = new site (+ database) + the verified
 # release; the user finishes the app's own web installer.
 #
-# Only apps that keep their secrets in the database or in .php files are
-# listed: nginx does not read .htaccess, so apps that rely on it to hide data
-# files in the web root (PluXml, Grav, Kanboard, PrivateBin, FreshRSS,
-# DokuWiki, WonderCMS...) need extra rules first.
+# nginx does not read .htaccess. Apps that rely on it to hide data in the web
+# root list those paths under deny (served as 403), or name their own public
+# folder (public: the release goes to app/ and only app/<public> is served).
+# Apps whose public uploads share a folder with private data (PluXml,
+# WonderCMS) are left out.
 #
 # Fields: see Source in refresh.go. Exactly one of github / url (+ scrape).
 
@@ -100,6 +101,30 @@
   database: false
   installer_path: /install.php
 
+- id: grav
+  name: Grav
+  category: Portals/CMS
+  description: Fast flat-file CMS with no database - pages are Markdown files, with an admin panel, themes and plugins.
+  homepage: https://getgrav.org
+  github: getgrav/grav
+  asset: '^grav-admin-v[0-9.]+\.zip$'
+  php_min: "7.3"
+  installer_path: /admin
+  notes: Open /admin to create the first administrator.
+  deny:
+    - cache/
+    - bin/
+    - logs/
+    - backup/
+    - tests/
+    - webserver-configs/
+    - system/*.txt,xml,md,html,htm,json,yaml,yml,php,twig,sh,bat
+    - vendor/*.txt,xml,md,html,htm,json,yaml,yml,php,twig,sh,bat
+    - user/*.txt,md,json,yaml,yml,php,twig,sh,bat
+    - LICENSE.txt
+    - composer.json
+    - htaccess.txt
+
 # ---- Blogs ----
 - id: serendipity
   name: Serendipity
@@ -160,6 +185,26 @@
   database: true
   installer_path: /mw-config/index.php
   notes: At the end the installer gives you LocalSettings.php; upload it to the site's public/ folder (Files or SFTP).
+
+- id: dokuwiki
+  name: DokuWiki
+  category: Wikis
+  description: Simple wiki that stores pages in plain text files - no database. Popular for documentation and team notes.
+  homepage: https://www.dokuwiki.org
+  scrape:
+    - url: https://download.dokuwiki.org/archive
+      re: 'dokuwiki-(\d{4}-\d{2}-\d{2}[a-z]?)\.tgz'
+  url: https://download.dokuwiki.org/src/dokuwiki/dokuwiki-{0}.tgz
+  php_min: "7.4"
+  installer_path: /install.php
+  notes: Delete install.php in the Files page when the installer finishes.
+  deny:
+    - data/
+    - conf/
+    - bin/
+    - inc/
+    - vendor/
+    - _test/
 
 # ---- Image galleries ----
 - id: piwigo
@@ -374,7 +419,38 @@
   min_ram_mb: 1024
   notes: Database settings live in .env in the site home (copy .env.example to .env and fill in the database shown here), then open the site to register.
 
+# ---- RSS ----
+- id: freshrss
+  name: FreshRSS
+  category: RSS
+  description: Self-hosted RSS and Atom feed reader, fast and multi-user, with mobile apps through its API.
+  homepage: https://freshrss.org
+  github: FreshRSS/FreshRSS
+  public: p
+  allow_no_vendor: true
+  php_min: "8.1"
+  database: true
+  notes: In the installer pick MySQL/MariaDB with the details shown here, or SQLite. Feeds refresh when you open FreshRSS; for background refresh add a cron job running "php /srv/sites/<domain>/app/app/actualize_script.php" as the site user.
+
 # ---- Project management ----
+- id: kanboard
+  name: Kanboard
+  category: Project Management
+  description: Minimalist Kanban project management - boards, tasks, swimlanes and automatic actions.
+  homepage: https://kanboard.org
+  github: kanboard/kanboard
+  php_min: "8.1"
+  protect: true
+  notes: Kanboard starts with the login admin / admin. Sign in and change that password right away (the site's password protection is on until you turn it off).
+  deny:
+    - data/
+    - app/
+    - libs/
+    - vendor/
+    - tests/
+    - plugins/*.php,json,md,sh
+    - config.default.php
+    - cli
 - id: leantime
   name: Leantime
   category: Project Management
@@ -423,3 +499,22 @@
   php_min: "8.1"
   database: true
   installer_path: /install/
+
+# ---- Others ----
+- id: privatebin
+  name: PrivateBin
+  category: Others
+  description: Minimalist pastebin where the server never sees the data - pastes are encrypted in the browser.
+  homepage: https://privatebin.info
+  github: PrivateBin/PrivateBin
+  php_min: "7.4"
+  notes: Settings live in cfg/conf.php (copy cfg/conf.sample.php) in the site's Files page.
+  deny:
+    - cfg/
+    - lib/
+    - tpl/
+    - vendor/
+    - data/
+    - tst/
+    - doc/
+    - bin/

@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -48,6 +49,14 @@ type appStep struct {
 	Fetch  *fetchStep `json:"fetch,omitempty"`  // download, verify, extract
 	Write  *writeStep `json:"write,omitempty"`  // write a file
 	Remove string     `json:"remove,omitempty"` // delete a path inside the site
+	Nginx  *nginxStep `json:"nginx,omitempty"`  // move the web root / deny paths (agents without it fail the step)
+}
+
+// nginxStep adapts the site to an app's layout. It must come before the
+// steps that use the web root.
+type nginxStep struct {
+	WebRoot string   `json:"web_root,omitempty"` // relative to the site home, e.g. "app/p"
+	Deny    []string `json:"deny,omitempty"`     // see denyLocation
 }
 
 type fetchStep struct {
@@ -432,6 +441,11 @@ func runAppSteps(ctx context.Context, s *Site, steps []appStep, vars map[string]
 			}
 			_ = exec.CommandContext(ctx, "chown", s.User+":"+webGroup(), p).Run()
 			logf("wrote %s", p)
+		case st.Nginx != nil:
+			if err := applyNginxStep(ctx, s, st.Nginx, logf); err != nil {
+				return "", fmt.Errorf("step %d (nginx): %w", i+1, err)
+			}
+			vars["docroot"] = s.Root
 		case st.Remove != "":
 			p, err := insideSite(s, st.Remove)
 			if err != nil {
@@ -565,6 +579,39 @@ func maskSecrets(logf func(string, ...any), vars map[string]string) func(string,
 		}
 		logf("%s", line)
 	}
+}
+
+// applyNginxStep moves the site's web root and sets its deny list.
+func applyNginxStep(ctx context.Context, s *Site, st *nginxStep, logf func(string, ...any)) error {
+	for _, d := range st.Deny {
+		if _, err := denyLocation(d); err != nil {
+			return err
+		}
+	}
+	siteMu.Lock()
+	defer siteMu.Unlock()
+	if st.WebRoot != "" {
+		root, err := insideSite(s, st.WebRoot)
+		if err != nil {
+			return err
+		}
+		if root == s.home() || slices.Contains([]string{"logs", "tmp"}, strings.SplitN(strings.TrimPrefix(root, s.home()+"/"), "/", 2)[0]) {
+			return fmt.Errorf("web root %q is not allowed", st.WebRoot)
+		}
+		if err := os.MkdirAll(root, os.ModeSetgid|0o750); err != nil {
+			return err
+		}
+		s.Root = root
+		if err := fixOwnership(ctx, s); err != nil {
+			return err
+		}
+	}
+	s.Deny = st.Deny
+	if err := applyNginx(ctx, s, logf); err != nil {
+		return err
+	}
+	logf("web root %s; %d paths denied", s.Root, len(s.Deny))
+	return saveSite(s)
 }
 
 // placeFile moves a single downloaded file (e.g. adminer.php) into dir.
