@@ -1,43 +1,19 @@
-import { useEffect, useState } from "react";
-import { Link } from "wouter";
+import { useState } from "react";
 import { Play } from "lucide-react";
-import { api, type Job, type Server } from "@/lib/api";
+import { api, type Server } from "@/lib/api";
 import { CATALOG, clean, defaults, missing, opDef } from "@/lib/catalog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OpForm } from "@/components/OpForm";
-
-type Result = { server_id: string; job_id?: string; error?: string };
+import { JobResults, type StartedJob } from "@/components/JobResults";
 
 export function BulkDialog({ servers, onClose }: { servers: Server[]; onClose: () => void }) {
   const [op, setOp] = useState(CATALOG[0].op);
   const [params, setParams] = useState<Record<string, string>>(defaults(CATALOG[0]));
-  const [results, setResults] = useState<Result[] | null>(null);
-  const [jobs, setJobs] = useState<Record<string, Job>>({});
+  const [results, setResults] = useState<StartedJob[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const def = opDef(op)!;
-
-  // Poll the started jobs until they all finish.
-  useEffect(() => {
-    if (!results) return;
-    const ids = results.filter((r) => r.job_id).map((r) => r.job_id!);
-    let stop = false;
-    const tick = async () => {
-      const done = await Promise.all(ids.map((id) => api.job(id).catch(() => null)));
-      if (stop) return;
-      const map: Record<string, Job> = {};
-      done.forEach((j) => j && (map[j.id] = j));
-      setJobs(map);
-      if (done.every((j) => !j || j.status === "succeeded" || j.status === "failed")) return;
-      setTimeout(tick, 1500);
-    };
-    void tick();
-    return () => {
-      stop = true;
-    };
-  }, [results]);
 
   async function submit() {
     const miss = missing(def, params);
@@ -61,9 +37,11 @@ export function BulkDialog({ servers, onClose }: { servers: Server[]; onClose: (
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90svh] overflow-y-auto">
+      <DialogContent className={`max-h-[90svh] overflow-y-auto ${results ? "sm:max-w-3xl" : ""}`}>
         <DialogHeader>
-          <DialogTitle>Run on {servers.length} server(s)</DialogTitle>
+          <DialogTitle>
+            {results ? def.label : "Run"} on {servers.length} server(s)
+          </DialogTitle>
           <DialogDescription>{servers.map((s) => s.name).join(", ")}</DialogDescription>
         </DialogHeader>
         {!results ? (
@@ -89,21 +67,7 @@ export function BulkDialog({ servers, onClose }: { servers: Server[]; onClose: (
           </div>
         ) : (
           <div className="grid gap-3">
-            <ul className="grid gap-2">
-              {results.map((r) => {
-                const j = r.job_id ? jobs[r.job_id] : undefined;
-                const status = r.error ? "failed" : (j?.status ?? "queued");
-                return (
-                  <li key={r.server_id} className="flex items-center gap-3 rounded-lg border px-3 py-2 text-sm">
-                    <Link href={`/servers/${r.server_id}#tasks`} className="min-w-0 flex-1 truncate font-medium hover:text-brand" onClick={onClose}>
-                      {name(r.server_id)}
-                    </Link>
-                    <span className="max-w-[50%] truncate text-xs text-destructive">{r.error || j?.error}</span>
-                    <Badge variant={status === "succeeded" ? "success" : status === "failed" ? "destructive" : "warning"}>{status}</Badge>
-                  </li>
-                );
-              })}
-            </ul>
+            <JobResults results={results} name={name} onNavigate={onClose} />
             <div className="flex justify-end">
               <Button variant="secondary" onClick={onClose}>
                 Close

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Copy, Pencil, Radar, Rocket, Trash2, Undo2, Upload } from "lucide-react";
-import { api, type BulkResult, type Job, type KeyCandidate, type ScannedServer, type SSHKey } from "@/lib/api";
+import { api, type BulkResult, type KeyCandidate, type ScannedServer, type SSHKey } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { setVaultStatus, useVault } from "@/lib/vault";
 import { useServerGroups } from "@/lib/groups";
-import { waitJob } from "@/lib/ops";
 import { timeAgo } from "@/lib/utils";
 import { VaultCard } from "@/components/Vault";
 import { ServerPicker } from "@/components/ServerPicker";
+import { JobResults } from "@/components/JobResults";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -439,8 +439,6 @@ function ImportDialog({ onClose, onDone }: { onClose: () => void; onDone: () => 
 
 // ---- one-click deploy / removal ----
 
-type Progress = BulkResult & { status?: string };
-
 function DeployDialog({
   k,
   mode,
@@ -463,7 +461,7 @@ function DeployDialog({
   const [ids, setIds] = useState<string[]>(() =>
     mode === "remove" && where ? [...new Set(where.filter((w) => w.user === "root").map((w) => w.server_id))] : [],
   );
-  const [results, setResults] = useState<Progress[] | null>(null);
+  const [results, setResults] = useState<BulkResult[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const deploy = mode === "deploy";
@@ -476,33 +474,17 @@ function DeployDialog({
     try {
       const t = { user: user.trim() || "root", ...(group ? { server_group_id: Number(group) } : { server_ids: ids }) };
       const res = await (deploy ? api.deploySSHKey(k.id, t) : api.undeploySSHKey(k.id, t));
-      setResults(res.map((r) => ({ ...r, status: r.job_id ? "running" : "failed" })));
-      await Promise.all(
-        res.map(async (r) => {
-          if (!r.job_id) return;
-          let status = "failed";
-          let err = "";
-          try {
-            const j = await waitJob({ id: r.job_id } as Job);
-            status = j.status;
-            err = j.error;
-          } catch (x) {
-            err = (x as Error).message;
-          }
-          setResults((cur) => cur!.map((c) => (c.server_id === r.server_id ? { ...c, status, error: err || c.error } : c)));
-        }),
-      );
-      onFinished();
+      setResults(res);
+      if (!res.some((r) => r.job_id)) setBusy(false);
     } catch (x) {
       setError((x as Error).message);
-    } finally {
       setBusy(false);
     }
   }
 
   return (
     <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
-      <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className={`max-h-[90svh] overflow-y-auto ${results ? "sm:max-w-3xl" : "sm:max-w-xl"}`}>
         <DialogHeader>
           <DialogTitle>
             {deploy ? "Deploy" : "Remove"} {k.name}
@@ -515,18 +497,16 @@ function DeployDialog({
         </DialogHeader>
         {results ? (
           <div className="grid gap-3">
-            <ul className="grid gap-1 text-sm">
-              {results.map((r) => (
-                <li key={r.server_id} className="flex items-start justify-between gap-3">
-                  <span>{servers.get(r.server_id)?.name ?? r.server_id}</span>
-                  <span
-                    className={`text-right text-xs ${r.status === "succeeded" ? "text-success" : r.status === "running" ? "text-muted-foreground" : "text-destructive"}`}
-                  >
-                    {r.status === "succeeded" ? (deploy ? "added" : "removed") : r.status === "running" ? "working…" : r.error || "failed"}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <JobResults
+              results={results}
+              name={(id) => servers.get(id)?.name ?? id}
+              okLabel={deploy ? "added" : "removed"}
+              onDone={() => {
+                setBusy(false);
+                onFinished();
+              }}
+              onNavigate={onClose}
+            />
             <div className="flex justify-end">
               <Button variant="brand" onClick={onClose} disabled={busy}>
                 Done
