@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/jacksonm36/servermgr/panel/internal/store"
@@ -55,5 +56,7 @@ func (a *API) handleRecentJobs(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
+	ac := accessFrom(r.Context())
+	list = slices.DeleteFunc(list, func(j *store.JobSummary) bool { return !ac.CanOn("server.view", j.ServerID) })
 	writeJSON(w, http.StatusOK, list)
 }

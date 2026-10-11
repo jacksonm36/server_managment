@@ -6,23 +6,32 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 var ErrExists = errors.New("already exists")
 
 type User struct {
-	ID          int64      `json:"id"`
-	Username    string     `json:"username"`
-	Role        string     `json:"role"`
-	Disabled    bool       `json:"disabled"`
-	TOTPEnabled bool       `json:"totp_enabled"`
-	LastLogin   *time.Time `json:"last_login"`
-	CreatedAt   time.Time  `json:"created_at"`
+	ID                 int64      `json:"id"`
+	Username           string     `json:"username"`
+	DisplayName        string     `json:"display_name"`
+	Email              string     `json:"email"`
+	Role               string     `json:"role"`
+	Disabled           bool       `json:"disabled"`
+	MustChangePassword bool       `json:"must_change_password"`
+	TOTPEnabled        bool       `json:"totp_enabled"`
+	Groups             []int64    `json:"groups"`
+	Sessions           int        `json:"sessions"`
+	LastLogin          *time.Time `json:"last_login"`
+	CreatedAt          time.Time  `json:"created_at"`
 }
 
 func (s *Store) ListUsers(ctx context.Context) ([]*User, error) {
-	rows, err := s.db.Query(ctx, `SELECT id, username, role, disabled, totp_enabled, last_login, created_at FROM admins ORDER BY username`)
+	rows, err := s.db.Query(ctx, `
+		SELECT a.id, a.username, a.display_name, a.email, a.role, a.disabled, a.must_change_password, a.totp_enabled,
+		       COALESCE((SELECT array_agg(m.group_id ORDER BY m.group_id) FROM user_group_members m WHERE m.admin_id = a.id), '{}'),
+		       (SELECT count(*) FROM sessions x WHERE x.admin_id = a.id AND x.expires_at > now()),
+		       a.last_login, a.created_at
+		FROM admins a ORDER BY a.username`)
 	if err != nil {
 		return nil, err
 	}
@@ -30,7 +39,8 @@ func (s *Store) ListUsers(ctx context.Context) ([]*User, error) {
 	out := []*User{}
 	for rows.Next() {
 		u := &User{}
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &u.Disabled, &u.TOTPEnabled, &u.LastLogin, &u.CreatedAt); err != nil {
+		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.Role, &u.Disabled, &u.MustChangePassword,
+			&u.TOTPEnabled, &u.Groups, &u.Sessions, &u.LastLogin, &u.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -38,21 +48,34 @@ func (s *Store) ListUsers(ctx context.Context) ([]*User, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) CreateUser(ctx context.Context, username, hash, role string) (int64, error) {
-	var id int64
-	err := s.db.QueryRow(ctx, `INSERT INTO admins (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id`, username, hash, role).Scan(&id)
-	var pe *pgconn.PgError
-	if errors.As(err, &pe) && pe.Code == "23505" {
-		return 0, ErrExists
+// CreateUser adds a user. ErrNotFound means the role or a group does not exist.
+func (s *Store) CreateUser(ctx context.Context, u *User, hash string) error {
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO admins (username, password_hash, role, display_name, email, must_change_password)
+			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			u.Username, hash, u.Role, u.DisplayName, u.Email, u.MustChangePassword).Scan(&u.ID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO user_group_members (group_id, admin_id) SELECT unnest($2::bigint[]), $1 ON CONFLICT DO NOTHING`, u.ID, u.Groups)
+		return err
+	})
+	switch {
+	case isUnique(err):
+		return ErrExists
+	case isFK(err):
+		return ErrNotFound
 	}
-	return id, err
+	return err
 }
 
-// UpdateUser changes role/disabled. It refuses to leave the panel without
-// an enabled admin; disabling a user also ends their sessions.
-func (s *Store) UpdateUser(ctx context.Context, id int64, role string, disabled bool) error {
-	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE admins SET role = $2, disabled = $3 WHERE id = $1`, id, role, disabled)
+// UpdateUser changes a user's profile, main role, disabled flag and groups.
+// It refuses to leave the panel without an enabled admin; disabling a user
+// also ends their sessions.
+func (s *Store) UpdateUser(ctx context.Context, u *User) error {
+	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE admins SET role = $2, disabled = $3, display_name = $4, email = $5 WHERE id = $1`,
+			u.ID, u.Role, u.Disabled, u.DisplayName, u.Email)
 		if err != nil {
 			return err
 		}
@@ -62,11 +85,23 @@ func (s *Store) UpdateUser(ctx context.Context, id int64, role string, disabled 
 		if err := ensureAdmin(ctx, tx); err != nil {
 			return err
 		}
-		if disabled {
-			_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE admin_id = $1`, id)
+		if u.Groups != nil {
+			if _, err := tx.Exec(ctx, `DELETE FROM user_group_members WHERE admin_id = $1`, u.ID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `INSERT INTO user_group_members (group_id, admin_id) SELECT unnest($2::bigint[]), $1 ON CONFLICT DO NOTHING`, u.ID, u.Groups); err != nil {
+				return err
+			}
+		}
+		if u.Disabled {
+			_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE admin_id = $1`, u.ID)
 		}
 		return err
 	})
+	if isFK(err) {
+		return ErrNotFound
+	}
+	return err
 }
 
 var ErrLastAdmin = errors.New("at least one enabled admin must remain")
@@ -96,10 +131,11 @@ func (s *Store) DeleteUser(ctx context.Context, id int64) error {
 }
 
 // ResetPassword sets a new password, ends all of the user's sessions and,
-// optionally, turns off their 2FA (for a lost authenticator).
-func (s *Store) ResetPassword(ctx context.Context, id int64, hash string, reset2FA bool) error {
+// optionally, turns off their 2FA (for a lost authenticator) and makes them
+// choose a new password at the next login.
+func (s *Store) ResetPassword(ctx context.Context, id int64, hash string, reset2FA, mustChange bool) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE admins SET password_hash = $2 WHERE id = $1`, id, hash)
+		tag, err := tx.Exec(ctx, `UPDATE admins SET password_hash = $2, must_change_password = $3 WHERE id = $1`, id, hash, mustChange)
 		if err != nil {
 			return err
 		}
@@ -117,6 +153,12 @@ func (s *Store) ResetPassword(ctx context.Context, id int64, hash string, reset2
 		_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE admin_id = $1`, id)
 		return err
 	})
+}
+
+// EndSessions signs a user out everywhere.
+func (s *Store) EndSessions(ctx context.Context, id int64) (int64, error) {
+	tag, err := s.db.Exec(ctx, `DELETE FROM sessions WHERE admin_id = $1`, id)
+	return tag.RowsAffected(), err
 }
 
 func (s *Store) TouchLogin(ctx context.Context, id int64) {

@@ -31,9 +31,6 @@ type Config struct {
 	GRPCAddr string
 	// AgentBinDir holds servermgr-agent-linux-<arch> binaries for download.
 	AgentBinDir string
-	// ProgressFile is the build-progress JSON shown on /progress. It is
-	// re-read on every request.
-	ProgressFile string
 	// DataDir holds panel state (PKI, Ansible venv and key).
 	DataDir string
 }
@@ -80,97 +77,116 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/account/totp/disable", a.handleTOTPDisable)
 	authed.HandleFunc("POST /api/v1/account/recovery-codes", a.handleRecoveryRegenerate)
 	authed.HandleFunc("GET /api/v1/servers", a.handleListServers)
-	authed.HandleFunc("GET /api/v1/servers/{id}", a.handleGetServer)
-	authed.HandleFunc("DELETE /api/v1/servers/{id}", need("admin", a.handleDeleteServer))
-	authed.HandleFunc("GET /api/v1/servers/{id}/metrics", a.handleMetrics)
-	authed.HandleFunc("GET /api/v1/servers/{id}/terminal", need("operator", a.handleTerminal))
-	authed.HandleFunc("GET /api/v1/servers/{id}/jobs", a.handleListJobs)
-	authed.HandleFunc("POST /api/v1/servers/{id}/jobs", a.handleCreateJob)
+	authed.HandleFunc("GET /api/v1/servers/{id}", needOn("server.view", a.handleGetServer))
+	authed.HandleFunc("DELETE /api/v1/servers/{id}", needOn("server.delete", a.handleDeleteServer))
+	authed.HandleFunc("PUT /api/v1/servers/{id}/groups", need("users.manage", a.handleSetServerGroups))
+	authed.HandleFunc("GET /api/v1/servers/{id}/metrics", needOn("server.view", a.handleMetrics))
+	authed.HandleFunc("GET /api/v1/servers/{id}/terminal", needOn("server.terminal", a.handleTerminal))
+	authed.HandleFunc("GET /api/v1/servers/{id}/jobs", needOn("server.view", a.handleListJobs))
+	authed.HandleFunc("POST /api/v1/servers/{id}/jobs", a.handleCreateJob) // per-op check in Dispatch
 	authed.HandleFunc("GET /api/v1/jobs/{id}", a.handleGetJob)
 	authed.HandleFunc("GET /api/v1/jobs", a.handleRecentJobs)
-	authed.HandleFunc("POST /api/v1/bulk", need("operator", a.handleBulk))
-	authed.HandleFunc("GET /api/v1/playbooks", a.handleListPlaybooks)
-	authed.HandleFunc("POST /api/v1/playbooks", need("operator", a.handleSavePlaybook))
-	authed.HandleFunc("PUT /api/v1/playbooks/{id}", need("operator", a.handleSavePlaybook))
-	authed.HandleFunc("DELETE /api/v1/playbooks/{id}", need("operator", a.handleDeletePlaybook))
-	authed.HandleFunc("POST /api/v1/playbooks/{id}/run", need("operator", a.handleRunPlaybook))
-	authed.HandleFunc("GET /api/v1/playbook-runs", a.handleListRuns)
-	authed.HandleFunc("GET /api/v1/schedules", a.handleListSchedules)
-	authed.HandleFunc("GET /api/v1/channels", need("admin", a.handleListChannels))
-	authed.HandleFunc("POST /api/v1/channels", need("admin", a.handleSaveChannel))
-	authed.HandleFunc("PUT /api/v1/channels/{id}", need("admin", a.handleSaveChannel))
-	authed.HandleFunc("DELETE /api/v1/channels/{id}", need("admin", a.handleDeleteChannel))
-	authed.HandleFunc("POST /api/v1/channels/{id}/test", need("admin", a.handleTestChannel))
-	authed.HandleFunc("GET /api/v1/alert-rules", a.handleListRules)
-	authed.HandleFunc("POST /api/v1/alert-rules", need("operator", a.handleSaveRule))
-	authed.HandleFunc("PUT /api/v1/alert-rules/{id}", need("operator", a.handleSaveRule))
-	authed.HandleFunc("DELETE /api/v1/alert-rules/{id}", need("operator", a.handleDeleteRule))
-	authed.HandleFunc("GET /api/v1/alerts", a.handleListAlerts)
-	authed.HandleFunc("GET /api/v1/settings/baseline", a.handleGetBaseline)
-	authed.HandleFunc("PUT /api/v1/settings/baseline", need("admin", a.handleSetBaseline))
-	authed.HandleFunc("POST /api/v1/schedules", need("operator", a.handleSaveSchedule))
-	authed.HandleFunc("PUT /api/v1/schedules/{id}", need("operator", a.handleSaveSchedule))
-	authed.HandleFunc("DELETE /api/v1/schedules/{id}", need("operator", a.handleDeleteSchedule))
-	authed.HandleFunc("POST /api/v1/schedules/{id}/run", need("operator", a.handleRunScheduleNow))
-	authed.HandleFunc("GET /api/v1/audit", need("operator", a.handleListAudit))
-	authed.HandleFunc("POST /api/v1/join-tokens", need("admin", a.handleCreateJoinToken))
-	authed.HandleFunc("GET /api/v1/events", a.handleEvents)
-	authed.HandleFunc("GET /api/v1/progress", a.handleProgress)
+	authed.HandleFunc("POST /api/v1/bulk", need("playbooks.run", a.handleBulk))
+	authed.HandleFunc("GET /api/v1/playbooks", need("automation.view", a.handleListPlaybooks))
+	authed.HandleFunc("POST /api/v1/playbooks", need("playbooks.manage", a.handleSavePlaybook))
+	authed.HandleFunc("PUT /api/v1/playbooks/{id}", need("playbooks.manage", a.handleSavePlaybook))
+	authed.HandleFunc("DELETE /api/v1/playbooks/{id}", need("playbooks.manage", a.handleDeletePlaybook))
+	authed.HandleFunc("POST /api/v1/playbooks/{id}/run", need("playbooks.run", a.handleRunPlaybook))
+	authed.HandleFunc("GET /api/v1/playbook-runs", need("automation.view", a.handleListRuns))
+	authed.HandleFunc("GET /api/v1/schedules", need("automation.view", a.handleListSchedules))
+	authed.HandleFunc("GET /api/v1/channels", need("notifications.manage", a.handleListChannels))
+	authed.HandleFunc("POST /api/v1/channels", need("notifications.manage", a.handleSaveChannel))
+	authed.HandleFunc("PUT /api/v1/channels/{id}", need("notifications.manage", a.handleSaveChannel))
+	authed.HandleFunc("DELETE /api/v1/channels/{id}", need("notifications.manage", a.handleDeleteChannel))
+	authed.HandleFunc("POST /api/v1/channels/{id}/test", need("notifications.manage", a.handleTestChannel))
+	authed.HandleFunc("GET /api/v1/alert-rules", need("automation.view", a.handleListRules))
+	authed.HandleFunc("POST /api/v1/alert-rules", need("alerts.manage", a.handleSaveRule))
+	authed.HandleFunc("PUT /api/v1/alert-rules/{id}", need("alerts.manage", a.handleSaveRule))
+	authed.HandleFunc("DELETE /api/v1/alert-rules/{id}", need("alerts.manage", a.handleDeleteRule))
+	authed.HandleFunc("GET /api/v1/alerts", a.handleListAlerts) // filtered per server
+	authed.HandleFunc("GET /api/v1/settings/baseline", need("automation.view", a.handleGetBaseline))
+	authed.HandleFunc("PUT /api/v1/settings/baseline", need("settings.manage", a.handleSetBaseline))
+	authed.HandleFunc("POST /api/v1/schedules", need("schedules.manage", a.handleSaveSchedule))
+	authed.HandleFunc("PUT /api/v1/schedules/{id}", need("schedules.manage", a.handleSaveSchedule))
+	authed.HandleFunc("DELETE /api/v1/schedules/{id}", need("schedules.manage", a.handleDeleteSchedule))
+	authed.HandleFunc("POST /api/v1/schedules/{id}/run", need("schedules.manage", a.handleRunScheduleNow))
+	authed.HandleFunc("GET /api/v1/audit", need("audit.view", a.handleListAudit))
+	authed.HandleFunc("POST /api/v1/join-tokens", need("servers.add", a.handleCreateJoinToken))
+	authed.HandleFunc("GET /api/v1/events", a.handleEvents) // filtered per server
 	authed.HandleFunc("GET /api/v1/agent-build", a.handleAgentBuild)
 	authed.HandleFunc("GET /api/v1/apps", a.handleListApps)
-	authed.HandleFunc("GET /api/v1/proxmox", need("viewer", a.handleListPVE))
-	authed.HandleFunc("POST /api/v1/proxmox/probe", need("admin", a.handlePVEProbe))
-	authed.HandleFunc("POST /api/v1/proxmox", need("admin", a.handleSavePVE))
-	authed.HandleFunc("PUT /api/v1/proxmox/{id}", need("admin", a.handleSavePVE))
-	authed.HandleFunc("DELETE /api/v1/proxmox/{id}", need("admin", a.handleDeletePVE))
-	authed.HandleFunc("GET /api/v1/proxmox/provisions", need("operator", a.handleListProvisions))
-	authed.HandleFunc("GET /api/v1/proxmox/{id}/resources", need("viewer", a.handlePVEResources))
-	authed.HandleFunc("POST /api/v1/proxmox/{id}/provision", need("admin", a.handlePVEProvision))
-	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/power", need("operator", a.handlePVEPower))
-	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("admin", a.handlePVEDeleteGuest))
-	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("viewer", a.handlePVESnapshots))
-	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("operator", a.handlePVESnapshotCreate))
-	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}", need("operator", a.handlePVESnapshotDelete))
-	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}/rollback", need("admin", a.handlePVESnapshotRollback))
-	authed.HandleFunc("GET /api/v1/tofu", need("operator", a.handleTofuOverview))
-	authed.HandleFunc("POST /api/v1/tofu/setup", need("admin", a.handleTofuSetup))
-	authed.HandleFunc("POST /api/v1/tofu/workspaces", need("admin", a.handleSaveTofuWorkspace))
-	authed.HandleFunc("PUT /api/v1/tofu/workspaces/{id}", need("admin", a.handleSaveTofuWorkspace))
-	authed.HandleFunc("DELETE /api/v1/tofu/workspaces/{id}", need("admin", a.handleDeleteTofuWorkspace))
-	authed.HandleFunc("POST /api/v1/tofu/workspaces/{id}/unlock", need("admin", a.handleTofuUnlock))
-	authed.HandleFunc("POST /api/v1/tofu/workspaces/{id}/plan", need("operator", a.handleTofuPlan))
-	authed.HandleFunc("POST /api/v1/tofu/runs/{run}/apply", need("operator", a.handleTofuApply))
-	authed.HandleFunc("GET /api/v1/tofu/runs", need("operator", a.handleListTofuRuns))
-	authed.HandleFunc("GET /api/v1/tofu/runs/{id}", need("operator", a.handleGetTofuRun))
-	authed.HandleFunc("POST /api/v1/tofu/runs/{id}/cancel", need("operator", a.handleCancelTofuRun))
-	authed.HandleFunc("GET /api/v1/ansible", need("operator", a.handleAnsibleOverview))
-	authed.HandleFunc("POST /api/v1/ansible/setup", need("admin", a.handleAnsibleSetup))
-	authed.HandleFunc("POST /api/v1/servers/{id}/ansible/prepare", need("admin", a.handleAnsiblePrepare))
-	authed.HandleFunc("POST /api/v1/servers/{id}/ansible/revoke", need("admin", a.handleAnsibleRevoke))
-	authed.HandleFunc("GET /api/v1/ansible/playbooks", need("operator", a.handleListAnsiblePlaybooks))
-	authed.HandleFunc("POST /api/v1/ansible/playbooks", need("admin", a.handleSaveAnsiblePlaybook))
-	authed.HandleFunc("PUT /api/v1/ansible/playbooks/{id}", need("admin", a.handleSaveAnsiblePlaybook))
-	authed.HandleFunc("DELETE /api/v1/ansible/playbooks/{id}", need("admin", a.handleDeleteAnsiblePlaybook))
-	authed.HandleFunc("POST /api/v1/ansible/playbooks/{id}/run", need("operator", a.handleRunAnsiblePlaybook))
-	authed.HandleFunc("GET /api/v1/ansible/runs", need("operator", a.handleListAnsibleRuns))
-	authed.HandleFunc("GET /api/v1/ansible/runs/{id}", need("operator", a.handleGetAnsibleRun))
-	authed.HandleFunc("POST /api/v1/ansible/runs/{id}/cancel", need("operator", a.handleCancelAnsibleRun))
-	authed.HandleFunc("GET /api/v1/crowdsec", need("operator", a.handleCrowdSecOverview))
-	authed.HandleFunc("POST /api/v1/crowdsec/decisions", need("operator", a.handleCrowdSecBan))
-	authed.HandleFunc("DELETE /api/v1/crowdsec/decisions/{id}", need("operator", a.handleCrowdSecUnban))
-	authed.HandleFunc("POST /api/v1/crowdsec/allowlist", need("admin", a.handleCrowdSecAllow))
-	authed.HandleFunc("POST /api/v1/crowdsec/enroll", need("admin", a.handleCrowdSecEnroll))
-	authed.HandleFunc("POST /api/v1/servers/{id}/crowdsec/install", need("operator", a.handleCrowdSecInstall))
-	authed.HandleFunc("POST /api/v1/servers/{id}/crowdsec/remove", need("operator", a.handleCrowdSecRemove))
-	authed.HandleFunc("POST /api/v1/servers/{id}/apps", need("operator", a.handleInstallApp))
-	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/update", need("operator", a.handleUpdateApp))
-	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/uninstall", need("operator", a.handleUninstallApp))
-	authed.HandleFunc("POST /api/v1/servers/{id}/agent-update", need("operator", a.handleAgentUpdate))
-	authed.HandleFunc("GET /api/v1/users", need("admin", a.handleListUsers))
-	authed.HandleFunc("POST /api/v1/users", need("admin", a.handleCreateUser))
-	authed.HandleFunc("PUT /api/v1/users/{id}", need("admin", a.handleUpdateUser))
-	authed.HandleFunc("POST /api/v1/users/{id}/password", need("admin", a.handleResetUserPassword))
-	authed.HandleFunc("DELETE /api/v1/users/{id}", need("admin", a.handleDeleteUser))
+	authed.HandleFunc("GET /api/v1/proxmox", need("proxmox.view", a.handleListPVE))
+	authed.HandleFunc("POST /api/v1/proxmox/probe", need("proxmox.manage", a.handlePVEProbe))
+	authed.HandleFunc("POST /api/v1/proxmox", need("proxmox.manage", a.handleSavePVE))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}", need("proxmox.manage", a.handleSavePVE))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}", need("proxmox.manage", a.handleDeletePVE))
+	authed.HandleFunc("GET /api/v1/proxmox/provisions", need("proxmox.operate", a.handleListProvisions))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/resources", need("proxmox.view", a.handlePVEResources))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/provision", need("proxmox.manage", a.handlePVEProvision))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/power", need("proxmox.operate", a.handlePVEPower))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.manage", a.handlePVEDeleteGuest))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("proxmox.view", a.handlePVESnapshots))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("proxmox.operate", a.handlePVESnapshotCreate))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}", need("proxmox.operate", a.handlePVESnapshotDelete))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}/rollback", need("proxmox.manage", a.handlePVESnapshotRollback))
+	authed.HandleFunc("GET /api/v1/tofu", need("tofu.view", a.handleTofuOverview))
+	authed.HandleFunc("POST /api/v1/tofu/setup", need("tofu.manage", a.handleTofuSetup))
+	authed.HandleFunc("POST /api/v1/tofu/workspaces", need("tofu.manage", a.handleSaveTofuWorkspace))
+	authed.HandleFunc("PUT /api/v1/tofu/workspaces/{id}", need("tofu.manage", a.handleSaveTofuWorkspace))
+	authed.HandleFunc("DELETE /api/v1/tofu/workspaces/{id}", need("tofu.manage", a.handleDeleteTofuWorkspace))
+	authed.HandleFunc("POST /api/v1/tofu/workspaces/{id}/unlock", need("tofu.manage", a.handleTofuUnlock))
+	authed.HandleFunc("POST /api/v1/tofu/workspaces/{id}/plan", need("tofu.run", a.handleTofuPlan))
+	authed.HandleFunc("POST /api/v1/tofu/runs/{run}/apply", need("tofu.run", a.handleTofuApply))
+	authed.HandleFunc("GET /api/v1/tofu/runs", need("tofu.view", a.handleListTofuRuns))
+	authed.HandleFunc("GET /api/v1/tofu/runs/{id}", need("tofu.view", a.handleGetTofuRun))
+	authed.HandleFunc("POST /api/v1/tofu/runs/{id}/cancel", need("tofu.run", a.handleCancelTofuRun))
+	authed.HandleFunc("GET /api/v1/ansible", need("ansible.view", a.handleAnsibleOverview))
+	authed.HandleFunc("POST /api/v1/ansible/setup", need("ansible.manage", a.handleAnsibleSetup))
+	authed.HandleFunc("POST /api/v1/servers/{id}/ansible/prepare", need("ansible.manage", needOn("server.ansible", a.handleAnsiblePrepare)))
+	authed.HandleFunc("POST /api/v1/servers/{id}/ansible/revoke", need("ansible.manage", needOn("server.ansible", a.handleAnsibleRevoke)))
+	authed.HandleFunc("GET /api/v1/ansible/playbooks", need("ansible.view", a.handleListAnsiblePlaybooks))
+	authed.HandleFunc("POST /api/v1/ansible/playbooks", need("ansible.manage", a.handleSaveAnsiblePlaybook))
+	authed.HandleFunc("PUT /api/v1/ansible/playbooks/{id}", need("ansible.manage", a.handleSaveAnsiblePlaybook))
+	authed.HandleFunc("DELETE /api/v1/ansible/playbooks/{id}", need("ansible.manage", a.handleDeleteAnsiblePlaybook))
+	authed.HandleFunc("POST /api/v1/ansible/playbooks/{id}/run", need("ansible.run", a.handleRunAnsiblePlaybook))
+	authed.HandleFunc("GET /api/v1/ansible/runs", need("ansible.view", a.handleListAnsibleRuns))
+	authed.HandleFunc("GET /api/v1/ansible/runs/{id}", need("ansible.view", a.handleGetAnsibleRun))
+	authed.HandleFunc("POST /api/v1/ansible/runs/{id}/cancel", need("ansible.run", a.handleCancelAnsibleRun))
+	authed.HandleFunc("GET /api/v1/crowdsec", need("crowdsec.view", a.handleCrowdSecOverview))
+	authed.HandleFunc("POST /api/v1/crowdsec/decisions", need("crowdsec.ban", a.handleCrowdSecBan))
+	authed.HandleFunc("DELETE /api/v1/crowdsec/decisions/{id}", need("crowdsec.ban", a.handleCrowdSecUnban))
+	authed.HandleFunc("POST /api/v1/crowdsec/allowlist", need("crowdsec.manage", a.handleCrowdSecAllow))
+	authed.HandleFunc("POST /api/v1/crowdsec/enroll", need("crowdsec.manage", a.handleCrowdSecEnroll))
+	authed.HandleFunc("POST /api/v1/servers/{id}/crowdsec/install", needOn("server.security", a.handleCrowdSecInstall))
+	authed.HandleFunc("POST /api/v1/servers/{id}/crowdsec/remove", needOn("server.security", a.handleCrowdSecRemove))
+	authed.HandleFunc("POST /api/v1/servers/{id}/apps", needOn("server.web", a.handleInstallApp))
+	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/update", needOn("server.web", a.handleUpdateApp))
+	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/uninstall", needOn("server.web", a.handleUninstallApp))
+	authed.HandleFunc("POST /api/v1/servers/{id}/agent-update", needOn("server.system", a.handleAgentUpdate))
+
+	// Users, roles and groups.
+	authed.HandleFunc("GET /api/v1/permissions", a.handleListPermissions)
+	authed.HandleFunc("GET /api/v1/users", need("users.manage", a.handleListUsers))
+	authed.HandleFunc("POST /api/v1/users", need("users.manage", a.handleCreateUser))
+	authed.HandleFunc("PUT /api/v1/users/{id}", need("users.manage", a.handleUpdateUser))
+	authed.HandleFunc("POST /api/v1/users/{id}/password", need("users.manage", a.handleResetUserPassword))
+	authed.HandleFunc("POST /api/v1/users/{id}/sign-out", need("users.manage", a.handleEndUserSessions))
+	authed.HandleFunc("DELETE /api/v1/users/{id}", need("users.manage", a.handleDeleteUser))
+	authed.HandleFunc("GET /api/v1/roles", need("users.manage", a.handleListRoles))
+	authed.HandleFunc("POST /api/v1/roles", need("users.manage", a.handleSaveRole))
+	authed.HandleFunc("PUT /api/v1/roles/{id}", need("users.manage", a.handleSaveRole))
+	authed.HandleFunc("DELETE /api/v1/roles/{id}", need("users.manage", a.handleDeleteRole))
+	authed.HandleFunc("GET /api/v1/user-groups", need("users.manage", a.handleListUserGroups))
+	authed.HandleFunc("POST /api/v1/user-groups", need("users.manage", a.handleSaveUserGroup))
+	authed.HandleFunc("PUT /api/v1/user-groups/{id}", need("users.manage", a.handleSaveUserGroup))
+	authed.HandleFunc("DELETE /api/v1/user-groups/{id}", need("users.manage", a.handleDeleteUserGroup))
+	authed.HandleFunc("GET /api/v1/server-groups", a.handleListServerGroups) // filtered to visible servers
+	authed.HandleFunc("POST /api/v1/server-groups", need("users.manage", a.handleSaveServerGroup))
+	authed.HandleFunc("PUT /api/v1/server-groups/{id}", need("users.manage", a.handleSaveServerGroup))
+	authed.HandleFunc("DELETE /api/v1/server-groups/{id}", need("users.manage", a.handleDeleteServerGroup))
+	authed.HandleFunc("GET /api/v1/grants", need("users.manage", a.handleListGrants))
+	authed.HandleFunc("POST /api/v1/grants", need("users.manage", a.handleCreateGrant))
+	authed.HandleFunc("DELETE /api/v1/grants/{id}", need("users.manage", a.handleDeleteGrant))
 	mux.Handle("/api/v1/", a.requireAuth(authed))
 
 	mux.Handle("/", a.staticHandler())
@@ -246,21 +262,31 @@ type serverView struct {
 	*store.Server
 	Online bool        `json:"online"`
 	Latest *hub.Metric `json:"latest"`
+	Groups []int64     `json:"groups"`
 }
 
-func (a *API) view(s *store.Server) serverView {
-	return serverView{Server: s, Online: a.Hub.Online(s.ID), Latest: a.Hub.LatestMetric(s.ID)}
+func (a *API) view(s *store.Server, groups map[string][]int64) serverView {
+	return serverView{Server: s, Online: a.Hub.Online(s.ID), Latest: a.Hub.LatestMetric(s.ID), Groups: orEmpty(groups[s.ID])}
 }
 
+// handleListServers lists the servers the caller may see.
 func (a *API) handleListServers(w http.ResponseWriter, r *http.Request) {
 	list, err := a.Store.ListServers(r.Context())
 	if err != nil {
 		a.internal(w, err)
 		return
 	}
+	groups, err := a.Store.ServerGroupsByServer(r.Context())
+	if err != nil {
+		a.internal(w, err)
+		return
+	}
+	ac := accessFrom(r.Context())
 	out := make([]serverView, 0, len(list))
 	for _, s := range list {
-		out = append(out, a.view(s))
+		if ac.CanOn("server.view", s.ID) {
+			out = append(out, a.view(s, groups))
+		}
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -275,7 +301,12 @@ func (a *API) handleGetServer(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, a.view(s))
+	groups, err := a.Store.ServerGroupsByServer(r.Context())
+	if err != nil {
+		a.internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, a.view(s, groups))
 }
 
 func (a *API) handleDeleteServer(w http.ResponseWriter, r *http.Request) {
@@ -454,33 +485,20 @@ func (a *API) handleGetJob(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
+	if !accessFrom(r.Context()).CanOn("server.view", j.ServerID) {
+		writeErr(w, http.StatusNotFound, "job not found")
+		return
+	}
 	hideFromViewer(r, j)
 	writeJSON(w, http.StatusOK, j)
 }
 
-// hideFromViewer blanks the output of jobs a viewer may not run themselves
+// hideFromViewer blanks the output of jobs the user may not run themselves
 // (file contents can hold secrets), so they cannot read an admin's result.
 func hideFromViewer(r *http.Request, j *store.Job) {
-	if ad := adminFrom(r.Context()); ad != nil && ad.Role == "viewer" && !viewerOp(j.Op) {
+	if !accessFrom(r.Context()).CanOn(opPerm(j.Op), j.ServerID) {
 		j.Result, j.Log = nil, ""
 	}
-}
-
-// ---- build progress ----
-
-func (a *API) handleProgress(w http.ResponseWriter, r *http.Request) {
-	b, err := os.ReadFile(a.Cfg.ProgressFile)
-	if err != nil {
-		writeErr(w, http.StatusNotFound, "progress file not found")
-		return
-	}
-	if !json.Valid(b) {
-		writeErr(w, http.StatusInternalServerError, "progress file is not valid JSON")
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-	_, _ = w.Write(b)
 }
 
 // ---- live events (SSE) ----
@@ -496,6 +514,7 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Accel-Buffering", "no")
 	events, unsub := a.Hub.Subscribe()
 	defer unsub()
+	ac := accessFrom(r.Context())
 
 	fmt.Fprint(w, ": connected\n\n")
 	flusher.Flush()
@@ -509,6 +528,9 @@ func (a *API) handleEvents(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, ": ping\n\n")
 			flusher.Flush()
 		case e := <-events:
+			if e.ServerID != "" && !ac.CanOn("server.view", e.ServerID) {
+				continue
+			}
 			b, _ := json.Marshal(e)
 			fmt.Fprintf(w, "data: %s\n\n", b)
 			flusher.Flush()

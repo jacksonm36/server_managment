@@ -285,5 +285,7 @@ func (a *API) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
+	ac := accessFrom(r.Context())
+	list = slices.DeleteFunc(list, func(run *store.PlaybookRun) bool { return !ac.CanOn("server.view", run.ServerID) })
 	writeJSON(w, http.StatusOK, list)
 }

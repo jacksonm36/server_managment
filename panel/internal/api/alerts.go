@@ -263,5 +263,7 @@ func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
+	ac := accessFrom(r.Context())
+	list = slices.DeleteFunc(list, func(e *store.AlertEvent) bool { return !ac.CanOn("server.view", e.ServerID) })
 	writeJSON(w, http.StatusOK, list)
 }

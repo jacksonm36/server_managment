@@ -146,11 +146,10 @@ func run(log *slog.Logger) error {
 	}
 	a := &api.API{
 		Cfg: api.Config{
-			PublicURL:    "http://" + net.JoinHostPort(publicHost, portOf(httpAddr)),
-			GRPCAddr:     net.JoinHostPort(publicHost, grpcPort),
-			AgentBinDir:  binDir,
-			ProgressFile: env("SM_PROGRESS_FILE", "./progress.json"),
-			DataDir:      dataDir,
+			PublicURL:   "http://" + net.JoinHostPort(publicHost, portOf(httpAddr)),
+			GRPCAddr:    net.JoinHostPort(publicHost, grpcPort),
+			AgentBinDir: binDir,
+			DataDir:     dataDir,
 		},
 		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey, Ctx: ctx,
 	}

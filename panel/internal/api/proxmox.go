@@ -547,7 +547,7 @@ func (a *API) runProvision(who Who, c *store.ProxmoxCluster, cl *proxmox.Client,
 		p.ServerID = &serverID
 		_ = a.Store.LinkProxmoxGuest(ctx, c.ID, vmid, serverID)
 		logf("enrolled as server %s; restricting the panel key and pinning host keys (Prepare for Ansible)", serverID)
-		if _, err := a.Dispatch(ctx, Who{Actor: who.Actor, IP: "panel", Role: systemRole}, serverID, "ansible.prepare", map[string]string{"address": addr}); err != nil {
+		if _, err := a.Dispatch(ctx, Who{Actor: who.Actor, IP: "panel"}, serverID, "ansible.prepare", map[string]string{"address": addr}); err != nil {
 			logf("warning: ansible.prepare: %v", err)
 		}
 		return nil

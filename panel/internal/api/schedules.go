@@ -49,6 +49,13 @@ func (a *API) fireDue(ctx context.Context, minute time.Time) {
 
 // targets resolves which servers a schedule applies to right now.
 func (a *API) targets(ctx context.Context, sc *store.Schedule) ([]string, error) {
+	if sc.ServerGroupID != nil {
+		g, err := a.Store.GetServerGroup(ctx, *sc.ServerGroupID)
+		if err != nil {
+			return nil, fmt.Errorf("server group: %w", err)
+		}
+		return g.ServerIDs, nil
+	}
 	if !sc.AllServers {
 		return sc.ServerIDs, nil
 	}
@@ -65,7 +72,7 @@ func (a *API) targets(ctx context.Context, sc *store.Schedule) ([]string, error)
 
 // runSchedule executes a schedule once and records a one-line summary.
 func (a *API) runSchedule(ctx context.Context, sc *store.Schedule) string {
-	who := Who{Actor: "schedule: " + sc.Name, IP: "panel", Role: systemRole}
+	who := Who{Actor: "schedule: " + sc.Name, IP: "panel"}
 	ids, err := a.targets(ctx, sc)
 	var result string
 	switch {
@@ -147,22 +154,23 @@ func (a *API) handleListSchedules(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleSaveSchedule(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name       string            `json:"name"`
-		Cron       string            `json:"cron"`
-		Kind       string            `json:"kind"`
-		Op         string            `json:"op"`
-		Params     map[string]string `json:"params"`
-		PlaybookID string            `json:"playbook_id"`
-		ServerIDs  []string          `json:"server_ids"`
-		AllServers bool              `json:"all_servers"`
-		Enabled    bool              `json:"enabled"`
+		Name          string            `json:"name"`
+		Cron          string            `json:"cron"`
+		Kind          string            `json:"kind"`
+		Op            string            `json:"op"`
+		Params        map[string]string `json:"params"`
+		PlaybookID    string            `json:"playbook_id"`
+		ServerIDs     []string          `json:"server_ids"`
+		AllServers    bool              `json:"all_servers"`
+		ServerGroupID *int64            `json:"server_group_id"`
+		Enabled       bool              `json:"enabled"`
 	}
 	if !readJSON(w, r, &req) {
 		return
 	}
 	sc := &store.Schedule{
 		ID: r.PathValue("id"), Name: strings.TrimSpace(req.Name), Cron: strings.Join(strings.Fields(req.Cron), " "),
-		Kind: req.Kind, ServerIDs: req.ServerIDs, AllServers: req.AllServers, Enabled: req.Enabled,
+		Kind: req.Kind, ServerIDs: req.ServerIDs, AllServers: req.AllServers, ServerGroupID: req.ServerGroupID, Enabled: req.Enabled,
 		CreatedBy: whoFrom(r).Actor, Params: map[string]string{},
 	}
 	if sc.Name == "" || len(sc.Name) > 100 {
@@ -178,12 +186,18 @@ func (a *API) handleSaveSchedule(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "schedule never fires")
 		return
 	}
-	if !sc.AllServers && (len(sc.ServerIDs) == 0 || len(sc.ServerIDs) > bulkMax) {
-		writeErr(w, http.StatusBadRequest, "pick servers or all servers")
-		return
-	}
-	if sc.AllServers {
+	switch {
+	case sc.ServerGroupID != nil:
+		if _, err := a.Store.GetServerGroup(r.Context(), *sc.ServerGroupID); err != nil {
+			writeErr(w, http.StatusBadRequest, "server group not found")
+			return
+		}
+		sc.AllServers, sc.ServerIDs = false, []string{}
+	case sc.AllServers:
 		sc.ServerIDs = []string{}
+	case len(sc.ServerIDs) == 0 || len(sc.ServerIDs) > bulkMax:
+		writeErr(w, http.StatusBadRequest, "pick servers, a server group or all servers")
+		return
 	}
 	switch sc.Kind {
 	case "op":
@@ -212,6 +226,10 @@ func (a *API) handleSaveSchedule(w http.ResponseWriter, r *http.Request) {
 		}
 	default:
 		writeErr(w, http.StatusBadRequest, "kind must be op, playbook or ansible")
+		return
+	}
+	if msg := a.scheduleDenied(r, sc); msg != "" {
+		writeErr(w, http.StatusForbidden, msg)
 		return
 	}
 	if err := a.Store.SaveSchedule(r.Context(), sc); err != nil {
@@ -246,7 +264,53 @@ func (a *API) handleRunScheduleNow(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "schedule not found")
 		return
 	}
+	if msg := a.scheduleDenied(r, sc); msg != "" {
+		writeErr(w, http.StatusForbidden, msg)
+		return
+	}
 	a.audit(r, "", "schedule.run_now", sc.Name, nil, true)
 	result := a.runSchedule(a.baseCtx(), sc)
 	writeJSON(w, http.StatusOK, map[string]string{"result": result})
+}
+
+// scheduleDenied checks that the caller could do by hand everything the
+// schedule will do unattended, on every server it targets (now and later,
+// for groups and "all servers"). It returns why not, or "".
+func (a *API) scheduleDenied(r *http.Request, sc *store.Schedule) string {
+	ac := accessFrom(r.Context())
+	var perms []string
+	switch sc.Kind {
+	case "op":
+		perms = []string{opPerm(sc.Op)}
+	case "playbook":
+		pb, err := a.Store.GetPlaybook(r.Context(), *sc.PlaybookID)
+		if err != nil {
+			return "playbook not found"
+		}
+		for _, st := range pb.Steps {
+			perms = append(perms, opPerm(st.Op))
+		}
+	case "ansible":
+		if !ac.Can("ansible.run") {
+			return "you don't have permission to run Ansible playbooks (ansible.run)"
+		}
+		perms = []string{"server.ansible"}
+	}
+	for _, p := range perms {
+		ok := true
+		switch {
+		case sc.ServerGroupID != nil:
+			ok = ac.CanOnGroup(p, *sc.ServerGroupID)
+		case sc.AllServers:
+			ok = ac.Can(p)
+		default:
+			for _, id := range sc.ServerIDs {
+				ok = ok && ac.CanOn(p, id)
+			}
+		}
+		if !ok {
+			return "this schedule would do things you don't have permission for on its servers (" + p + ")"
+		}
+	}
+	return ""
 }

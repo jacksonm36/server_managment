@@ -110,8 +110,28 @@ func (a *API) requireAuth(next http.Handler) http.Handler {
 			writeErr(w, http.StatusForbidden, "missing X-Requested-With header")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, admin)))
+		if admin.MustChangePassword && !passwordChangeRoute(r) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"error": "choose a new password first", "must_change_password": true})
+			return
+		}
+		ac, err := a.loadAccess(r.Context(), admin)
+		if err != nil {
+			a.internal(w, err)
+			return
+		}
+		ctx := context.WithValue(r.Context(), ctxKey{}, admin)
+		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, accessKey{}, ac)))
 	})
+}
+
+// passwordChangeRoute lists what a user who must change their password may
+// still do.
+func passwordChangeRoute(r *http.Request) bool {
+	switch r.Method + " " + r.URL.Path {
+	case "GET /api/v1/me", "GET /api/v1/account", "POST /api/v1/account/password":
+		return true
+	}
+	return false
 }
 
 // loginLimiter allows a burst of failed logins per client IP, then slows down.
@@ -221,7 +241,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 	a.Store.TouchLogin(r.Context(), admin.ID)
 	a.audit(r, admin.Username, "auth.login", "", nil, true)
-	writeJSON(w, http.StatusOK, map[string]string{"username": admin.Username, "role": admin.Role})
+	writeJSON(w, http.StatusOK, map[string]any{"username": admin.Username, "role": admin.Role, "must_change_password": admin.MustChangePassword})
 }
 
 func truncate(s string, n int) string {
@@ -242,7 +262,15 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleMe tells the UI who is signed in and what they may do: panel-wide
+// permissions, plus server permissions that only apply to some servers.
 func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 	ad := adminFrom(r.Context())
-	writeJSON(w, http.StatusOK, map[string]string{"username": ad.Username, "role": ad.Role})
+	ac := accessFrom(r.Context())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"username": ad.Username, "display_name": ad.DisplayName, "role": ad.Role,
+		"must_change_password": ad.MustChangePassword,
+		"permissions":          ac.Global(),
+		"server_permissions":   ac.PerServer(),
+	})
 }

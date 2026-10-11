@@ -615,7 +615,7 @@ func (a *API) handleTofuApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if plan.Kind == "destroy-plan" {
-		if whoFrom(r).Role != "admin" {
+		if !accessFrom(r.Context()).Can("tofu.manage") {
 			writeErr(w, http.StatusForbidden, "only admins can apply a destroy plan")
 			return
 		}

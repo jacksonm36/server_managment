@@ -21,7 +21,9 @@ func (e *DispatchError) Error() string { return e.Msg }
 type Who struct {
 	Actor string // admin username, or "schedule: …" / "baseline"
 	IP    string
-	Role  string // user role, or systemRole for background work
+	// Access is the user's permissions; nil for the panel's own background
+	// work (schedules, baselines, provisioning), which may do anything.
+	Access *Access
 }
 
 // Dispatch validates op/params, records the job and sends it to the agent.
@@ -34,8 +36,8 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 	if err := spec.checkParams(params); err != nil {
 		return nil, &DispatchError{http.StatusBadRequest, err.Error()}
 	}
-	if !roleAllowsOp(who.Role, op) {
-		return nil, &DispatchError{http.StatusForbidden, "your role (" + who.Role + ") cannot run " + op}
+	if perm := opPerm(op); !who.Access.CanOn(perm, serverID) {
+		return nil, &DispatchError{http.StatusForbidden, "you don't have permission to run " + op + " on this server (" + perm + ")"}
 	}
 	srv, err := a.Store.GetServer(ctx, serverID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -102,8 +104,9 @@ func (a *API) writeDispatchErr(w http.ResponseWriter, err error) {
 func whoFrom(r *http.Request) Who {
 	w := Who{IP: clientIP(r)}
 	if ad := adminFrom(r.Context()); ad != nil {
-		w.Actor, w.Role = ad.Username, ad.Role
+		w.Actor = ad.Username
 	}
+	w.Access = accessFrom(r.Context())
 	return w
 }
 

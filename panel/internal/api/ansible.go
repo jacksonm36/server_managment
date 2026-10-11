@@ -519,8 +519,11 @@ func (a *API) StartAnsibleRun(ctx context.Context, who Who, pb *store.AnsiblePla
 	used := map[string]bool{}
 	for _, id := range serverIDs {
 		srv, err := a.Store.GetServer(ctx, id)
-		if err != nil {
+		if err != nil || !who.Access.CanOn("server.view", id) {
 			return nil, fmt.Errorf("server %s not found", id)
+		}
+		if !who.Access.CanOn("server.ansible", id) {
+			return nil, fmt.Errorf("you don't have permission to run Ansible on %s (server.ansible)", srv.Name)
 		}
 		h := hosts[id]
 		if h == nil {

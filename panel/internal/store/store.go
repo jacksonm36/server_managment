@@ -97,13 +97,16 @@ type Admin struct {
 	TOTPPending  string // sealed, set during setup
 	Role         string
 	Disabled     bool
+	DisplayName  string
+	// MustChangePassword limits the session to changing the password.
+	MustChangePassword bool
 }
 
-const adminCols = `a.id, a.username, a.password_hash, a.totp_enabled, COALESCE(a.totp_secret, ''), COALESCE(a.totp_pending, ''), a.role, a.disabled`
+const adminCols = `a.id, a.username, a.password_hash, a.totp_enabled, COALESCE(a.totp_secret, ''), COALESCE(a.totp_pending, ''), a.role, a.disabled, a.display_name, a.must_change_password`
 
 func scanAdmin(row pgx.Row) (*Admin, error) {
 	a := &Admin{}
-	err := row.Scan(&a.ID, &a.Username, &a.PasswordHash, &a.TOTPEnabled, &a.TOTPSecret, &a.TOTPPending, &a.Role, &a.Disabled)
+	err := row.Scan(&a.ID, &a.Username, &a.PasswordHash, &a.TOTPEnabled, &a.TOTPSecret, &a.TOTPPending, &a.Role, &a.Disabled, &a.DisplayName, &a.MustChangePassword)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

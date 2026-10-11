@@ -79,7 +79,7 @@ func (s *Store) RecoveryCodesLeft(ctx context.Context, adminID int64) (int, erro
 // UpdatePassword sets a new password hash and ends every other session.
 func (s *Store) UpdatePassword(ctx context.Context, adminID int64, hash string, keepSession []byte) error {
 	return pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `UPDATE admins SET password_hash = $2 WHERE id = $1`, adminID, hash); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE admins SET password_hash = $2, must_change_password = false WHERE id = $1`, adminID, hash); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `DELETE FROM sessions WHERE admin_id = $1 AND token_hash <> $2`, adminID, keepSession)
