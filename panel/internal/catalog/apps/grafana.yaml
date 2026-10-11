@@ -1,0 +1,32 @@
+id: grafana
+name: Grafana
+category: Monitoring
+kind: compose
+description: Dashboards and alerting for metrics, logs and traces (Prometheus, Loki, InfluxDB, PostgreSQL, MySQL and more).
+version: "13.0.2"
+needs_docker: true
+min_ram_mb: 512
+admin: true
+protect: false
+admin_path: /login
+homepage: https://grafana.com/oss/grafana/
+notes: Sign in with the admin user and password below. Sign-up is off; invite more users from Administration.
+
+compose: |
+  services:
+    grafana:
+      image: grafana/grafana-oss:13.0.2
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:3000"
+      environment:
+        GF_SERVER_ROOT_URL: "${site_url}/"
+        GF_SECURITY_ADMIN_USER: "${admin_user}"
+        GF_SECURITY_ADMIN_PASSWORD: "${admin_password}"
+        GF_SECURITY_ADMIN_EMAIL: "${admin_email}"
+        GF_USERS_ALLOW_SIGN_UP: "false"
+        GF_ANALYTICS_REPORTING_ENABLED: "false"
+      volumes:
+        - data:/var/lib/grafana
+  volumes:
+    data: {}

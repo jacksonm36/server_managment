@@ -1,0 +1,31 @@
+id: vikunja
+name: Vikunja
+category: Project Management
+kind: compose
+description: To-do lists and projects with lists, kanban boards, Gantt charts and CalDAV sync.
+version: "2.7.0"
+needs_docker: true
+min_ram_mb: 256
+protect: false
+admin_path: /
+homepage: https://vikunja.io
+notes: Register your account right away. Anyone who can reach the site can register; turn off registration afterwards with VIKUNJA_SERVICE_ENABLEREGISTRATION=false in the Docker tab.
+
+compose: |
+  services:
+    vikunja:
+      image: vikunja/vikunja:2.7.0
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:3456"
+      environment:
+        VIKUNJA_SERVICE_PUBLICURL: "${site_url}/"
+        VIKUNJA_SERVICE_JWTSECRET: ${secret_64}
+        VIKUNJA_DATABASE_TYPE: sqlite
+        VIKUNJA_DATABASE_PATH: /db/vikunja.db
+      volumes:
+        - files:/app/vikunja/files
+        - db:/db
+  volumes:
+    files: {}
+    db: {}

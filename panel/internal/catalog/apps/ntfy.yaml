@@ -1,0 +1,30 @@
+id: ntfy
+name: ntfy
+category: Notifications
+kind: compose
+description: Send push notifications to your phone or desktop with a simple HTTP request. Apps for Android and iOS.
+version: "2.29.0"
+needs_docker: true
+min_ram_mb: 128
+protect: false
+admin_path: /
+homepage: https://ntfy.sh
+notes: Topics are open to anyone who knows their name; pick hard-to-guess topic names, or set up users and access control in server.yml.
+
+compose: |
+  services:
+    ntfy:
+      image: binwiederhier/ntfy:v2.29.0
+      restart: unless-stopped
+      command: serve
+      ports:
+        - "127.0.0.1:${port}:80"
+      environment:
+        NTFY_BASE_URL: "${site_url}"
+        NTFY_BEHIND_PROXY: "true"
+        NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+        NTFY_ATTACHMENT_CACHE_DIR: /var/cache/ntfy/attachments
+      volumes:
+        - cache:/var/cache/ntfy
+  volumes:
+    cache: {}

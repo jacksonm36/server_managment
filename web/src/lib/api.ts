@@ -281,6 +281,7 @@ export type CatalogApp = {
   php_max?: string;
   database: boolean;
   admin: boolean;
+  login?: "email" | "password";
   admin_path: string;
   homepage: string;
   notes?: string;

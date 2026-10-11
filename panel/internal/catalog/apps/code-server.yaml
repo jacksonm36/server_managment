@@ -1,0 +1,32 @@
+id: code-server
+name: code-server
+category: Developer tools
+kind: compose
+description: VS Code in the browser, running on this server in a container with its own workspace.
+version: "4.141.0"
+needs_docker: true
+min_ram_mb: 1024
+admin: true
+login: password
+protect: false
+admin_path: /
+homepage: https://coder.com/docs/code-server
+notes: Sign in with the password below. The editor runs inside its container; files live in its workspace volume.
+
+compose: |
+  services:
+    code-server:
+      image: linuxserver/code-server:4.141.0
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:8443"
+      environment:
+        PUID: "1000"
+        PGID: "1000"
+        TZ: Etc/UTC
+        PASSWORD: "${admin_password}"
+        DEFAULT_WORKSPACE: /config/workspace
+      volumes:
+        - config:/config
+  volumes:
+    config: {}

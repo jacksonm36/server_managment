@@ -1,0 +1,44 @@
+id: matomo
+name: Matomo
+category: Analytics
+kind: compose
+description: Privacy-friendly web analytics, the leading Google Analytics alternative. Runs with its own MariaDB.
+version: "5.14.0"
+needs_docker: true
+min_ram_mb: 1024
+protect: false
+admin_path: /
+homepage: https://matomo.org
+notes: "The installer opens on first visit with the database already filled in; finish it right away to create the super user."
+
+compose: |
+  services:
+    db:
+      image: mariadb:11.8
+      restart: unless-stopped
+      environment:
+        MARIADB_ROOT_PASSWORD: ${secret_64}
+        MARIADB_DATABASE: matomo
+        MARIADB_USER: matomo
+        MARIADB_PASSWORD: ${secret_32}
+      volumes:
+        - db:/var/lib/mysql
+    matomo:
+      image: matomo:5.14.0
+      restart: unless-stopped
+      depends_on:
+        - db
+      ports:
+        - "127.0.0.1:${port}:80"
+      environment:
+        MATOMO_DATABASE_HOST: db
+        MATOMO_DATABASE_ADAPTER: mysql
+        MATOMO_DATABASE_TABLES_PREFIX: matomo_
+        MATOMO_DATABASE_USERNAME: matomo
+        MATOMO_DATABASE_PASSWORD: ${secret_32}
+        MATOMO_DATABASE_DBNAME: matomo
+      volumes:
+        - html:/var/www/html
+  volumes:
+    db: {}
+    html: {}

@@ -1,0 +1,24 @@
+id: uptime-kuma
+name: Uptime Kuma
+category: Monitoring
+kind: compose
+description: Self-hosted uptime monitor with status pages and notifications (HTTP, TCP, ping, DNS, Docker).
+version: "2.5.6"
+needs_docker: true
+min_ram_mb: 512
+protect: false
+admin_path: /
+homepage: https://uptime.kuma.pet
+notes: Open the site right away to create the first account; until then anyone who can reach it could claim it (tick password protection if the site is public).
+
+compose: |
+  services:
+    uptime-kuma:
+      image: louislam/uptime-kuma:2.5.6
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:3001"
+      volumes:
+        - data:/app/data
+  volumes:
+    data: {}

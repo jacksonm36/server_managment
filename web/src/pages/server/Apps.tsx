@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Check, Copy, Download, ExternalLink, LayoutGrid, Loader2, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Check, Copy, Download, ExternalLink, LayoutGrid, Loader2, RefreshCw, Search, Trash2, TriangleAlert } from "lucide-react";
 import { api, type CatalogApp, type PlaybookRun } from "@/lib/api";
 import { useAgentState } from "@/lib/ops";
 import { useLive } from "@/lib/live";
@@ -31,7 +31,20 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
   const [result, setResult] = useState<{ creds: Record<string, string>; notes?: string; runId: string } | null>(null);
   const [runState, setRunState] = useState<PlaybookRun | null>(null);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
   const server = useLive((s) => s.servers.get(serverId));
+  const categories = useMemo(() => {
+    const n = new Map<string, number>();
+    catalog.forEach((c) => n.set(c.category, (n.get(c.category) ?? 0) + 1));
+    return [...n].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [catalog]);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return catalog.filter(
+      (c) => (!category || c.category === category) && (!q || `${c.name} ${c.description} ${c.category}`.toLowerCase().includes(q)),
+    );
+  }, [catalog, query, category]);
 
   useEffect(() => {
     void api.apps().then(setCatalog);
@@ -147,9 +160,31 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
         </CardContent>
       </Card>
 
-      <div className="flex items-center gap-2 pt-2">
-        <LayoutGrid className="size-4 text-brand" />
-        <h2 className="font-semibold">App catalog</h2>
+      <div className="flex flex-wrap items-center gap-3 pt-2">
+        <div className="flex items-center gap-2">
+          <LayoutGrid className="size-4 text-brand" />
+          <h2 className="font-semibold">App catalog</h2>
+          <span className="text-xs text-muted-foreground">
+            {shown.length === catalog.length ? `${catalog.length} apps` : `${shown.length} of ${catalog.length}`}
+          </span>
+        </div>
+        <div className="relative ml-auto w-full sm:w-64">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input aria-label="Search apps" placeholder="Search apps" className="pl-8" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {[["", catalog.length] as [string, number], ...categories].map(([cat, n]) => (
+          <button
+            key={cat || "all"}
+            onClick={() => setCategory(cat)}
+            className={`cursor-pointer rounded-full border px-3 py-1 text-xs transition-colors ${
+              category === cat ? "border-brand/60 bg-brand/15 text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {cat || "All"} <span className="opacity-60">{n}</span>
+          </button>
+        ))}
       </div>
       {lowMem && (
         <p className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
@@ -157,7 +192,8 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {catalog.map((c) => (
+        {shown.length === 0 && <p className="text-sm text-muted-foreground">No apps match.</p>}
+        {shown.map((c) => (
           <Card key={c.id} className="flex flex-col gap-3 p-5">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -372,20 +408,28 @@ function InstallDialog({
             </div>
             {app.admin && (
               <>
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-title">Site title</Label>
-                  <Input id="ai-title" placeholder={domain || "My site"} value={title} onChange={(e) => setTitle(e.target.value)} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+                {app.kind !== "compose" && (
                   <div className="grid gap-2">
-                    <Label htmlFor="ai-user">Admin user</Label>
-                    <Input id="ai-user" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} required />
+                    <Label htmlFor="ai-title">Site title</Label>
+                    <Input id="ai-title" placeholder={domain || "My site"} value={title} onChange={(e) => setTitle(e.target.value)} />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="ai-email">Admin email</Label>
-                    <Input id="ai-email" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} required />
+                )}
+                {app.login === "password" ? (
+                  <p className="text-xs text-muted-foreground">A sign-in password is generated and shown once after the install.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {!app.login && (
+                      <div className="grid gap-2">
+                        <Label htmlFor="ai-user">Admin user</Label>
+                        <Input id="ai-user" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} required />
+                      </div>
+                    )}
+                    <div className="grid gap-2">
+                      <Label htmlFor="ai-email">{app.login === "email" ? "Admin email (you sign in with it)" : "Admin email"}</Label>
+                      <Input id="ai-email" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} required />
+                    </div>
                   </div>
-                </div>
+                )}
               </>
             )}
             {(app.needs_docker || (app.min_ram_mb && serverMemMB && serverMemMB < app.min_ram_mb)) && (

@@ -41,7 +41,10 @@ func (a *API) handleListApps(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, catalog.List())
 }
 
-var adminUserRe = regexp.MustCompile(`^[a-zA-Z0-9._-]{3,40}$`)
+var (
+	adminUserRe  = regexp.MustCompile(`^[a-zA-Z0-9._-]{3,40}$`)
+	adminEmailRe = regexp.MustCompile(`^[^\s@"\\$]+@[^\s@"\\$]+\.[^\s@"\\$]+$`)
+)
 
 // handleInstallApp creates the site, database and app on a server as one
 // playbook run, and returns the generated credentials once.
@@ -76,11 +79,11 @@ func (a *API) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 		req.Title = req.Domain
 	}
 	if app.Admin {
-		if !adminUserRe.MatchString(req.AdminUser) {
+		if app.Login == "" && !adminUserRe.MatchString(req.AdminUser) {
 			writeErr(w, http.StatusBadRequest, "admin user: 3-40 letters, digits, . _ -")
 			return
 		}
-		if !strings.Contains(req.AdminEmail, "@") || len(req.AdminEmail) > 200 {
+		if app.Login != "password" && (!adminEmailRe.MatchString(req.AdminEmail) || len(req.AdminEmail) > 200) {
 			writeErr(w, http.StatusBadRequest, "a valid admin email is required")
 			return
 		}
@@ -97,7 +100,17 @@ func (a *API) handleInstallApp(w http.ResponseWriter, r *http.Request) {
 	}
 	creds := map[string]string{"url": scheme + "://" + req.Domain + "/"}
 	if app.Kind == "compose" {
-		a.installComposeApp(w, r, app, srv, req.Domain, req.Aliases, req.TLS, req.Protect, req.AllowIPs, scheme, creds)
+		admin := map[string]string{"title": req.Title}
+		if app.Admin {
+			admin["admin_user"], admin["admin_email"], admin["admin_password"] = req.AdminUser, req.AdminEmail, genPassword(20)
+			switch app.Login {
+			case "email":
+				admin["admin_user"] = req.AdminEmail
+			case "password":
+				admin["admin_user"], admin["admin_email"] = "", ""
+			}
+		}
+		a.installComposeApp(w, r, app, srv, req.Domain, req.Aliases, req.TLS, req.Protect, req.AllowIPs, scheme, admin, creds)
 		return
 	}
 	vars := map[string]string{"site_url": scheme + "://" + req.Domain, "title": req.Title,
@@ -162,15 +175,26 @@ func accessStep(domain string, protect bool, allowIPs string, creds map[string]s
 	return []store.Step{{Op: "site.access", Params: p}}
 }
 
-var composeVarRe = regexp.MustCompile(`\$\{(port|site_url|secret_32|secret_64)\}`)
+var composeVarRe = regexp.MustCompile(`\$\{(port|domain|site_url|title|secret_16|secret_32|secret_64|admin_user|admin_email|admin_password)\}`)
+
+// composeQuote makes a user-supplied value safe inside a double-quoted YAML
+// scalar and stops docker compose from interpolating it.
+func composeQuote(s string) string {
+	return strings.NewReplacer("\\", "\\\\", `"`, `\"`, "\n", " ", "\r", " ", "$", "$$").Replace(s)
+}
 
 // installComposeApp runs a Docker compose app on a loopback port and puts
 // an nginx proxy site (with optional protection and TLS) in front of it.
-func (a *API) installComposeApp(w http.ResponseWriter, r *http.Request, app *catalog.App, srv *store.Server, domain, aliases, tls string, protect bool, allowIPs, scheme string, creds map[string]string) {
+func (a *API) installComposeApp(w http.ResponseWriter, r *http.Request, app *catalog.App, srv *store.Server, domain, aliases, tls string, protect bool, allowIPs, scheme string, admin, creds map[string]string) {
 	h := fnv.New32a()
 	h.Write([]byte(domain))
 	port := strconv.Itoa(20000 + int(h.Sum32()%10000))
-	vals := map[string]string{"port": port, "site_url": scheme + "://" + domain, "secret_32": genPassword(32), "secret_64": genPassword(64)}
+	vals := map[string]string{"port": port, "domain": domain, "site_url": scheme + "://" + domain,
+		"secret_16": genPassword(16), "secret_32": genPassword(32), "secret_64": genPassword(64)}
+	// Free text from the form goes into double-quoted YAML values only.
+	for k, v := range admin {
+		vals[k] = composeQuote(v)
+	}
 	yaml := composeVarRe.ReplaceAllStringFunc(app.Compose, func(m string) string { return vals[m[2:len(m)-1]] })
 	name := "app-" + strings.Trim(nonIdent.ReplaceAllString(strings.ToLower(domain), "-"), "-")
 	if len(name) > 60 {
@@ -197,6 +221,12 @@ func (a *API) installComposeApp(w http.ResponseWriter, r *http.Request, app *cat
 	}
 	if app.AdminPath != "" {
 		creds["admin_url"] = scheme + "://" + domain + app.AdminPath
+	}
+	if app.Admin {
+		if admin["admin_user"] != "" {
+			creds["admin_user"] = admin["admin_user"]
+		}
+		creds["admin_password"] = admin["admin_password"]
 	}
 	a.audit(r, "", "app.install", srv.Name, map[string]string{"app": app.ID, "domain": domain}, true)
 	writeJSON(w, http.StatusAccepted, map[string]any{"runs": runs, "credentials": creds, "notes": app.Notes})

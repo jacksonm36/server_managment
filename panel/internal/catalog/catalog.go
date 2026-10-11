@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"regexp"
 	"sort"
 
 	"gopkg.in/yaml.v3"
@@ -28,10 +29,13 @@ type App struct {
 	PHPMax      string `yaml:"php_max" json:"php_max,omitempty"`
 	Database    bool   `yaml:"database" json:"database"`
 	Admin       bool   `yaml:"admin" json:"admin"` // asks for an admin user/email and generates a password
-	AdminPath   string `yaml:"admin_path" json:"admin_path"`
-	Homepage    string `yaml:"homepage" json:"homepage"`
-	Notes       string `yaml:"notes" json:"notes,omitempty"` // shown after install
-	Updatable   bool   `json:"updatable"`
+	// Login says what the admin signs in with: "" (user name), "email" or
+	// "password" (only a generated password, no user name or email asked).
+	Login     string `yaml:"login" json:"login,omitempty"`
+	AdminPath string `yaml:"admin_path" json:"admin_path"`
+	Homepage  string `yaml:"homepage" json:"homepage"`
+	Notes     string `yaml:"notes" json:"notes,omitempty"` // shown after install
+	Updatable bool   `json:"updatable"`
 
 	// Kind is "php" (default: steps run in a PHP site) or "compose" (a Docker
 	// compose app behind an nginx proxy site).
@@ -65,9 +69,35 @@ func init() {
 		if a.ID == "" || (a.Kind == "php" && len(a.Install) == 0) || (a.Kind == "compose" && a.Compose == "") {
 			panic("catalog " + n + ": id and install (php) or compose (compose) are required")
 		}
+		if err := checkComposeQuoting(a.Compose); err != nil {
+			panic("catalog " + n + ": " + err.Error())
+		}
+		switch a.Login {
+		case "", "email", "password":
+		default:
+			panic("catalog " + n + ": login must be empty, email or password")
+		}
 		a.Updatable = len(a.Update) > 0
 		apps[a.ID] = a
 	}
+}
+
+var (
+	freeTextVar   = regexp.MustCompile(`\$\{(title|admin_user|admin_email|admin_password)\}`)
+	quotedFreeVar = regexp.MustCompile(`"[^"\n]*\$\{(title|admin_user|admin_email|admin_password)\}[^"\n]*"`)
+)
+
+// checkComposeQuoting makes sure form-supplied values only land inside
+// double-quoted YAML strings, where the panel escapes them.
+func checkComposeQuoting(compose string) error {
+	quoted := 0
+	for _, m := range quotedFreeVar.FindAllString(compose, -1) {
+		quoted += len(freeTextVar.FindAllString(m, -1))
+	}
+	if n := len(freeTextVar.FindAllString(compose, -1)); n != quoted {
+		return fmt.Errorf("${title}/${admin_*} must be inside double quotes in compose")
+	}
+	return nil
 }
 
 func List() []*App {

@@ -1,0 +1,28 @@
+id: navidrome
+name: Navidrome
+category: Music
+kind: compose
+description: Music server and streamer compatible with Subsonic apps. Plays your own collection anywhere.
+version: "0.64.2"
+needs_docker: true
+min_ram_mb: 256
+protect: false
+admin_path: /
+homepage: https://www.navidrome.org
+notes: Put music in /srv/music on the server (mounted read-only). Open the site right away to create the first account; until then anyone who can reach it could claim it (tick password protection if the site is public).
+
+compose: |
+  services:
+    navidrome:
+      image: deluan/navidrome:0.64.2
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:4533"
+      environment:
+        ND_BASEURL: ""
+        ND_SCANSCHEDULE: 1h
+      volumes:
+        - data:/data
+        - /srv/music:/music:ro
+  volumes:
+    data: {}

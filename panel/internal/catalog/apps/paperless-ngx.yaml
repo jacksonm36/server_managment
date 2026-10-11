@@ -1,0 +1,59 @@
+id: paperless-ngx
+name: Paperless-ngx
+category: Documents
+kind: compose
+description: Scan, index and archive your paper documents with OCR, tags and full-text search.
+version: "3.3.0"
+needs_docker: true
+min_ram_mb: 2048
+admin: true
+protect: false
+admin_path: /
+homepage: https://docs.paperless-ngx.com
+notes: Sign in with the admin user and password below. Uploads above 64 MB are refused by the web server.
+
+compose: |
+  services:
+    broker:
+      image: redis:8.8
+      restart: unless-stopped
+      volumes:
+        - redis:/data
+    db:
+      image: postgres:17
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: paperless
+        POSTGRES_USER: paperless
+        POSTGRES_PASSWORD: ${secret_32}
+      volumes:
+        - pg:/var/lib/postgresql/data
+    webserver:
+      image: ghcr.io/paperless-ngx/paperless-ngx:3.3.0
+      restart: unless-stopped
+      depends_on:
+        - db
+        - broker
+      ports:
+        - "127.0.0.1:${port}:8000"
+      environment:
+        PAPERLESS_REDIS: redis://broker:6379
+        PAPERLESS_DBHOST: db
+        PAPERLESS_DBPASS: ${secret_32}
+        PAPERLESS_URL: "${site_url}"
+        PAPERLESS_SECRET_KEY: ${secret_64}
+        PAPERLESS_ADMIN_USER: "${admin_user}"
+        PAPERLESS_ADMIN_PASSWORD: "${admin_password}"
+        PAPERLESS_ADMIN_MAIL: "${admin_email}"
+      volumes:
+        - data:/usr/src/paperless/data
+        - media:/usr/src/paperless/media
+        - consume:/usr/src/paperless/consume
+        - export:/usr/src/paperless/export
+  volumes:
+    redis: {}
+    pg: {}
+    data: {}
+    media: {}
+    consume: {}
+    export: {}

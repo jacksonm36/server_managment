@@ -1,0 +1,24 @@
+id: dozzle
+name: Dozzle
+category: Docker
+kind: compose
+description: Live log viewer for Docker containers with search, split view and resource stats.
+version: "11.3.1"
+needs_docker: true
+min_ram_mb: 256
+protect: true
+admin_path: /
+homepage: https://dozzle.dev
+notes: Dozzle shows every container's logs, so the site is password-protected.
+
+compose: |
+  services:
+    dozzle:
+      image: amir20/dozzle:v11.3.1
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:8080"
+      environment:
+        DOZZLE_NO_ANALYTICS: "true"
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock:ro
