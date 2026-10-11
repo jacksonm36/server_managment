@@ -90,7 +90,7 @@ Template fields: id, name, category, description, version, homepage, notes (show
 21 templates in `apps/`. Image tags were checked on Docker Hub / ghcr.
 
 - **Test:** `compose_test.go` checks their shape (pinned images, one loopback port, no stray keys).
-- **Installed and answering through the panel on a sandbox:** uptime-kuma, grafana, gitea, code-server, gotify, it-tools, dozzle, ntfy, navidrome, and the others listed in the commit.
+- **Installed and answering through the panel on a sandbox:** all 19 Docker Hub apps (everything except paperless-ngx and wikijs).
 - **Fixed while testing:**
   - pgAdmin needs `PGADMIN_LISTEN_ADDRESS` on hosts without IPv6.
   - Vikunja needs `user: "0:0"` because named volumes are root-owned.
