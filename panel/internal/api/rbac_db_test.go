@@ -16,14 +16,29 @@ import (
 
 	"github.com/jacksonm36/servermgr/panel/internal/hub"
 	"github.com/jacksonm36/servermgr/panel/internal/store"
+	"github.com/jacksonm36/servermgr/panel/internal/vault"
 )
 
-// TestRBACEndToEnd runs against a real, throwaway PostgreSQL database:
+// testPanel is a panel on a real, throwaway PostgreSQL database:
 //
 //	SM_TEST_DATABASE_URL=postgres://sm:sm@localhost/smtest go test ./panel/...
 //
-// The database is wiped first.
-func TestRBACEndToEnd(t *testing.T) {
+// The database is wiped first. It has an admin "root" and three servers.
+type testPanel struct {
+	t              *testing.T
+	api            *API
+	conn           *pgx.Conn
+	url            string
+	web, db, other string
+	call           func(c client, method, path string, body any) (int, map[string]any, []any)
+	login          func(user, pass string) (client, map[string]any)
+}
+
+type client struct{ cookie string }
+
+const rootPW = "correct horse battery"
+
+func newTestPanel(t *testing.T) *testPanel {
 	url := os.Getenv("SM_TEST_DATABASE_URL")
 	if url == "" {
 		t.Skip("SM_TEST_DATABASE_URL not set")
@@ -33,7 +48,7 @@ func TestRBACEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close(ctx)
+	t.Cleanup(func() { conn.Close(ctx) })
 	if _, err := conn.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public`); err != nil {
 		t.Fatal(err)
 	}
@@ -41,26 +56,23 @@ func TestRBACEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
+	t.Cleanup(st.Close)
 
-	a := &API{Store: st, Hub: hub.New(), Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Ctx: ctx, SecretKey: make([]byte, 32)}
+	a := &API{Store: st, Hub: hub.New(), Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Ctx: ctx, SecretKey: make([]byte, 32), Vault: vault.New(nil)}
 	srv := httptest.NewServer(a.Handler())
-	defer srv.Close()
+	t.Cleanup(srv.Close)
 
-	const pw = "correct horse battery"
-	hash, _ := HashPassword(pw)
+	hash, _ := HashPassword(rootPW)
 	if err := st.CreateAdmin(ctx, "root", hash); err != nil {
 		t.Fatal(err)
 	}
-	web, db, other := store.NewUUID(), store.NewUUID(), store.NewUUID()
-	for name, id := range map[string]string{"web1": web, "db1": db, "other": other} {
+	p := &testPanel{t: t, api: a, conn: conn, url: url, web: store.NewUUID(), db: store.NewUUID(), other: store.NewUUID()}
+	for name, id := range map[string]string{"web1": p.web, "db1": p.db, "other": p.other} {
 		if _, err := conn.Exec(ctx, `INSERT INTO servers (id, name) VALUES ($1, $2)`, id, name); err != nil {
 			t.Fatal(err)
 		}
 	}
-
-	type client struct{ cookie string }
-	call := func(c client, method, path string, body any) (int, map[string]any, []any) {
+	p.call = func(c client, method, path string, body any) (int, map[string]any, []any) {
 		t.Helper()
 		var rd io.Reader
 		if body != nil {
@@ -85,7 +97,7 @@ func TestRBACEndToEnd(t *testing.T) {
 		}
 		return res.StatusCode, obj, list
 	}
-	login := func(user, pass string) (client, map[string]any) {
+	p.login = func(user, pass string) (client, map[string]any) {
 		t.Helper()
 		b, _ := json.Marshal(map[string]string{"username": user, "password": pass})
 		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/auth/login", bytes.NewReader(b))
@@ -108,12 +120,22 @@ func TestRBACEndToEnd(t *testing.T) {
 		t.Fatal("no session cookie")
 		return client{}, nil
 	}
-	expect := func(what string, got, want int) {
-		t.Helper()
-		if got != want {
-			t.Errorf("%s: got %d, want %d", what, got, want)
-		}
+	return p
+}
+
+func (p *testPanel) expect(what string, got, want int) {
+	p.t.Helper()
+	if got != want {
+		p.t.Errorf("%s: got %d, want %d", what, got, want)
 	}
+}
+
+func TestRBACEndToEnd(t *testing.T) {
+	p := newTestPanel(t)
+	ctx := context.Background()
+	conn, call, login, expect := p.conn, p.call, p.login, p.expect
+	web, other := p.web, p.other
+	pw := rootPW
 	id := func(m map[string]any) int64 { return int64(m["id"].(float64)) }
 
 	root, _ := login("root", pw)

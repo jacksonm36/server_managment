@@ -272,5 +272,6 @@ func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 		"must_change_password": ad.MustChangePassword,
 		"permissions":          ac.Global(),
 		"server_permissions":   ac.PerServer(),
+		"vault":                a.vaultStatus(),
 	})
 }

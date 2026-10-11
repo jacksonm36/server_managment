@@ -72,6 +72,9 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 		a.deprovisionCrowdSec(ctx, srv)
 	}
 	stored := redact(params)
+	if op == "ssh_keys.add" {
+		stored["key"] = storedKeyParam(params["key"])
+	}
 	job := &store.Job{ID: store.NewUUID(), ServerID: serverID, Op: op, Params: stored, Status: "queued", CreatedBy: who.Actor}
 	if err := a.Store.CreateJob(ctx, job); err != nil {
 		return nil, err

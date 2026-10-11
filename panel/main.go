@@ -24,6 +24,7 @@ import (
 	"github.com/jacksonm36/servermgr/panel/internal/hub"
 	"github.com/jacksonm36/servermgr/panel/internal/pki"
 	"github.com/jacksonm36/servermgr/panel/internal/store"
+	"github.com/jacksonm36/servermgr/panel/internal/vault"
 	"github.com/jacksonm36/servermgr/web"
 )
 
@@ -76,6 +77,16 @@ func run(log *slog.Logger) error {
 	secretKey, err := api.LoadOrCreateKey(dataDir + "/secret.key")
 	if err != nil {
 		return err
+	}
+	var vaultHdr vault.Header
+	hasVault, err := st.VaultHeader(ctx, &vaultHdr)
+	if err != nil {
+		return err
+	}
+	vlt := vault.New(nil)
+	if hasVault {
+		vlt = vault.New(&vaultHdr)
+		log.Warn("secrets vault is locked: unlock it in the UI (Keys page) so Proxmox, OpenTofu, notifications and SSH key deploys work")
 	}
 
 	ca, err := pki.LoadOrCreate(dataDir + "/pki")
@@ -151,7 +162,7 @@ func run(log *slog.Logger) error {
 			AgentBinDir: binDir,
 			DataDir:     dataDir,
 		},
-		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey, Ctx: ctx,
+		Store: st, Hub: h, CA: ca, Log: log, Web: webFS, SecretKey: secretKey, Vault: vlt, Ctx: ctx,
 	}
 	applyBaseline := a.ApplyBaseline
 	onConnect.Store(&applyBaseline)

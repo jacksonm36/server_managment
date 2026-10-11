@@ -59,6 +59,7 @@ var permissions = []Permission{
 	{"audit.view", "See the audit log", "Panel", false},
 	{"notifications.manage", "Edit notification channels", "Panel", false},
 	{"settings.manage", "Change panel settings (baselines)", "Panel", false},
+	{"vault.manage", "Set up, unlock and lock the secrets vault", "Panel", false},
 	{"users.manage", "Manage users, roles and groups (can grant any access)", "Panel", false},
 }
 
@@ -86,7 +87,7 @@ var builtinPerms = func() map[string][]string {
 	for _, p := range all {
 		switch p {
 		case "server.delete", "servers.add", "keys.manage", "notifications.manage", "settings.manage",
-			"users.manage", "ansible.manage", "tofu.manage", "proxmox.manage", "crowdsec.manage":
+			"users.manage", "vault.manage", "ansible.manage", "tofu.manage", "proxmox.manage", "crowdsec.manage":
 		default:
 			operator = append(operator, p)
 		}

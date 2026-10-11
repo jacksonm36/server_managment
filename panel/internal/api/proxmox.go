@@ -29,7 +29,7 @@ func (a *API) pveClient(ctx context.Context, id string) (*store.ProxmoxCluster, 
 	if err != nil {
 		return nil, nil, err
 	}
-	secret, err := a.open(c.SealedSecret)
+	secret, err := a.openSecret(c.SealedSecret)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot decrypt the API token: %v", err)
 	}
@@ -102,12 +102,16 @@ func (a *API) handleSavePVE(w http.ResponseWriter, r *http.Request) {
 	}
 	secret := strings.TrimSpace(req.TokenSecret)
 	if secret == "" && c.ID != "" {
-		old, _, err := a.pveClient(r.Context(), c.ID)
+		old, err := a.Store.GetProxmoxCluster(r.Context(), c.ID)
 		if err != nil {
 			writeErr(w, http.StatusNotFound, "cluster not found")
 			return
 		}
-		plain, _ := a.open(old.SealedSecret)
+		plain, err := a.openSecret(old.SealedSecret)
+		if err != nil {
+			a.secretErr(w, err)
+			return
+		}
 		secret = string(plain)
 	}
 	if len(secret) < 8 || len(secret) > 200 {
@@ -119,8 +123,8 @@ func (a *API) handleSavePVE(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, "connection test failed: "+err.Error())
 		return
 	}
-	if c.SealedSecret, err = a.seal([]byte(secret)); err != nil {
-		a.internal(w, err)
+	if c.SealedSecret, err = a.sealSecret([]byte(secret)); err != nil {
+		a.secretErr(w, err)
 		return
 	}
 	if err := a.Store.SaveProxmoxCluster(r.Context(), c); err != nil {

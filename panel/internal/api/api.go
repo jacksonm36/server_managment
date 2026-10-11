@@ -21,6 +21,7 @@ import (
 	"github.com/jacksonm36/servermgr/panel/internal/hub"
 	"github.com/jacksonm36/servermgr/panel/internal/pki"
 	"github.com/jacksonm36/servermgr/panel/internal/store"
+	"github.com/jacksonm36/servermgr/panel/internal/vault"
 )
 
 type Config struct {
@@ -42,8 +43,11 @@ type API struct {
 	CA    *pki.CA
 	Log   *slog.Logger
 	Web   fs.FS // built UI (web/dist), may be nil
-	// SecretKey (32 bytes) encrypts TOTP secrets at rest.
+	// SecretKey (32 bytes) encrypts TOTP secrets at rest, and other
+	// secrets until the vault is set up.
 	SecretKey []byte
+	// Vault seals stored secrets with a key that only lives in memory.
+	Vault *vault.Vault
 	// Ctx lives as long as the panel; background work (playbooks,
 	// schedules, alerts) uses it instead of a request context.
 	Ctx context.Context
@@ -166,6 +170,21 @@ func (a *API) Handler() http.Handler {
 
 	// Users, roles and groups.
 	authed.HandleFunc("GET /api/v1/permissions", a.handleListPermissions)
+	authed.HandleFunc("GET /api/v1/vault", a.handleVaultStatus)
+	authed.HandleFunc("POST /api/v1/vault/setup", need("vault.manage", a.handleVaultSetup))
+	authed.HandleFunc("POST /api/v1/vault/unlock", need("vault.manage", a.handleVaultUnlock))
+	authed.HandleFunc("POST /api/v1/vault/lock", need("vault.manage", a.handleVaultLock))
+	authed.HandleFunc("POST /api/v1/vault/passphrase", need("vault.manage", a.handleVaultPassphrase))
+	authed.HandleFunc("GET /api/v1/ssh-keys", need("keys.manage", a.handleListSSHKeys))
+	authed.HandleFunc("POST /api/v1/ssh-keys", need("keys.manage", a.handleImportSSHKeys))
+	authed.HandleFunc("POST /api/v1/ssh-keys/parse", need("keys.manage", a.handleParseSSHKeys))
+	authed.HandleFunc("POST /api/v1/ssh-keys/scan", need("keys.manage", a.handleScanSSHKeys))
+	authed.HandleFunc("PUT /api/v1/ssh-keys/{id}", need("keys.manage", a.handleRenameSSHKey))
+	authed.HandleFunc("DELETE /api/v1/ssh-keys/{id}", need("keys.manage", a.handleDeleteSSHKey))
+	authed.HandleFunc("GET /api/v1/ssh-keys/{id}/public", need("keys.manage", a.handleSSHKeyPublic))
+	authed.HandleFunc("POST /api/v1/ssh-keys/{id}/deploy", need("keys.manage", a.handleDeploySSHKey))     // + server.ssh_keys per server
+	authed.HandleFunc("POST /api/v1/ssh-keys/{id}/undeploy", need("keys.manage", a.handleUndeploySSHKey)) // + server.ssh_keys per server
+
 	authed.HandleFunc("GET /api/v1/users", need("users.manage", a.handleListUsers))
 	authed.HandleFunc("POST /api/v1/users", need("users.manage", a.handleCreateUser))
 	authed.HandleFunc("PUT /api/v1/users/{id}", need("users.manage", a.handleUpdateUser))

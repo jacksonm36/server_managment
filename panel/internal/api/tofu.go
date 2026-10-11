@@ -96,7 +96,7 @@ func (a *API) tofuVars(w *store.TofuWorkspace) ([]TofuVar, error) {
 	if w.SealedVars == "" {
 		return []TofuVar{}, nil
 	}
-	b, err := a.open(w.SealedVars)
+	b, err := a.openSecret(w.SealedVars)
 	if err != nil {
 		return nil, fmt.Errorf("cannot decrypt variables: %v", err)
 	}
@@ -221,9 +221,9 @@ func (a *API) handleTofuState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "state unavailable", http.StatusInternalServerError)
 			return
 		}
-		plain, err := a.open(st.Sealed)
+		plain, err := a.openSecret(st.Sealed)
 		if err != nil {
-			http.Error(w, "state unavailable", http.StatusInternalServerError)
+			http.Error(w, "state unavailable: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -250,12 +250,12 @@ func (a *API) handleTofuState(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "state must be JSON", http.StatusBadRequest)
 			return
 		}
-		sealed, err := a.seal(body)
+		sealed, err := a.sealSecret(body)
 		if err == nil {
 			err = a.Store.PutTofuState(ctx, wsID, sealed, head.Serial)
 		}
 		if err != nil {
-			http.Error(w, "save failed", http.StatusInternalServerError)
+			http.Error(w, "save failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -343,7 +343,7 @@ func (a *API) tofuWorkspaceView(ctx context.Context, w *store.TofuWorkspace) map
 
 // tofuStateResources lists "type.name" of managed resources in the state.
 func (a *API) tofuStateResources(st *store.TofuState) []string {
-	plain, err := a.open(st.Sealed)
+	plain, err := a.openSecret(st.Sealed)
 	if err != nil {
 		return nil
 	}
@@ -511,9 +511,9 @@ func (a *API) handleSaveTofuWorkspace(w http.ResponseWriter, r *http.Request) {
 		vars = append(vars, v.TofuVar)
 	}
 	plain, _ := json.Marshal(vars)
-	sealed, err := a.seal(plain)
+	sealed, err := a.sealSecret(plain)
 	if err != nil {
-		a.internal(w, err)
+		a.secretErr(w, err)
 		return
 	}
 	ws.SealedVars = sealed

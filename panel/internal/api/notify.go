@@ -51,7 +51,7 @@ const secretMask = "••••••••"
 var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 func (a *API) channelConfig(c *store.Channel) (map[string]string, error) {
-	plain, err := a.open(c.Config)
+	plain, err := a.openSecret(c.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -362,9 +362,9 @@ func (a *API) handleSaveChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plain, _ := json.Marshal(cfg)
-	sealed, err := a.seal(plain)
+	sealed, err := a.sealSecret(plain)
 	if err != nil {
-		a.internal(w, err)
+		a.secretErr(w, err)
 		return
 	}
 	c.Config = sealed
