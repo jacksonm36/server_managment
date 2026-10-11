@@ -1,0 +1,33 @@
+id: pgadmin
+name: pgAdmin 4
+category: Database tools
+kind: compose
+description: The standard web admin tool for PostgreSQL - query tool, schema browser, backups and monitoring.
+version: "9.18.0"
+needs_docker: true
+min_ram_mb: 512
+admin: true
+login: email
+protect: true
+admin_path: /
+homepage: https://www.pgadmin.org
+notes: Sign in with your email and the password below. To reach PostgreSQL on this server from the container use host.docker.internal.
+
+compose: |
+  services:
+    pgadmin:
+      image: dpage/pgadmin4:9.18.0
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:80"
+      environment:
+        PGADMIN_DEFAULT_EMAIL: "${admin_email}"
+        PGADMIN_DEFAULT_PASSWORD: "${admin_password}"
+        PGADMIN_CONFIG_UPGRADE_CHECK_ENABLED: "False"
+        PGADMIN_LISTEN_ADDRESS: "0.0.0.0"
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      volumes:
+        - data:/var/lib/pgadmin
+  volumes:
+    data: {}

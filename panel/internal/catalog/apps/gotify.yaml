@@ -1,0 +1,29 @@
+id: gotify
+name: Gotify
+category: Notifications
+kind: compose
+description: Simple server for sending and receiving push messages, with a web UI and an Android app.
+version: "3.1.1"
+needs_docker: true
+min_ram_mb: 128
+admin: true
+protect: false
+admin_path: /
+homepage: https://gotify.net
+notes: Sign in with the admin user and password below, then create an application to get a token for sending messages.
+
+compose: |
+  services:
+    gotify:
+      image: gotify/server:3.1.1
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:80"
+      environment:
+        GOTIFY_DEFAULTUSER_NAME: "${admin_user}"
+        GOTIFY_DEFAULTUSER_PASS: "${admin_password}"
+        TZ: Etc/UTC
+      volumes:
+        - data:/app/data
+  volumes:
+    data: {}

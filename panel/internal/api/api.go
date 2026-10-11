@@ -120,6 +120,8 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/events", a.handleEvents) // filtered per server
 	authed.HandleFunc("GET /api/v1/agent-build", a.handleAgentBuild)
 	authed.HandleFunc("GET /api/v1/apps", a.handleListApps)
+	authed.HandleFunc("GET /api/v1/apps/catalog", need("settings.manage", a.handleCatalogStatus))
+	authed.HandleFunc("POST /api/v1/apps/catalog/refresh", need("settings.manage", a.handleCatalogRefresh))
 	authed.HandleFunc("GET /api/v1/proxmox", need("proxmox.view", a.handleListPVE))
 	authed.HandleFunc("POST /api/v1/proxmox/probe", need("proxmox.manage", a.handlePVEProbe))
 	authed.HandleFunc("POST /api/v1/proxmox", need("proxmox.manage", a.handleSavePVE))

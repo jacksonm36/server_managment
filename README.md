@@ -170,6 +170,28 @@ Panel-wide: **Activity** (audit log + task history), **Users & access**
 - Every API route and agent op is checked server-side; lists, live events,
   jobs and alerts only show servers the user may see.
 
+### App store
+
+Apps tab on a server: search and filter by category, then **Install** creates
+the site (and database), installs the app and shows the generated passwords
+once.
+
+- **Built-in apps** (`panel/internal/catalog/apps/*.yaml`): WordPress, Joomla,
+  Drupal, Nextcloud and the database tools are installed fully from the
+  command line. About 20 Docker apps (Uptime Kuma, Gitea, n8n, Grafana,
+  Portainer, Paperless-ngx, Wiki.js, Matomo, Metabase, pgAdmin, code-server,
+  Jellyfin...) run with Docker Compose on a loopback port behind an nginx
+  proxy site. Images are pinned to versions.
+- **Installer apps** (`panel/internal/catalog/sources.yaml`, Softaculous
+  style): the panel looks up each app's latest release, downloads it, pins
+  its sha256 and checks it is ready to run (no `composer install` needed).
+  It does this a minute after the first start and then weekly; admins can
+  run it from the store ("Refresh now") and see why an app was left out.
+  Installing creates the site and database and unpacks the verified
+  release; you finish in the app's own web installer. Set
+  `SM_GITHUB_TOKEN` (any read-only token) if the refresh hits GitHub's
+  anonymous rate limit.
+
 ### SSH key library
 
 **Keys** in the top bar. Drop `.pub` files (and optionally your

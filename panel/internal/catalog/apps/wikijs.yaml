@@ -1,0 +1,40 @@
+id: wikijs
+name: Wiki.js
+category: Wikis
+kind: compose
+description: Modern wiki with a Markdown and visual editor, search, permissions and Git sync. Uses PostgreSQL.
+version: "2.5.314"
+needs_docker: true
+min_ram_mb: 1024
+protect: false
+admin_path: /
+homepage: https://js.wiki
+notes: The setup page opens on first visit; create the administrator account there right away (until then anyone who can reach the site could do it).
+
+compose: |
+  services:
+    db:
+      image: postgres:17
+      restart: unless-stopped
+      environment:
+        POSTGRES_DB: wiki
+        POSTGRES_USER: wiki
+        POSTGRES_PASSWORD: ${secret_32}
+      volumes:
+        - pg:/var/lib/postgresql/data
+    wiki:
+      image: ghcr.io/requarks/wiki:2.5.314
+      restart: unless-stopped
+      depends_on:
+        - db
+      ports:
+        - "127.0.0.1:${port}:3000"
+      environment:
+        DB_TYPE: postgres
+        DB_HOST: db
+        DB_PORT: "5432"
+        DB_USER: wiki
+        DB_PASS: ${secret_32}
+        DB_NAME: wiki
+  volumes:
+    pg: {}

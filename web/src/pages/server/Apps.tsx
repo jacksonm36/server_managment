@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Check, Copy, Download, ExternalLink, LayoutGrid, Loader2, RefreshCw, Trash2, TriangleAlert } from "lucide-react";
-import { api, type CatalogApp, type PlaybookRun } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, Copy, Download, ExternalLink, LayoutGrid, Loader2, RefreshCw, Search, Trash2, TriangleAlert } from "lucide-react";
+import { api, type CatalogApp, type CatalogStatus, type PlaybookRun } from "@/lib/api";
 import { useAgentState } from "@/lib/ops";
 import { useLive } from "@/lib/live";
 import { useAccess } from "@/lib/access";
@@ -31,11 +31,23 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
   const [result, setResult] = useState<{ creds: Record<string, string>; notes?: string; runId: string } | null>(null);
   const [runState, setRunState] = useState<PlaybookRun | null>(null);
   const [error, setError] = useState("");
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
   const server = useLive((s) => s.servers.get(serverId));
+  const categories = useMemo(() => {
+    const n = new Map<string, number>();
+    catalog.forEach((c) => n.set(c.category, (n.get(c.category) ?? 0) + 1));
+    return [...n].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [catalog]);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return catalog.filter(
+      (c) => (!category || c.category === category) && (!q || `${c.name} ${c.description} ${c.category}`.toLowerCase().includes(q)),
+    );
+  }, [catalog, query, category]);
 
-  useEffect(() => {
-    void api.apps().then(setCatalog);
-  }, []);
+  const loadCatalog = useCallback(() => void api.apps().then(setCatalog), []);
+  useEffect(loadCatalog, [loadCatalog]);
   // Opened from the Databases tab picker: jump straight into that app's install dialog.
   useEffect(() => {
     if (!initialApp || catalog.length === 0) return;
@@ -147,9 +159,32 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
         </CardContent>
       </Card>
 
-      <div className="flex items-center gap-2 pt-2">
-        <LayoutGrid className="size-4 text-brand" />
-        <h2 className="font-semibold">App catalog</h2>
+      <div className="flex flex-wrap items-center gap-3 pt-2">
+        <div className="flex items-center gap-2">
+          <LayoutGrid className="size-4 text-brand" />
+          <h2 className="font-semibold">App catalog</h2>
+          <span className="text-xs text-muted-foreground">
+            {shown.length === catalog.length ? `${catalog.length} apps` : `${shown.length} of ${catalog.length}`}
+          </span>
+        </div>
+        <div className="relative ml-auto w-full sm:w-64">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input aria-label="Search apps" placeholder="Search apps" className="pl-8" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+      </div>
+      {can("settings.manage") && <CatalogRefreshCard onRefreshed={loadCatalog} />}
+      <div className="flex flex-wrap gap-1.5">
+        {[["", catalog.length] as [string, number], ...categories].map(([cat, n]) => (
+          <button
+            key={cat || "all"}
+            onClick={() => setCategory(cat)}
+            className={`cursor-pointer rounded-full border px-3 py-1 text-xs transition-colors ${
+              category === cat ? "border-brand/60 bg-brand/15 text-foreground" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {cat || "All"} <span className="opacity-60">{n}</span>
+          </button>
+        ))}
       </div>
       {lowMem && (
         <p className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
@@ -157,7 +192,8 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
         </p>
       )}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-        {catalog.map((c) => (
+        {shown.length === 0 && <p className="text-sm text-muted-foreground">No apps match.</p>}
+        {shown.map((c) => (
           <Card key={c.id} className="flex flex-col gap-3 p-5">
             <div className="flex items-start justify-between gap-2">
               <div>
@@ -172,6 +208,7 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
               <div className="flex gap-1">
                 {c.database && <Badge variant="outline">MariaDB</Badge>}
                 {c.needs_docker && <Badge variant="outline">Docker</Badge>}
+                {c.wizard && <Badge variant="outline">Web installer</Badge>}
               </div>
             </div>
             <p className="flex-1 text-sm text-muted-foreground">{c.description}</p>
@@ -248,6 +285,7 @@ function Credentials({ creds, notes, onClose }: { creds: Record<string, string>;
   const [copied, setCopied] = useState("");
   const rows: [string, string][] = [
     ["Site", creds.url],
+    ["Finish setup at", creds.installer_url],
     ["Admin URL", creds.admin_url],
     ["Admin user", creds.admin_user],
     ["Admin password", creds.admin_password],
@@ -372,20 +410,28 @@ function InstallDialog({
             </div>
             {app.admin && (
               <>
-                <div className="grid gap-2">
-                  <Label htmlFor="ai-title">Site title</Label>
-                  <Input id="ai-title" placeholder={domain || "My site"} value={title} onChange={(e) => setTitle(e.target.value)} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
+                {app.kind !== "compose" && (
                   <div className="grid gap-2">
-                    <Label htmlFor="ai-user">Admin user</Label>
-                    <Input id="ai-user" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} required />
+                    <Label htmlFor="ai-title">Site title</Label>
+                    <Input id="ai-title" placeholder={domain || "My site"} value={title} onChange={(e) => setTitle(e.target.value)} />
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="ai-email">Admin email</Label>
-                    <Input id="ai-email" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} required />
+                )}
+                {app.login === "password" ? (
+                  <p className="text-xs text-muted-foreground">A sign-in password is generated and shown once after the install.</p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    {!app.login && (
+                      <div className="grid gap-2">
+                        <Label htmlFor="ai-user">Admin user</Label>
+                        <Input id="ai-user" value={adminUser} onChange={(e) => setAdminUser(e.target.value)} required />
+                      </div>
+                    )}
+                    <div className="grid gap-2">
+                      <Label htmlFor="ai-email">{app.login === "email" ? "Admin email (you sign in with it)" : "Admin email"}</Label>
+                      <Input id="ai-email" type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} required />
+                    </div>
                   </div>
-                </div>
+                )}
               </>
             )}
             {(app.needs_docker || (app.min_ram_mb && serverMemMB && serverMemMB < app.min_ram_mb)) && (
@@ -429,5 +475,94 @@ function InstallDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** Admins: state of the self-refreshing PHP app catalog, with a Refresh button. */
+function CatalogRefreshCard({ onRefreshed }: { onRefreshed: () => void }) {
+  const [st, setSt] = useState<CatalogStatus | null>(null);
+  const [showProblems, setShowProblems] = useState(false);
+  const [error, setError] = useState("");
+  const wasRunning = useRef(false);
+
+  useEffect(() => {
+    let stop = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const load = () =>
+      api
+        .catalogStatus()
+        .then((s) => {
+          if (stop) return;
+          setSt(s);
+          if (wasRunning.current && !s.running) onRefreshed();
+          wasRunning.current = s.running;
+          timer = setTimeout(load, s.running ? 2000 : 30000);
+        })
+        .catch(() => {});
+    void load();
+    return () => {
+      stop = true;
+      clearTimeout(timer);
+    };
+  }, [onRefreshed]);
+
+  if (!st || st.sources.length === 0) return null;
+  const ready = st.sources.filter((s) => s.pinned?.sha256).length;
+  const problems = st.sources.filter((s) => s.pinned?.error);
+  return (
+    <div className="grid gap-2 rounded-lg border px-4 py-3 text-sm">
+      <div className="flex flex-wrap items-center gap-3">
+        <RefreshCw className={`size-4 shrink-0 text-brand ${st.running ? "animate-spin" : ""}`} />
+        <div className="min-w-0 flex-1">
+          {st.running ? (
+            <span>
+              Refreshing the app catalog: {st.done} of {st.total} checked…
+            </span>
+          ) : (
+            <span>
+              <span className="font-medium">{ready}</span> of {st.sources.length} installer apps are ready
+              {st.last_run ? `, checked ${timeAgo(st.last_run)}` : ", not checked yet"}.
+            </span>
+          )}
+          <p className="text-xs text-muted-foreground">
+            The panel downloads each app's latest release, pins its checksum and checks it is ready to run. It does this weekly.
+          </p>
+        </div>
+        {problems.length > 0 && !st.running && (
+          <button className="cursor-pointer text-xs text-muted-foreground hover:text-foreground" onClick={() => setShowProblems(!showProblems)}>
+            {showProblems ? "Hide" : "Show"} {problems.length} problem{problems.length > 1 ? "s" : ""}
+          </button>
+        )}
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={st.running}
+          onClick={() => {
+            setError("");
+            api
+              .refreshCatalog()
+              .then(() => setSt({ ...st, running: true, done: 0, total: st.sources.length }))
+              .then(() => (wasRunning.current = true))
+              .catch((e) => setError((e as Error).message));
+          }}
+        >
+          <RefreshCw /> Refresh now
+        </Button>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {showProblems && (
+        <ul className="grid max-h-64 gap-1 overflow-y-auto border-t pt-2 text-xs">
+          {problems.map((s) => (
+            <li key={s.id} className="flex gap-2">
+              <span className="w-40 shrink-0 truncate font-medium">{s.name}</span>
+              <span className={s.pinned?.sha256 ? "text-warning" : "text-destructive"}>
+                {s.pinned?.sha256 ? `kept ${s.pinned.version}; ` : ""}
+                {s.pinned?.error}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

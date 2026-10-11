@@ -1,6 +1,6 @@
 id: ghost
 name: Ghost
-category: Blog
+category: Blogs
 kind: compose
 description: Modern publishing platform for blogs and newsletters (Node.js). Runs in Docker with its own MySQL 8.
 version: "6.69.0"

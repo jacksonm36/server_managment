@@ -1,0 +1,34 @@
+id: n8n
+name: n8n
+category: Automation
+kind: compose
+description: Workflow automation with 400+ integrations, a visual editor and code steps. A self-hosted Zapier alternative.
+version: "2.43.3"
+needs_docker: true
+min_ram_mb: 1024
+protect: false
+admin_path: /
+homepage: https://n8n.io
+notes: Open the site right away to create the owner account. n8n needs HTTPS for sign-in cookies; keep Let's Encrypt or self-signed on.
+
+compose: |
+  services:
+    n8n:
+      image: n8nio/n8n:2.43.3
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:5678"
+      environment:
+        N8N_HOST: "${domain}"
+        N8N_PROTOCOL: https
+        N8N_PROXY_HOPS: "1"
+        WEBHOOK_URL: "${site_url}/"
+        N8N_EDITOR_BASE_URL: "${site_url}/"
+        N8N_ENCRYPTION_KEY: "${secret_32}"
+        N8N_RUNNERS_ENABLED: "true"
+        N8N_DIAGNOSTICS_ENABLED: "false"
+        N8N_LISTEN_ADDRESS: "0.0.0.0"
+      volumes:
+        - data:/home/node/.n8n
+  volumes:
+    data: {}

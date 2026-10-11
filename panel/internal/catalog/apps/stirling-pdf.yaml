@@ -1,0 +1,28 @@
+id: stirling-pdf
+name: Stirling-PDF
+category: Tools
+kind: compose
+description: 50+ PDF tools in the browser - merge, split, convert, OCR, compress, sign and redact. Files stay on your server.
+version: "3.1.0"
+needs_docker: true
+min_ram_mb: 1024
+protect: true
+admin_path: /
+homepage: https://www.stirlingpdf.com
+notes: The site is password-protected because Stirling-PDF has no login of its own in this setup.
+
+compose: |
+  services:
+    stirling-pdf:
+      image: stirlingtools/stirling-pdf:3.1.0
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:8080"
+      environment:
+        SYSTEM_DEFAULTLOCALE: en-GB
+      volumes:
+        - configs:/configs
+        - tessdata:/usr/share/tessdata
+  volumes:
+    configs: {}
+    tessdata: {}

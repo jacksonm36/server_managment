@@ -1,0 +1,29 @@
+id: jellyfin
+name: Jellyfin
+category: Media
+kind: compose
+description: Free media server for your movies, shows and music, with apps for TVs, phones and browsers.
+version: "12.2"
+needs_docker: true
+min_ram_mb: 2048
+protect: false
+admin_path: /
+homepage: https://jellyfin.org
+notes: Put media in /srv/media on the server (it is mounted read-only). Finish the setup wizard right away to create the admin account.
+
+compose: |
+  services:
+    jellyfin:
+      image: jellyfin/jellyfin:12.2
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:8096"
+      environment:
+        JELLYFIN_PublishedServerUrl: "${site_url}"
+      volumes:
+        - config:/config
+        - cache:/cache
+        - /srv/media:/media:ro
+  volumes:
+    config: {}
+    cache: {}

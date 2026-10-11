@@ -1,0 +1,26 @@
+id: changedetection
+name: changedetection.io
+category: Tools
+kind: compose
+description: Watch websites for changes (prices, stock, text) and get notified by email, Discord, Telegram and more.
+version: "0.60.8"
+needs_docker: true
+min_ram_mb: 256
+protect: true
+admin_path: /
+homepage: https://changedetection.io
+notes: The site is password-protected; you can also set a password in its Settings.
+
+compose: |
+  services:
+    changedetection:
+      image: dgtlmoon/changedetection.io:0.60.8
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:5000"
+      environment:
+        BASE_URL: "${site_url}"
+      volumes:
+        - data:/datastore
+  volumes:
+    data: {}

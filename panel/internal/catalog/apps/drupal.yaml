@@ -1,6 +1,6 @@
 id: drupal
 name: Drupal
-category: CMS
+category: Portals/CMS
 description: Powerful CMS for structured content. Files and database are prepared; you pick the profile and admin account in Drupal's installer.
 version: "11.4.9"
 php_min: "8.3"

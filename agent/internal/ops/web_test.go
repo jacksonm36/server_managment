@@ -53,6 +53,9 @@ func TestRenderNginx(t *testing.T) {
 			if !strings.Contains(conf, "fastcgi_pass unix:/run/php/servermgr-php.test.sock;") {
 				t.Errorf("php: missing fastcgi_pass:\n%s", conf)
 			}
+			if !strings.Contains(conf, "sqlite3?|db|sql") {
+				t.Errorf("php: missing data-file deny:\n%s", conf)
+			}
 		case "proxy":
 			if !strings.Contains(conf, "proxy_pass http://127.0.0.1:3000;") {
 				t.Errorf("proxy: missing proxy_pass:\n%s", conf)
@@ -73,5 +76,16 @@ func TestParseSiteParamsRejectsInjection(t *testing.T) {
 		if err := parseSiteParams(p, s); err == nil {
 			t.Errorf("accepted %v", p)
 		}
+	}
+}
+
+func TestIPv6ListenRegex(t *testing.T) {
+	in := "server {\n\tlisten 80 default_server;\n\tlisten [::]:80 default_server;\n\t# listen [::]:443 ssl default_server;\n}\n"
+	out := string(ipv6Listen.ReplaceAll([]byte(in), []byte("${1}# ${2} # disabled by servermgr: this host has no IPv6")))
+	if !strings.Contains(out, "\t# listen [::]:80 default_server; # disabled") || !strings.Contains(out, "\tlisten 80 default_server;") {
+		t.Fatalf("unexpected:\n%s", out)
+	}
+	if strings.Count(out, "disabled by servermgr") != 1 {
+		t.Fatalf("commented lines must stay untouched:\n%s", out)
 	}
 }

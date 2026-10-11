@@ -1,6 +1,6 @@
 id: wordpress
 name: WordPress
-category: CMS
+category: Portals/CMS
 description: Blogs, business sites and online stores. Installed and updated with wp-cli.
 version: latest
 php_min: "7.4"

@@ -1,0 +1,425 @@
+# PHP apps the panel pins itself ("Refresh catalog", weekly). For each one it
+# finds the latest stable release, downloads it, records the sha256 and
+# checks the archive is ready to run (index.php present; composer apps must
+# ship vendor/). Apps that fail the check stay out of the store and are
+# listed with the reason. Install = new site (+ database) + the verified
+# release; the user finishes the app's own web installer.
+#
+# Only apps that keep their secrets in the database or in .php files are
+# listed: nginx does not read .htaccess, so apps that rely on it to hide data
+# files in the web root (PluXml, Grav, Kanboard, PrivateBin, FreshRSS,
+# DokuWiki, WonderCMS...) need extra rules first.
+#
+# Fields: see Source in refresh.go. Exactly one of github / url (+ scrape).
+
+# ---- Portals / CMS ----
+- id: classicpress
+  name: ClassicPress
+  category: Portals/CMS
+  description: Business-focused fork of WordPress 4.9 without the block editor. Lean, stable and compatible with most WordPress plugins.
+  homepage: https://www.classicpress.net
+  github: ClassicPress/ClassicPress-release
+  php_min: "7.4"
+  database: true
+  installer_path: /wp-admin/setup-config.php
+
+- id: concretecms
+  name: Concrete CMS
+  category: Portals/CMS
+  description: Easy in-page editing CMS for marketing sites and intranets, with a strong permissions system.
+  homepage: https://www.concretecms.org
+  github: concretecms/concretecms
+  asset: '^concrete-cms-[0-9.]+\.zip$'
+  php_min: "8.1"
+  database: true
+  installer_path: /index.php/install
+  min_ram_mb: 1024
+
+- id: backdrop
+  name: Backdrop CMS
+  category: Portals/CMS
+  description: Comprehensive CMS for small and medium organisations, a light fork of Drupal 7 with modern features.
+  homepage: https://backdropcms.org
+  github: backdrop/backdrop
+  asset: '^backdrop\.zip$'
+  php_min: "7.1"
+  database: true
+  installer_path: /core/install.php
+
+- id: processwire
+  name: ProcessWire
+  category: Portals/CMS
+  description: Flexible CMS and framework with a powerful API, custom fields and a clean admin.
+  homepage: https://processwire.com
+  github: processwire/processwire
+  php_min: "7.1"
+  database: true
+  installer_path: /install.php
+
+- id: modx
+  name: MODX Revolution
+  category: Portals/CMS
+  description: Creative-freedom CMS with complete control over markup, templates and content structure.
+  homepage: https://modx.com
+  github: modxcms/revolution
+  asset: '^modx-[0-9.]+-pl\.zip$'
+  php_min: "7.4"
+  database: true
+  installer_path: /setup/
+
+- id: e107
+  name: e107
+  category: Portals/CMS
+  description: Portal CMS with news, forums, downloads, chatbox and a plugin store.
+  homepage: https://e107.org
+  github: e107inc/e107
+  asset: '^e107_[0-9.]+_full\.zip$'
+  php_min: "7.4"
+  database: true
+  installer_path: /install.php
+
+- id: microweber
+  name: Microweber
+  category: Portals/CMS
+  description: Drag-and-drop website builder and CMS with built-in online shop.
+  homepage: https://microweber.org
+  github: microweber/microweber
+  asset: '(?i)^microweber.*\.zip$'
+  php_min: "8.2"
+  database: true
+  installer_path: /
+  min_ram_mb: 1024
+
+- id: bludit
+  name: Bludit
+  category: Portals/CMS
+  description: Simple flat-file CMS for blogs and small sites. No database needed; content is stored in JSON files.
+  homepage: https://www.bludit.com
+  github: bludit/bludit
+  php_min: "7.4"
+  database: false
+  installer_path: /install.php
+
+# ---- Blogs ----
+- id: serendipity
+  name: Serendipity
+  category: Blogs
+  description: Mature, extensible blog engine with plugins and themes (s9y).
+  homepage: https://docs.s9y.org
+  github: s9y/Serendipity
+  asset: '^serendipity-[0-9.]+\.zip$'
+  php_min: "7.4"
+  database: true
+  installer_path: /serendipity_admin.php
+
+- id: dotclear
+  name: Dotclear
+  category: Blogs
+  description: Open-source blog engine focused on writing, with themes, plugins and multi-blog support.
+  homepage: https://dotclear.org
+  url: https://download.dotclear.org/latest.zip
+  version_re: 'dotclear-([0-9.]+)\.zip'
+  php_min: "8.1"
+  database: true
+  installer_path: /admin/install/
+
+- id: textpattern
+  name: Textpattern
+  category: Blogs
+  description: Elegant, flexible CMS and blog with a tag-based template language.
+  homepage: https://textpattern.com
+  github: textpattern/textpattern
+  asset: '^textpattern-[0-9.]+\.zip$'
+  php_min: "7.2"
+  database: true
+  installer_path: /textpattern/setup/
+
+- id: chyrp-lite
+  name: Chyrp Lite
+  category: Blogs
+  description: Ultra-lightweight blogging engine with a responsive design and tumblelog-style post types.
+  homepage: https://chyrplite.net
+  github: xenocrat/chyrp-lite
+  php_min: "8.1"
+  database: true
+  installer_path: /install.php
+
+# ---- Wikis ----
+- id: mediawiki
+  name: MediaWiki
+  category: Wikis
+  description: The wiki engine behind Wikipedia. Scales from small team wikis to huge knowledge bases.
+  homepage: https://www.mediawiki.org
+  scrape:
+    - url: https://releases.wikimedia.org/mediawiki/
+      re: 'href="(1\.\d+)/"'
+    - url: https://releases.wikimedia.org/mediawiki/{0}/
+      re: 'href="mediawiki-(1\.\d+\.\d+)\.tar\.gz"'
+  url: https://releases.wikimedia.org/mediawiki/{0}/mediawiki-{1}.tar.gz
+  php_min: "8.1"
+  database: true
+  installer_path: /mw-config/index.php
+  notes: At the end the installer gives you LocalSettings.php; upload it to the site's public/ folder (Files or SFTP).
+
+# ---- Image galleries ----
+- id: piwigo
+  name: Piwigo
+  category: Image Galleries
+  description: Photo gallery for organisations and families, with albums, tags, permissions and plugins.
+  homepage: https://piwigo.org
+  url: https://piwigo.org/download/dlcounter.php?code=latest
+  version_re: 'piwigo-([0-9.]+)\.zip'
+  php_min: "7.4"
+  database: true
+  installer_path: /install.php
+
+- id: zenphoto
+  name: Zenphoto
+  category: Image Galleries
+  description: Gallery CMS for images, video and audio, with a blog and pages.
+  homepage: https://www.zenphoto.org
+  github: zenphoto/zenphoto
+  php_min: "7.4"
+  database: true
+  installer_path: /zp-core/setup.php
+
+- id: coppermine
+  name: Coppermine
+  category: Image Galleries
+  description: Classic multi-purpose photo gallery with user galleries, ratings and comments.
+  homepage: https://coppermine-gallery.net
+  github: coppermine-gallery/cpg1.6.x
+  php_min: "7.0"
+  database: true
+  installer_path: /install.php
+
+- id: lychee
+  name: Lychee
+  category: Image Galleries
+  description: Beautiful photo management - upload, organise and share photos with a modern interface.
+  homepage: https://lycheeorg.dev
+  github: LycheeOrg/Lychee
+  asset: '^Lychee\.zip$'
+  php_min: "8.3"
+  database: true
+  installer_path: /install
+  min_ram_mb: 1024
+
+# ---- Forums ----
+- id: phpbb
+  name: phpBB
+  category: Forums
+  description: The most widely used open-source forum software, with extensions and styles.
+  homepage: https://www.phpbb.com
+  scrape:
+    - url: https://download.phpbb.com/pub/release/3.3/
+      re: 'href="(3\.3\.\d+)/"'
+  url: https://download.phpbb.com/pub/release/3.3/{0}/phpBB-{0}.zip
+  php_min: "7.2"
+  database: true
+  installer_path: /install/
+  notes: Delete the install/ folder when the installer finishes (the board stays offline until you do).
+
+- id: mybb
+  name: MyBB
+  category: Forums
+  description: Free, extensible forum software with plugins, themes and a familiar layout.
+  homepage: https://mybb.com
+  github: mybb/mybb
+  asset: '^mybb_\d+\.zip$'
+  php_min: "7.0"
+  database: true
+  installer_path: /install/
+
+# ---- Polls and surveys ----
+- id: limesurvey
+  name: LimeSurvey
+  category: Polls and Surveys
+  description: Professional online surveys with 30+ question types, quotas, conditions and statistics.
+  homepage: https://www.limesurvey.org
+  github: LimeSurvey/LimeSurvey
+  php_min: "7.4"
+  database: true
+  allow_no_vendor: true
+  installer_path: /index.php?r=installer
+  min_ram_mb: 1024
+
+# ---- Customer support ----
+- id: osticket
+  name: osTicket
+  category: Customer Support
+  description: Widely used help desk - email piping, ticket queues, SLAs and a customer portal.
+  homepage: https://osticket.com
+  github: osTicket/osTicket
+  asset: '^osTicket-v[0-9.]+\.zip$'
+  php_min: "8.1"
+  database: true
+  installer_path: /setup/
+  notes: When setup finishes, delete the setup/ folder and make include/ost-config.php read-only.
+
+- id: freescout
+  name: FreeScout
+  category: Customer Support
+  description: Help desk and shared inbox - a free Help Scout / Zendesk alternative.
+  homepage: https://freescout.net
+  github: freescout-help-desk/freescout
+  php_min: "7.1"
+  database: true
+  installer_path: /install
+  notes: FreeScout runs background jobs from cron (php artisan schedule:run); add it under Automation > Schedules.
+
+# ---- E-commerce ----
+- id: prestashop
+  name: PrestaShop
+  category: E-Commerce
+  description: Full-featured online store with thousands of modules and themes.
+  homepage: https://prestashop.com
+  github: PrestaShop/PrestaShop
+  asset: '^prestashop_[0-9.]+\.zip$'
+  php_min: "8.1"
+  database: true
+  installer_path: /
+  min_ram_mb: 1024
+  notes: The first visit unpacks the shop, then the installer starts.
+
+- id: opencart
+  name: OpenCart
+  category: E-Commerce
+  description: Popular open-source shopping cart with multi-store, extensions and themes.
+  homepage: https://www.opencart.com
+  github: opencart/opencart
+  asset: '^opencart-[0-9.]+\.zip$'
+  php_min: "8.0"
+  database: true
+  installer_path: /install/
+  notes: Delete the install/ folder when the installer finishes.
+
+- id: abantecart
+  name: AbanteCart
+  category: E-Commerce
+  description: Ecommerce platform with an easy admin, multi-store and many payment gateways.
+  homepage: https://www.abantecart.com
+  github: abantecart/abantecart-src
+  php_min: "8.0"
+  database: true
+  installer_path: /install/
+
+- id: cubecart
+  name: CubeCart
+  category: E-Commerce
+  description: Free ecommerce software for selling digital and physical products.
+  homepage: https://www.cubecart.com
+  github: cubecart/v6
+  php_min: "7.4"
+  database: true
+  installer_path: /setup/
+
+# ---- ERP / CRM / billing ----
+- id: dolibarr
+  name: Dolibarr ERP & CRM
+  category: ERP
+  description: Modular ERP and CRM for small businesses - invoices, stock, projects, HR and more.
+  homepage: https://www.dolibarr.org
+  github: Dolibarr/dolibarr
+  php_min: "7.2"
+  database: true
+  allow_no_vendor: true
+  installer_path: /install/
+  notes: For the documents folder use /srv/sites/<domain>/documents (inside the site home).
+
+- id: akaunting
+  name: Akaunting
+  category: ERP
+  description: Online accounting for small businesses - invoices, expenses, banking and reports.
+  homepage: https://akaunting.com
+  github: akaunting/akaunting
+  asset: '(?i)^akaunting.*\.zip$'
+  php_min: "8.1"
+  database: true
+  installer_path: /install
+  min_ram_mb: 1024
+
+- id: fossbilling
+  name: FOSSBilling
+  category: ERP
+  description: Billing and client management for hosting and service businesses.
+  homepage: https://fossbilling.org
+  github: FOSSBilling/FOSSBilling
+  asset: '^FOSSBilling\.zip$'
+  php_min: "8.2"
+  database: true
+  installer_path: /install/install.php
+
+- id: invoiceplane
+  name: InvoicePlane
+  category: ERP
+  description: Self-hosted invoicing - quotes, invoices, payments and clients.
+  homepage: https://www.invoiceplane.com
+  github: InvoicePlane/InvoicePlane
+  asset: '(?i)\.zip$'
+  php_min: "8.1"
+  database: true
+  installer_path: /index.php/setup
+
+- id: firefly-iii
+  name: Firefly III
+  category: Finance
+  description: Personal finance manager - track spending, budgets, bills and accounts.
+  homepage: https://www.firefly-iii.org
+  github: firefly-iii/firefly-iii
+  asset: '^FireflyIII-v[0-9.]+\.zip$'
+  php_min: "8.4"
+  database: true
+  installer_path: /
+  min_ram_mb: 1024
+  notes: Database settings live in .env in the site home (copy .env.example to .env and fill in the database shown here), then open the site to register.
+
+# ---- Project management ----
+- id: leantime
+  name: Leantime
+  category: Project Management
+  description: Project management for non-project managers - tasks, kanban, timesheets, goals and ideas.
+  homepage: https://leantime.io
+  github: Leantime/leantime
+  asset: '^Leantime-v[0-9.]+\.tar\.gz$'
+  php_min: "8.2"
+  database: true
+  installer_path: /install
+
+# ---- Educational ----
+- id: moodle
+  name: Moodle
+  category: Educational
+  description: The world's most popular learning management system - courses, quizzes, grades and more.
+  homepage: https://moodle.org
+  github: moodle/moodle
+  php_min: "8.2"
+  database: true
+  allow_no_vendor: true
+  installer_path: /install.php
+  min_ram_mb: 2048
+  notes: For the data directory use /srv/sites/<domain>/moodledata (inside the site home). Moodle needs its cron (admin/cli/cron.php) every minute.
+
+- id: chamilo
+  name: Chamilo LMS
+  category: Educational
+  description: E-learning and collaboration platform with courses, exercises and certificates.
+  homepage: https://chamilo.org
+  github: chamilo/chamilo-lms
+  asset: '(?i)^chamilo.*\.zip$'
+  php_min: "7.4"
+  database: true
+  installer_path: /main/install/
+  min_ram_mb: 1024
+
+# ---- File management ----
+- id: projectsend
+  name: ProjectSend
+  category: File Management
+  description: Share files with clients privately - upload, assign to clients or groups and track downloads.
+  homepage: https://www.projectsend.org
+  github: projectsend/projectsend
+  asset: '(?i)^projectsend.*\.zip$'
+  php_min: "8.1"
+  database: true
+  installer_path: /install/

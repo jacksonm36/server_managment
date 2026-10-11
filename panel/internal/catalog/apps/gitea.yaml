@@ -1,0 +1,32 @@
+id: gitea
+name: Gitea
+category: Developer tools
+kind: compose
+description: Lightweight self-hosted Git service with pull requests, issues, packages and CI (Actions). Uses SQLite.
+version: "28.1.0"
+needs_docker: true
+min_ram_mb: 512
+protect: false
+admin_path: /
+homepage: https://about.gitea.com
+notes: The setup page opens on first visit (database and URL are pre-filled); create the administrator account there right away. Git over SSH is off; clone over HTTPS.
+
+compose: |
+  services:
+    gitea:
+      image: gitea/gitea:28.1.0
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:3000"
+      environment:
+        USER_UID: "1000"
+        USER_GID: "1000"
+        GITEA__server__ROOT_URL: "${site_url}/"
+        GITEA__server__DOMAIN: "${domain}"
+        GITEA__server__DISABLE_SSH: "true"
+        GITEA__database__DB_TYPE: sqlite3
+        GITEA__security__SECRET_KEY: "${secret_64}"
+      volumes:
+        - data:/data
+  volumes:
+    data: {}

@@ -1,0 +1,26 @@
+id: actual
+name: Actual Budget
+category: Finance
+kind: compose
+description: Fast, privacy-focused personal budgeting app (envelope budgeting) with sync across devices.
+version: "26.10.0"
+needs_docker: true
+min_ram_mb: 256
+protect: false
+admin_path: /
+homepage: https://actualbudget.org
+notes: Open the site right away and set the server password.
+
+compose: |
+  services:
+    actual:
+      image: actualbudget/actual-server:26.10.0
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:5006"
+      environment:
+        ACTUAL_HOSTNAME: "0.0.0.0"
+      volumes:
+        - data:/data
+  volumes:
+    data: {}

@@ -1,0 +1,20 @@
+id: it-tools
+name: IT-Tools
+category: Tools
+kind: compose
+description: Handy developer and admin tools in one page - UUIDs, hashes, JWT, base64, cron, subnet calculator and 80 more.
+version: "2024.10.22"
+needs_docker: true
+min_ram_mb: 128
+protect: false
+admin_path: /
+homepage: https://it-tools.tech
+notes: Everything runs in the browser; there is nothing to set up.
+
+compose: |
+  services:
+    it-tools:
+      image: corentinth/it-tools:2024.10.22-7ca5933
+      restart: unless-stopped
+      ports:
+        - "127.0.0.1:${port}:80"
