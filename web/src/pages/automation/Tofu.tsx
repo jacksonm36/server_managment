@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Boxes, Download, FileCode2, GitBranch, Lock, Pencil, Play, Plus, Square, Trash2, Unlock, X, Zap } from "lucide-react";
 import { api, type TofuOverview, type TofuRun, type TofuVar, type TofuWorkspaceView } from "@/lib/api";
-import { canOperate, isAdmin, useRole } from "@/lib/role";
+import { useAccess, type Access } from "@/lib/access";
 import { timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ const runVariant = { running: "warning", succeeded: "success", failed: "destruct
 const kindLabel = { plan: "Plan", "destroy-plan": "Destroy plan", apply: "Apply" } as const;
 
 export function Tofu() {
-  const role = useRole();
+  const ac = useAccess();
   const [ov, setOv] = useState<TofuOverview | null>(null);
   const [runs, setRuns] = useState<TofuRun[]>([]);
   const [err, setErr] = useState("");
@@ -59,7 +59,7 @@ export function Tofu() {
           Downloads OpenTofu {ov.version} from its official GitHub release, checks its SHA-256 and installs it into the panel's
           data directory. State is stored in the panel database, encrypted.
         </p>
-        {isAdmin(role) ? (
+        {ac.can("tofu.manage") ? (
           <Button variant="brand" disabled={ov.setup.running} onClick={() => act(api.tofuSetup)}>
             <Download /> {ov.setup.running ? "Installing…" : `Install OpenTofu ${ov.version}`}
           </Button>
@@ -79,7 +79,7 @@ export function Tofu() {
           OpenTofu {ov.version}. Every run gets <code className="rounded bg-muted px-1 text-xs">var.servermgr_servers</code> (name → id,
           address, OS) if the configuration declares it.
         </p>
-        {isAdmin(role) && (
+        {ac.can("tofu.manage") && (
           <Button size="sm" variant="secondary" onClick={() => setEditing("new")}>
             <Plus /> New workspace
           </Button>
@@ -91,7 +91,7 @@ export function Tofu() {
           <WorkspaceCard
             key={v.workspace.id}
             v={v}
-            role={role}
+            ac={ac}
             onPlan={(destroy) => act(async () => setViewing((await api.tofuPlan(v.workspace.id, destroy)).id))}
             onView={setViewing}
             onEdit={() => setEditing(v)}
@@ -149,7 +149,7 @@ export function Tofu() {
           }}
         />
       )}
-      {viewing && <RunViewer id={viewing} role={role} onClose={() => setViewing(null)} onOpen={setViewing} onChange={load} />}
+      {viewing && <RunViewer id={viewing} ac={ac} onClose={() => setViewing(null)} onOpen={setViewing} onChange={load} />}
     </div>
   );
 }
@@ -164,7 +164,7 @@ function runSummary(r: TofuRun) {
 
 function WorkspaceCard({
   v,
-  role,
+  ac,
   onPlan,
   onView,
   onEdit,
@@ -172,7 +172,7 @@ function WorkspaceCard({
   onUnlock,
 }: {
   v: TofuWorkspaceView;
-  role: ReturnType<typeof useRole>;
+  ac: Access;
   onPlan: (destroy: boolean) => void;
   onView: (id: string) => void;
   onEdit: () => void;
@@ -207,7 +207,7 @@ function WorkspaceCard({
           </CardTitle>
           <CardDescription className="truncate">{w.source === "git" ? `${w.git_url}${w.git_path ? ` /${w.git_path}` : ""}${w.git_ref ? ` @ ${w.git_ref}` : ""}` : w.description}</CardDescription>
         </div>
-        {isAdmin(role) && (
+        {ac.can("tofu.manage") && (
           <div className="flex gap-1">
             {v.locked && !running && (
               <Button size="icon" variant="ghost" className="size-8" title="Force unlock" aria-label="Force unlock" onClick={onUnlock}>
@@ -258,12 +258,12 @@ function WorkspaceCard({
             {plan.kind === "destroy-plan" ? "Destroy plan" : "Plan"} ready to apply: {runSummary(plan)} · {timeAgo(plan.created_at)}. Review and apply →
           </button>
         )}
-        {canOperate(role) && (
+        {ac.can("tofu.run") && (
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="brand" disabled={running} onClick={() => onPlan(false)}>
               <Play /> Plan
             </Button>
-            {isAdmin(role) && (
+            {ac.can("tofu.manage") && (
               <Button size="sm" variant="outline" className="text-destructive" disabled={running || !v.state?.resources?.length} onClick={() => onPlan(true)}>
                 <Zap /> Plan destroy
               </Button>
@@ -478,13 +478,13 @@ function EditDialog({ view, onClose, onSaved }: { view: TofuWorkspaceView | null
 
 function RunViewer({
   id,
-  role,
+  ac,
   onClose,
   onOpen,
   onChange,
 }: {
   id: string;
-  role: ReturnType<typeof useRole>;
+  ac: Access;
   onClose: () => void;
   onOpen: (id: string) => void;
   onChange: () => void;
@@ -526,7 +526,7 @@ function RunViewer({
     if (stick.current && pre.current) pre.current.scrollTop = pre.current.scrollHeight;
   }, [out]);
 
-  const applicable = run && run.kind !== "apply" && run.status === "succeeded" && run.summary?.changes && !run.applied && canOperate(role);
+  const applicable = run && run.kind !== "apply" && run.status === "succeeded" && run.summary?.changes && !run.applied && ac.can("tofu.run");
   const destroy = run?.kind === "destroy-plan";
   const outputs = run?.kind === "apply" ? run.summary?.outputs : undefined;
   return (
@@ -557,14 +557,14 @@ function RunViewer({
             <pre className="max-h-40 overflow-auto rounded-lg border p-2 text-xs">{JSON.stringify(outputs, null, 2)}</pre>
           </div>
         )}
-        {run?.status === "running" && canOperate(role) && (
+        {run?.status === "running" && ac.can("tofu.run") && (
           <div className="flex justify-end">
             <Button variant="outline" className="text-destructive" onClick={() => api.cancelTofuRun(id).catch((e) => setErr((e as Error).message))}>
               <Square /> Cancel run
             </Button>
           </div>
         )}
-        {applicable && (destroy ? isAdmin(role) : true) && (
+        {applicable && (destroy ? ac.can("tofu.manage") : true) && (
           <form
             className={`grid gap-2 rounded-lg border p-3 ${destroy ? "border-destructive/40" : ""}`}
             onSubmit={async (e) => {

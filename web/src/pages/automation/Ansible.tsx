@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Copy, Download, GitBranch, KeyRound, Pencil, Play, Plus, RefreshCw, ShieldX, Square, Trash2, Wrench } from "lucide-react";
 import { api, type AnsibleHost, type AnsibleOverview, type AnsiblePlaybook, type AnsibleRun, type Job } from "@/lib/api";
 import { waitJob } from "@/lib/ops";
-import { canOperate, isAdmin, useRole } from "@/lib/role";
+import { useAccess } from "@/lib/access";
 import { timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/select";
 const runVariant = { running: "warning", succeeded: "success", failed: "destructive", cancelled: "outline" } as const;
 
 export function Ansible() {
-  const role = useRole();
+  const ac = useAccess();
   const [ov, setOv] = useState<AnsibleOverview | null>(null);
   const [pbs, setPbs] = useState<AnsiblePlaybook[]>([]);
   const [runs, setRuns] = useState<AnsibleRun[]>([]);
@@ -54,7 +54,7 @@ export function Ansible() {
           Installs ansible-core into a private Python environment on the panel host and creates the panel's SSH key. Nothing is
           installed on your servers until you prepare them.
         </p>
-        {isAdmin(role) ? (
+        {ac.can("ansible.manage") ? (
           <Button
             variant="brand"
             disabled={ov.setup.running}
@@ -88,7 +88,7 @@ export function Ansible() {
                 <CardTitle>Playbooks</CardTitle>
                 <CardDescription>{ov.version}</CardDescription>
               </div>
-              {isAdmin(role) && (
+              {ac.can("ansible.manage") && (
                 <Button size="sm" variant="secondary" onClick={() => setEditing({ source: "inline", content: PLAYBOOK_TEMPLATE })}>
                   <Plus /> New playbook
                 </Button>
@@ -112,12 +112,12 @@ export function Ansible() {
                       </div>
                     </div>
                     <div className="flex gap-1">
-                      {canOperate(role) && (
+                      {ac.can("ansible.run") && (
                         <Button size="sm" variant="brand" disabled={!prepared.length} onClick={() => setRunning(p)}>
                           <Play /> Run
                         </Button>
                       )}
-                      {isAdmin(role) && (
+                      {ac.can("ansible.manage") && (
                         <>
                           <Button size="icon" variant="ghost" className="size-8" aria-label={`Edit ${p.name}`} onClick={() => setEditing(p)}>
                             <Pencil className="size-4" />
@@ -179,7 +179,7 @@ export function Ansible() {
         </div>
 
         <div className="grid content-start gap-4">
-          <Hosts hosts={ov.hosts} admin={isAdmin(role)} onChange={load} onError={setErr} />
+          <Hosts hosts={ov.hosts} admin={ac.can("ansible.manage")} onChange={load} onError={setErr} />
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -219,7 +219,7 @@ export function Ansible() {
           }}
         />
       )}
-      {viewing && <RunViewer id={viewing} canCancel={canOperate(role)} onClose={() => setViewing(null)} />}
+      {viewing && <RunViewer id={viewing} canCancel={ac.can("ansible.run")} onClose={() => setViewing(null)} />}
     </div>
   );
 }

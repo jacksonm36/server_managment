@@ -26,6 +26,7 @@ export type Server = {
   last_seen_at: string | null;
   online: boolean;
   latest: Metric | null;
+  groups?: number[];
 };
 
 export type Job = {
@@ -115,6 +116,7 @@ export type Schedule = {
   playbook_id: string | null;
   server_ids: string[];
   all_servers: boolean;
+  server_group_id: number | null;
   enabled: boolean;
   created_by: string;
   last_run: string | null;
@@ -166,16 +168,65 @@ const ruleBody = (r: AlertRule) => {
   return { name, metric, threshold, duration_sec, server_ids, all_servers, channel_ids, enabled };
 };
 
-export type Role = "admin" | "operator" | "viewer";
-
 export type User = {
   id: number;
   username: string;
-  role: Role;
+  display_name: string;
+  email: string;
+  role: string;
   disabled: boolean;
+  must_change_password: boolean;
   totp_enabled: boolean;
+  groups: number[];
+  sessions: number;
   last_login: string | null;
   created_at: string;
+};
+
+export type UserBody = {
+  username?: string;
+  password?: string;
+  display_name: string;
+  email: string;
+  role: string;
+  disabled: boolean;
+  must_change_password?: boolean;
+  groups: number[];
+};
+
+export type Me = {
+  username: string;
+  display_name: string;
+  role: string;
+  must_change_password: boolean;
+  permissions: string[];
+  server_permissions: Record<string, string[]>;
+};
+
+export type Permission = { key: string; label: string; group: string; server: boolean };
+
+export type RoleInfo = {
+  id: number;
+  name: string;
+  description: string;
+  permissions: string[];
+  builtin: boolean;
+  users: number;
+  grants: number;
+};
+
+export type UserGroup = { id: number; name: string; description: string; members: number[] };
+
+export type ServerGroup = { id: number; name: string; description: string; color: string; server_ids: string[] };
+
+export type Grant = {
+  id: number;
+  user_id: number | null;
+  user_group_id: number | null;
+  role_id: number;
+  role: string;
+  server_group_id: number | null;
+  server_group: string;
 };
 
 export type CatalogApp = {
@@ -348,17 +399,6 @@ export type CrowdSecOverview = {
   allowlist?: { items?: { value: string; created_at: string }[] } | null;
 };
 
-export type FeatureStatus = "done" | "in-progress" | "todo";
-
-export type Progress = {
-  updated_at: string;
-  phases: {
-    name: string;
-    description?: string;
-    features: { name: string; status: FeatureStatus }[];
-  }[];
-};
-
 export type Account = { username: string; totp_enabled: boolean; recovery_codes_left: number };
 
 export class ApiError extends Error {
@@ -399,13 +439,32 @@ export const api = {
   recoveryCodes: (password: string) =>
     request<{ recovery_codes: string[] }>("POST", "/api/v1/account/recovery-codes", { password }),
   logout: () => request<void>("POST", "/api/v1/auth/logout"),
-  me: () => request<{ username: string; role: Role }>("GET", "/api/v1/me"),
+  me: () => request<Me>("GET", "/api/v1/me"),
   users: () => request<User[]>("GET", "/api/v1/users"),
-  createUser: (u: { username: string; password: string; role: Role }) => request<{ id: number }>("POST", "/api/v1/users", u),
-  updateUser: (id: number, u: { role: Role; disabled: boolean }) => request<void>("PUT", `/api/v1/users/${id}`, u),
-  resetUserPassword: (id: number, password: string, reset2fa: boolean) =>
-    request<void>("POST", `/api/v1/users/${id}/password`, { password, reset_2fa: reset2fa }),
+  createUser: (u: UserBody) => request<{ id: number }>("POST", "/api/v1/users", u),
+  updateUser: (id: number, u: UserBody) => request<void>("PUT", `/api/v1/users/${id}`, u),
+  resetUserPassword: (id: number, password: string, reset2fa: boolean, mustChange: boolean) =>
+    request<void>("POST", `/api/v1/users/${id}/password`, { password, reset_2fa: reset2fa, must_change: mustChange }),
+  endUserSessions: (id: number) => request<{ ended: number }>("POST", `/api/v1/users/${id}/sign-out`),
   deleteUser: (id: number) => request<void>("DELETE", `/api/v1/users/${id}`),
+  permissions: () => request<{ permissions: Permission[]; builtin: Record<string, string[]> }>("GET", "/api/v1/permissions"),
+  roles: () => request<RoleInfo[]>("GET", "/api/v1/roles"),
+  saveRole: (r: Pick<RoleInfo, "name" | "description" | "permissions">, id?: number) =>
+    request<RoleInfo>(id ? "PUT" : "POST", id ? `/api/v1/roles/${id}` : "/api/v1/roles", r),
+  deleteRole: (id: number) => request<void>("DELETE", `/api/v1/roles/${id}`),
+  userGroups: () => request<UserGroup[]>("GET", "/api/v1/user-groups"),
+  saveUserGroup: (g: Omit<UserGroup, "id">, id?: number) =>
+    request<UserGroup>(id ? "PUT" : "POST", id ? `/api/v1/user-groups/${id}` : "/api/v1/user-groups", g),
+  deleteUserGroup: (id: number) => request<void>("DELETE", `/api/v1/user-groups/${id}`),
+  serverGroups: () => request<ServerGroup[]>("GET", "/api/v1/server-groups"),
+  saveServerGroup: (g: Omit<ServerGroup, "id">, id?: number) =>
+    request<ServerGroup>(id ? "PUT" : "POST", id ? `/api/v1/server-groups/${id}` : "/api/v1/server-groups", g),
+  deleteServerGroup: (id: number) => request<void>("DELETE", `/api/v1/server-groups/${id}`),
+  setServerGroups: (serverId: string, groups: number[]) => request<void>("PUT", `/api/v1/servers/${serverId}/groups`, { groups }),
+  grants: () => request<Grant[]>("GET", "/api/v1/grants"),
+  createGrant: (g: { user_id?: number; user_group_id?: number; role_id: number; server_group_id?: number | null }) =>
+    request<Grant>("POST", "/api/v1/grants", g),
+  deleteGrant: (id: number) => request<void>("DELETE", `/api/v1/grants/${id}`),
   servers: () => request<Server[]>("GET", "/api/v1/servers"),
   server: (id: string) => request<Server>("GET", `/api/v1/servers/${id}`),
   deleteServer: (id: string) => request<void>("DELETE", `/api/v1/servers/${id}`),
@@ -454,7 +513,6 @@ export const api = {
   updateApp: (id: string, domain: string, app: string) => request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/update`, { app }),
   uninstallApp: (id: string, domain: string, db: string, compose = "") =>
     request<PlaybookRun[]>("POST", `/api/v1/servers/${id}/apps/${domain}/uninstall`, { db, compose }),
-  progress: () => request<Progress>("GET", "/api/v1/progress"),
   pveClusters: () => request<PVECluster[]>("GET", "/api/v1/proxmox"),
   pveProbe: (url: string) => request<{ fingerprint: string; subject: string }>("POST", "/api/v1/proxmox/probe", { url }),
   savePVE: (id: string, c: { name: string; url: string; token_id: string; token_secret: string; fingerprint: string }) =>
@@ -549,6 +607,6 @@ function pveGuestURL(id: string, g: PVEGuest) {
 
 // The API rejects unknown fields, so send exactly what it accepts.
 function pickSchedule(s: ScheduleBody) {
-  const { name, cron, kind, op, params, playbook_id, server_ids, all_servers, enabled } = s;
-  return { name, cron, kind, op, params, playbook_id, server_ids, all_servers, enabled };
+  const { name, cron, kind, op, params, playbook_id, server_ids, all_servers, server_group_id, enabled } = s;
+  return { name, cron, kind, op, params, playbook_id, server_ids, all_servers, server_group_id, enabled };
 }

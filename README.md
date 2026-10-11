@@ -126,8 +126,29 @@ Per server (tabs on the server page):
 | Fail2ban  | Install with an sshd jail, settings, ban / unban                                                 |
 | Tasks     | Every job run on the server, with logs                                                           |
 
-Panel-wide: **Activity** (audit log + task history), **Progress** (build
-progress from `progress.json`), **Account** (TOTP 2FA, recovery codes, password).
+Panel-wide: **Activity** (audit log + task history), **Users & access**
+(see below), **Account** (TOTP 2FA, recovery codes, password).
+
+### Users & access
+
+- **Roles** are sets of permissions. Built-in: `admin` (everything),
+  `operator` (all server and automation work, but not users, panel settings,
+  adding/removing servers or the SSH key library), `viewer` (read-only) and
+  `none`. Make your own under Users & access → Roles; the permission list is
+  in `panel/internal/api/access.go`.
+- **Server groups** group servers (by customer, environment…). Filter the
+  server list by group, pick a whole group in bulk actions, and point
+  schedules at a group (they follow its current members).
+- **User groups** give a team the same access.
+- Every user has a **main role** on all servers. **Extra access** gives a
+  role to a user or user group, either on all servers or on one server group.
+  On a server group only the role's `server.*` permissions apply, so someone
+  with `none` + "Web ops on Web servers" sees and works on those servers only.
+- Admins can set a temporary password that must be changed at first sign-in,
+  sign a user out everywhere and reset their 2FA. The panel refuses to lose
+  its last enabled admin.
+- Every API route and agent op is checked server-side; lists, live events,
+  jobs and alerts only show servers the user may see.
 
 ### Hosting layout on managed servers
 
@@ -157,6 +178,7 @@ reloads are graceful.
 make web panel agent             # build everything
 scripts/deploy-agents.sh         # push the agent into the Incus test containers
 go test ./agent/... ./panel/...  # unit tests
+SM_TEST_DATABASE_URL=postgres://sm:sm@localhost/smtest go test ./panel/...  # + access tests (wipes that DB)
 scripts/check-nginx.sh           # validate every generated vhost with real nginx -t (docker)
 scripts/check-mariadb.sh         # DB + backup integration tests against MariaDB (docker)
 ```

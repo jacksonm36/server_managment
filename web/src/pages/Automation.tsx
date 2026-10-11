@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useAccess } from "@/lib/access";
 import { Playbooks, Runs } from "./automation/Playbooks";
 import { Schedules } from "./automation/Schedules";
 import { Alerts, Notifications } from "./automation/Alerts";
@@ -6,28 +7,30 @@ import { Ansible } from "./automation/Ansible";
 import { Tofu } from "./automation/Tofu";
 
 const TABS = [
-  { id: "playbooks", label: "Playbooks" },
-  { id: "runs", label: "Runs" },
-  { id: "ansible", label: "Ansible" },
-  { id: "tofu", label: "OpenTofu" },
-  { id: "schedules", label: "Schedules" },
-  { id: "alerts", label: "Alerts" },
-  { id: "notifications", label: "Notifications" },
+  { id: "playbooks", label: "Playbooks", perm: "automation.view" },
+  { id: "runs", label: "Runs", perm: "automation.view" },
+  { id: "ansible", label: "Ansible", perm: "ansible.view" },
+  { id: "tofu", label: "OpenTofu", perm: "tofu.view" },
+  { id: "schedules", label: "Schedules", perm: "automation.view" },
+  { id: "alerts", label: "Alerts", perm: "automation.view" },
+  { id: "notifications", label: "Notifications", perm: "notifications.manage" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
-function readTab(): TabId {
+function readTab(tabs: readonly (typeof TABS)[number][]): TabId {
   const h = window.location.hash.slice(1);
-  return (TABS.find((t) => t.id === h)?.id ?? "playbooks") as TabId;
+  return (tabs.find((t) => t.id === h)?.id ?? tabs[0]?.id ?? "playbooks") as TabId;
 }
 
 export function Automation() {
-  const [tab, setTab] = useState<TabId>(readTab);
+  const { can } = useAccess();
+  const tabs = useMemo(() => TABS.filter((t) => can(t.perm)), [can]);
+  const [tab, setTab] = useState<TabId>(() => readTab(tabs));
   useEffect(() => {
-    const on = () => setTab(readTab());
+    const on = () => setTab(readTab(tabs));
     window.addEventListener("hashchange", on);
     return () => window.removeEventListener("hashchange", on);
-  }, []);
+  }, [tabs]);
   return (
     <div className="grid gap-6">
       <div>
@@ -35,7 +38,7 @@ export function Automation() {
         <p className="text-sm text-muted-foreground">Reusable playbooks, Ansible, OpenTofu, run history, schedules and alerts.</p>
       </div>
       <div role="tablist" className="-mx-1 flex gap-1 overflow-x-auto border-b px-1">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             role="tab"

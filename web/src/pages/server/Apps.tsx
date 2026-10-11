@@ -3,7 +3,7 @@ import { Check, Copy, Download, ExternalLink, LayoutGrid, Loader2, RefreshCw, Tr
 import { api, type CatalogApp, type PlaybookRun } from "@/lib/api";
 import { useAgentState } from "@/lib/ops";
 import { useLive } from "@/lib/live";
-import { canOperate, useRole } from "@/lib/role";
+import { useAccess } from "@/lib/access";
 import { timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ const cmpVer = (a: string, b: string) => {
 };
 
 export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serverId: string; online: boolean; initialApp?: string; onInitialAppUsed?: () => void }) {
-  const role = useRole();
+  const { can } = useAccess();
   const { data, run } = useAgentState<Web>(serverId, "web.status", online);
   const [catalog, setCatalog] = useState<CatalogApp[]>([]);
   const [installing, setInstalling] = useState<CatalogApp | null>(null);
@@ -67,7 +67,7 @@ export function Apps({ serverId, online, initialApp, onInitialAppUsed }: { serve
 
   const installed = (data?.sites ?? []).filter((s) => s.app);
   const lowMem = server?.latest && server.latest.mem_total < 900 * 1024 * 1024;
-  const op = canOperate(role);
+  const op = can("server.web", serverId);
 
   async function follow(p: Promise<PlaybookRun[]>) {
     setError("");

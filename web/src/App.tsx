@@ -1,56 +1,62 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, Route, Switch, useLocation } from "wouter";
 import { Boxes, History, LayoutDashboard, LogOut, Server, ShieldCheck, Users as UsersIcon, Workflow } from "lucide-react";
-import { api, type Role } from "@/lib/api";
+import { api, type Me } from "@/lib/api";
 import { startLive, stopLive, useLive } from "@/lib/live";
 import { Button } from "@/components/ui/button";
 import { Login } from "@/pages/Login";
 import { Servers } from "@/pages/Servers";
 import { ServerDetail } from "@/pages/ServerDetail";
 import { Activity } from "@/pages/Activity";
-import { Account } from "@/pages/Account";
+import { Account, PasswordCard } from "@/pages/Account";
 import { Automation } from "@/pages/Automation";
 import { Users } from "@/pages/Users";
 import { Dashboard } from "@/pages/Dashboard";
 import { CrowdSec } from "@/pages/CrowdSec";
 import { Proxmox } from "@/pages/Proxmox";
-import { RoleContext } from "@/lib/role";
+import { AccessContext, accessFromMe, noAccess, readOnly } from "@/lib/access";
+import { reloadServerGroups } from "@/lib/groups";
 
 export function App() {
-  const [user, setUser] = useState<string | null | undefined>(undefined);
-  const [role, setRole] = useState<Role>("viewer");
-
-  useEffect(() => {
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
+  const access = useMemo(() => (me ? accessFromMe(me) : noAccess), [me]);
+  const loadMe = () =>
     api
       .me()
-      .then((r) => {
-        setUser(r.username);
-        setRole(r.role);
-      })
-      .catch(() => setUser(null));
+      .then(setMe)
+      .catch(() => setMe(null));
+  const user = me?.username;
+  const ready = !!me && !me.must_change_password;
+
+  useEffect(() => {
+    void loadMe();
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!ready) return;
+    void reloadServerGroups();
     startLive();
     return stopLive;
-  }, [user]);
-
-  if (user === undefined) return null;
-  if (user === null)
-    return (
-      <Login
-        onLogin={(u) => {
-          setUser(u);
-          void api.me().then((r) => setRole(r.role));
-        }}
-      />
-    );
+  }, [ready]);
 
   async function logout() {
     await api.logout().catch(() => {});
-    setUser(null);
+    setMe(null);
   }
+
+  if (me === undefined) return null;
+  if (me === null) return <Login onLogin={() => void loadMe()} />;
+  if (me.must_change_password)
+    return (
+      <div className="flex min-h-svh items-center justify-center p-4">
+        <div className="grid w-full max-w-md gap-3">
+          <PasswordCard forced onChanged={() => void loadMe()} />
+          <Button variant="ghost" size="sm" className="w-fit" onClick={logout}>
+            <LogOut /> Sign out
+          </Button>
+        </div>
+      </div>
+    );
 
   return (
     <div className="min-h-svh">
@@ -69,14 +75,18 @@ export function App() {
             <NavLink href="/servers" label="Servers">
               <Server className="size-4" />
             </NavLink>
-            <NavLink href="/automation" label="Automation">
-              <Workflow className="size-4" />
-              <FiringDot />
-            </NavLink>
-            <NavLink href="/proxmox" label="Proxmox">
-              <Boxes className="size-4" />
-            </NavLink>
-            {role !== "viewer" && (
+            {["automation.view", "ansible.view", "tofu.view"].some((p) => access.perms.has(p)) && (
+              <NavLink href="/automation" label="Automation">
+                <Workflow className="size-4" />
+                <FiringDot />
+              </NavLink>
+            )}
+            {access.perms.has("proxmox.view") && (
+              <NavLink href="/proxmox" label="Proxmox">
+                <Boxes className="size-4" />
+              </NavLink>
+            )}
+            {access.perms.has("crowdsec.view") && (
               <NavLink href="/security" label="Security">
                 <ShieldCheck className="size-4" />
               </NavLink>
@@ -84,7 +94,7 @@ export function App() {
             <NavLink href="/activity" label="Activity">
               <History className="size-4" />
             </NavLink>
-            {role === "admin" && (
+            {access.perms.has("users.manage") && (
               <NavLink href="/users" label="Users">
                 <UsersIcon className="size-4" />
               </NavLink>
@@ -92,8 +102,8 @@ export function App() {
           </nav>
           <div className="flex items-center gap-3 text-sm">
             <ConnectionDot />
-            <Link href="/account" className="text-muted-foreground hover:text-foreground" title="Account & security">
-              {user}
+            <Link href="/account" className="text-muted-foreground hover:text-foreground" title={`Account & security (${me.role})`}>
+              {me.display_name || user}
             </Link>
             <Button variant="ghost" size="sm" onClick={logout} aria-label="Sign out" title="Sign out">
               <LogOut /> <span className="hidden sm:inline">Sign out</span>
@@ -101,22 +111,22 @@ export function App() {
           </div>
         </div>
       </header>
-      <RoleContext.Provider value={role}>
+      <AccessContext.Provider value={access}>
       <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
-        {role === "viewer" && (
+        {readOnly(access) && (
           <p className="mb-6 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
             You have read-only access. Actions that change servers are disabled for your account.
           </p>
         )}
         <Switch>
           <Route path="/">
-            <Dashboard role={role} />
+            <Dashboard />
           </Route>
           <Route path="/servers">
             <Servers />
           </Route>
           <Route path="/users">
-            <Users me={user} />
+            <Users me={user!} />
           </Route>
           <Route path="/automation">
             <Automation />
@@ -139,7 +149,7 @@ export function App() {
           </Route>
         </Switch>
       </main>
-      </RoleContext.Provider>
+      </AccessContext.Provider>
     </div>
   );
 }

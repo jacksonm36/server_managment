@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { OpForm } from "@/components/OpForm";
 import { ServerPicker } from "@/components/ServerPicker";
+import { useServerGroups } from "@/lib/groups";
 import { stepLabel } from "./Playbooks";
 
 const PRESETS = [
@@ -29,6 +30,7 @@ export function Schedules() {
   const [editing, setEditing] = useState<Schedule | null>(null);
   const [msg, setMsg] = useState("");
   const servers = useLive((s) => s.servers);
+  const groups = useServerGroups();
   const reload = useCallback(() => api.schedules().then(setList), []);
   useEffect(() => {
     void reload();
@@ -46,6 +48,7 @@ export function Schedules() {
     playbook_id: null,
     server_ids: [],
     all_servers: true,
+    server_group_id: null,
     enabled: true,
     created_by: "",
     last_run: null,
@@ -60,7 +63,11 @@ export function Schedules() {
         ? `Ansible: ${ansiblePbs.find((p) => p.id === s.playbook_id)?.name ?? "?"}${s.params.check === "true" ? " (check mode)" : ""}`
         : stepLabel({ op: s.op, params: s.params });
   const where = (s: Schedule) =>
-    s.all_servers ? "all servers" : s.server_ids.map((id) => servers.get(id)?.name ?? "removed server").join(", ");
+    s.all_servers
+      ? "all servers"
+      : s.server_group_id
+        ? `group ${groups.find((g) => g.id === s.server_group_id)?.name ?? "?"}`
+        : s.server_ids.map((id) => servers.get(id)?.name ?? "removed server").join(", ");
 
   async function save(s: Schedule, patch: Partial<Schedule> = {}) {
     const n = { ...s, ...patch };
@@ -167,6 +174,7 @@ function ScheduleDialog({
   const [d, setD] = useState<Schedule>({ ...s, params: { ...defaults(opDef(s.op) ?? CATALOG[0]), ...s.params } });
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const groups = useServerGroups();
   const set = (p: Partial<Schedule>) => setD({ ...d, ...p });
 
   async function submit() {
@@ -269,10 +277,29 @@ function ScheduleDialog({
           <div className="grid gap-2">
             <Label>On</Label>
             <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input type="checkbox" className="accent-[var(--color-brand)]" checked={d.all_servers} onChange={(e) => set({ all_servers: e.target.checked })} />
+              <input
+                type="checkbox"
+                className="accent-[var(--color-brand)]"
+                checked={d.all_servers}
+                onChange={(e) => set({ all_servers: e.target.checked, server_group_id: null })}
+              />
               All servers, including ones added later
             </label>
-            {!d.all_servers && <ServerPicker value={d.server_ids} onChange={(ids) => set({ server_ids: ids })} />}
+            {!d.all_servers && groups.length > 0 && (
+              <Select
+                aria-label="Server group"
+                value={d.server_group_id ?? ""}
+                onChange={(e) => set({ server_group_id: e.target.value ? Number(e.target.value) : null })}
+              >
+                <option value="">Pick servers below</option>
+                {groups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    Server group: {g.name} (always its current members)
+                  </option>
+                ))}
+              </Select>
+            )}
+            {!d.all_servers && !d.server_group_id && <ServerPicker value={d.server_ids} onChange={(ids) => set({ server_ids: ids })} />}
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">

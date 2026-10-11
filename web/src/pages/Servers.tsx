@@ -9,7 +9,10 @@ import { Card } from "@/components/ui/card";
 import { Meter } from "@/components/LiveChart";
 import { AddServerDialog } from "@/components/AddServerDialog";
 import { BulkDialog } from "@/components/BulkDialog";
-import { canOperate, isAdmin, useRole } from "@/lib/role";
+import { useAccess } from "@/lib/access";
+import { useServerGroups } from "@/lib/groups";
+import { GroupChip } from "@/components/GroupChip";
+import type { ServerGroup } from "@/lib/api";
 import { api } from "@/lib/api";
 import { outdated, useAgentBuild } from "@/lib/agentBuild";
 import { Button } from "@/components/ui/button";
@@ -32,9 +35,15 @@ export function StatusBadge({ online }: { online: boolean }) {
 }
 
 export function Servers() {
-  const role = useRole();
+  const { can, canAnywhere } = useAccess();
   const map = useLive((s) => s.servers);
-  const servers = useMemo(() => [...map.values()].sort((a, b) => a.name.localeCompare(b.name)), [map]);
+  const groups = useServerGroups();
+  const [filter, setFilter] = useState<number | null>(null);
+  const group = groups.find((g) => g.id === filter);
+  const servers = useMemo(
+    () => [...map.values()].filter((s) => !group || group.server_ids.includes(s.id)).sort((a, b) => a.name.localeCompare(b.name)),
+    [map, group],
+  );
   const online = servers.filter((s) => s.online).length;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulk, setBulk] = useState(false);
@@ -56,11 +65,11 @@ export function Servers() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Servers</h1>
           <p className="text-sm text-muted-foreground">
-            {servers.length} total · {online} online
+            {servers.length} {group ? `in ${group.name}` : "total"} · {online} online
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {servers.length > 1 && canOperate(role) && (
+          {servers.length > 1 && can("playbooks.run") && (
             <Button
               variant="ghost"
               size="sm"
@@ -69,10 +78,10 @@ export function Servers() {
               {selected.size === servers.length ? "Clear selection" : "Select all"}
             </Button>
           )}
-          {isAdmin(role) && <AddServerDialog />}
+          {can("servers.add") && <AddServerDialog />}
         </div>
       </div>
-      {stale.length > 0 && canOperate(role) && (
+      {stale.length > 0 && canAnywhere("server.system") && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand/30 bg-brand/5 px-4 py-2.5 text-sm">
           <span>
             {updateMsg || `${stale.length} agent(s) can be updated to ${build?.version}.`}
@@ -108,19 +117,32 @@ export function Servers() {
         </div>
       )}
       {bulk && <BulkDialog servers={picked} onClose={() => setBulk(false)} />}
+      {groups.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <GroupChip group={{ name: "All servers", color: "transparent" }} active={filter === null} onClick={() => setFilter(null)} />
+          {groups.map((g) => (
+            <GroupChip key={g.id} group={g} active={filter === g.id} onClick={() => setFilter(filter === g.id ? null : g.id)} />
+          ))}
+          {group && can("playbooks.run") && (
+            <Button variant="ghost" size="sm" onClick={() => setSelected(new Set(servers.map((s) => s.id)))}>
+              Select all {servers.length}
+            </Button>
+          )}
+        </div>
+      )}
 
       {servers.length === 0 ? (
         <Card className="flex flex-col items-center gap-3 p-12 text-center">
           <ServerOff className="size-8 text-muted-foreground" />
           <div className="font-medium">No servers yet</div>
           <p className="max-w-sm text-sm text-muted-foreground">
-            {isAdmin(role) ? "Click “Add server” to get a one-line install command for your first server." : "An admin can add servers here."}
+            {can("servers.add") ? "Click “Add server” to get a one-line install command for your first server." : "An admin can add servers here."}
           </p>
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {servers.map((s) => (
-            <ServerCard key={s.id} s={s} selectable={canOperate(role)} selected={selected.has(s.id)} onToggle={() => toggle(s.id)} />
+            <ServerCard key={s.id} s={s} groups={groups} selectable={can("playbooks.run")} selected={selected.has(s.id)} onToggle={() => toggle(s.id)} />
           ))}
         </div>
       )}
@@ -128,7 +150,20 @@ export function Servers() {
   );
 }
 
-function ServerCard({ s, selectable, selected, onToggle }: { s: Server; selectable: boolean; selected: boolean; onToggle: () => void }) {
+function ServerCard({
+  s,
+  groups,
+  selectable,
+  selected,
+  onToggle,
+}: {
+  s: Server;
+  groups: ServerGroup[];
+  selectable: boolean;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  const mine = groups.filter((g) => g.server_ids.includes(s.id));
   const m = s.online ? s.latest : null;
   return (
     <Link href={`/servers/${s.id}`} className="group block rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50">
@@ -152,6 +187,13 @@ function ServerCard({ s, selectable, selected, onToggle }: { s: Server; selectab
             <div className="truncate text-xs text-muted-foreground">
               {s.os_pretty || "unknown OS"} · {s.hostname}
             </div>
+            {mine.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap gap-1">
+                {mine.map((g) => (
+                  <GroupChip key={g.id} group={g} />
+                ))}
+              </div>
+            )}
           </div>
           <StatusBadge online={s.online} />
         </div>

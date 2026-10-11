@@ -33,7 +33,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { LiveChart } from "@/components/LiveChart";
 import { StatusBadge } from "./Servers";
 import { outdated, useAgentBuild } from "@/lib/agentBuild";
-import { canOperate, isAdmin, useRole } from "@/lib/role";
+import { useAccess } from "@/lib/access";
+import { ServerGroupsLine } from "@/components/ServerGroupsLine";
 import { Updates } from "./server/Updates";
 import { Sites } from "./server/Sites";
 import { Apps } from "./server/Apps";
@@ -62,7 +63,7 @@ export function ServerDetail({ id }: { id: string }) {
   const [logUnit, setLogUnit] = useState("");
   const [pendingApp, setPendingApp] = useState("");
   const build = useAgentBuild();
-  const role = useRole();
+  const { can } = useAccess();
   const [updating, setUpdating] = useState("");
 
   useEffect(() => {
@@ -108,9 +109,10 @@ export function ServerDetail({ id }: { id: string }) {
             {server.os_pretty || "unknown OS"} · {server.kernel} · {server.arch} · {server.cpu_count} vCPU · agent{" "}
             {server.agent_version || "?"}
           </p>
+          <ServerGroupsLine serverId={id} />
         </div>
         <div className="flex flex-wrap gap-2">
-          {outdated(build, server.agent_version) && canOperate(role) && (
+          {outdated(build, server.agent_version) && can("server.system", id) && (
             <Button
               variant="secondary"
               size="sm"
@@ -131,7 +133,7 @@ export function ServerDetail({ id }: { id: string }) {
               <RefreshCw /> {updating || `Update agent to ${build?.version}`}
             </Button>
           )}
-          {isAdmin(role) && (
+          {can("server.delete", id) && (
             <Button variant="outline" size="sm" onClick={remove}>
               <Trash2 /> Remove
             </Button>

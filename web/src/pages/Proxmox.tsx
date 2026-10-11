@@ -16,7 +16,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { api, type PVECluster, type PVEGuest, type PVEProvision, type PVEResources, type PVESnapshot } from "@/lib/api";
-import { canOperate, isAdmin, useRole } from "@/lib/role";
+import { useAccess, type Access } from "@/lib/access";
 import { formatBytes, formatUptime, pct, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ import { Select } from "@/components/ui/select";
 const statusVariant = (s: string) => (s === "running" || s === "online" ? "success" : s === "stopped" ? "outline" : "warning");
 
 export function Proxmox() {
-  const role = useRole();
+  const ac = useAccess();
   const [clusters, setClusters] = useState<PVECluster[] | null>(null);
   const [cur, setCur] = useState("");
   const [editing, setEditing] = useState<PVECluster | "new" | null>(null);
@@ -54,7 +54,7 @@ export function Proxmox() {
           <h1 className="text-2xl font-semibold tracking-tight">Proxmox VE</h1>
           <p className="text-sm text-muted-foreground">VMs and containers on your Proxmox clusters, and new VMs that join servermgr on their own.</p>
         </div>
-        {isAdmin(role) && (
+        {ac.can("proxmox.manage") && (
           <Button size="sm" variant="secondary" onClick={() => setEditing("new")}>
             <Plus /> Add cluster
           </Button>
@@ -63,7 +63,7 @@ export function Proxmox() {
       {err && <p className="text-sm text-destructive">{err}</p>}
       {clusters && clusters.length === 0 && (
         <Card className="p-8 text-center text-sm text-muted-foreground">
-          No Proxmox cluster yet. {isAdmin(role) ? "Add one with an API token (Datacenter → Permissions → API Tokens)." : "Ask an admin to add one."}
+          No Proxmox cluster yet. {ac.can("proxmox.manage") ? "Add one with an API token (Datacenter → Permissions → API Tokens)." : "Ask an admin to add one."}
         </Card>
       )}
       {clusters && clusters.length > 1 && (
@@ -85,7 +85,7 @@ export function Proxmox() {
         <ClusterView
           key={cur}
           cluster={clusters.find((c) => c.id === cur)!}
-          role={role}
+          ac={ac}
           onEdit={() => setEditing(clusters.find((c) => c.id === cur)!)}
           onDeleted={load}
         />
@@ -105,7 +105,7 @@ export function Proxmox() {
   );
 }
 
-function ClusterView({ cluster, role, onEdit, onDeleted }: { cluster: PVECluster; role: ReturnType<typeof useRole>; onEdit: () => void; onDeleted: () => void }) {
+function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; ac: Access; onEdit: () => void; onDeleted: () => void }) {
   const [res, setRes] = useState<PVEResources | null>(null);
   const [provs, setProvs] = useState<PVEProvision[]>([]);
   const [busy, setBusy] = useState<Record<number, string>>({});
@@ -117,13 +117,13 @@ function ClusterView({ cluster, role, onEdit, onDeleted }: { cluster: PVECluster
 
   const load = useCallback(async () => {
     try {
-      const [r, p] = await Promise.all([api.pveResources(cluster.id), canOperate(role) ? api.pveProvisions() : Promise.resolve([])]);
+      const [r, p] = await Promise.all([api.pveResources(cluster.id), ac.can("proxmox.operate") ? api.pveProvisions() : Promise.resolve([])]);
       setRes(r);
       setProvs(p.filter((x) => x.cluster_id === cluster.id));
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message });
     }
-  }, [cluster.id, role]);
+  }, [cluster.id, ac]);
   const provisioning = provs.some((p) => p.status === "running");
   useEffect(() => {
     void load();
@@ -164,7 +164,7 @@ function ClusterView({ cluster, role, onEdit, onDeleted }: { cluster: PVECluster
           <Button size="icon" variant="ghost" className="size-8" aria-label="Refresh" onClick={load}>
             <RefreshCw className="size-4" />
           </Button>
-          {isAdmin(role) && (
+          {ac.can("proxmox.manage") && (
             <>
               <Button size="icon" variant="ghost" className="size-8" aria-label="Edit cluster" onClick={onEdit}>
                 <Pencil className="size-4" />
@@ -251,7 +251,7 @@ function ClusterView({ cluster, role, onEdit, onDeleted }: { cluster: PVECluster
                       {formatBytes(g.maxmem)}
                     </td>
                     <td className="py-2 text-right whitespace-nowrap">
-                      {canOperate(role) && (
+                      {ac.can("proxmox.operate") && (
                         <span className="inline-flex gap-0.5">
                           {!running && (
                             <Icon title="Start" onClick={() => power(g, g.status === "paused" ? "resume" : "start")} disabled={!!b}>
@@ -284,7 +284,7 @@ function ClusterView({ cluster, role, onEdit, onDeleted }: { cluster: PVECluster
                           <Icon title="Snapshots" onClick={() => setSnaps(g)}>
                             <Camera />
                           </Icon>
-                          {isAdmin(role) && (
+                          {ac.can("proxmox.manage") && (
                             <Icon title={running ? "Stop it before deleting" : "Delete"} className="text-destructive" disabled={running || !!b} onClick={() => setDel(g)}>
                               <Trash2 />
                             </Icon>
@@ -320,7 +320,7 @@ function ClusterView({ cluster, role, onEdit, onDeleted }: { cluster: PVECluster
                         {t.vmid} · {t.node}
                       </span>
                     </span>
-                    {isAdmin(role) && (
+                    {ac.can("proxmox.manage") && (
                       <Button size="sm" variant="brand" onClick={() => setNewVM(t)}>
                         <CloneIcon /> New VM
                       </Button>
@@ -331,7 +331,7 @@ function ClusterView({ cluster, role, onEdit, onDeleted }: { cluster: PVECluster
             )}
           </CardContent>
         </Card>
-        {canOperate(role) && (
+        {ac.can("proxmox.operate") && (
           <Card>
             <CardHeader>
               <CardTitle>Provisioning</CardTitle>
@@ -370,7 +370,7 @@ function ClusterView({ cluster, role, onEdit, onDeleted }: { cluster: PVECluster
         )}
       </div>
 
-      {snaps && <SnapshotsDialog cluster={cluster} guest={snaps} role={role} onClose={() => setSnaps(null)} />}
+      {snaps && <SnapshotsDialog cluster={cluster} guest={snaps} ac={ac} onClose={() => setSnaps(null)} />}
       {del && (
         <DeleteDialog
           cluster={cluster}
@@ -529,7 +529,7 @@ function ClusterDialog({ cluster, onClose, onSaved }: { cluster: PVECluster | nu
   );
 }
 
-function SnapshotsDialog({ cluster, guest, role, onClose }: { cluster: PVECluster; guest: PVEGuest; role: ReturnType<typeof useRole>; onClose: () => void }) {
+function SnapshotsDialog({ cluster, guest, ac, onClose }: { cluster: PVECluster; guest: PVEGuest; ac: Access; onClose: () => void }) {
   const [list, setList] = useState<PVESnapshot[] | null>(null);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
@@ -583,7 +583,7 @@ function SnapshotsDialog({ cluster, guest, role, onClose }: { cluster: PVECluste
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    {isAdmin(role) && (
+                    {ac.can("proxmox.manage") && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -593,7 +593,7 @@ function SnapshotsDialog({ cluster, guest, role, onClose }: { cluster: PVECluste
                         <Undo2 /> Roll back
                       </Button>
                     )}
-                    {canOperate(role) && (
+                    {ac.can("proxmox.operate") && (
                       <Button
                         size="icon"
                         variant="ghost"
@@ -610,7 +610,7 @@ function SnapshotsDialog({ cluster, guest, role, onClose }: { cluster: PVECluste
               ))}
           </ul>
         )}
-        {canOperate(role) && (
+        {ac.can("proxmox.operate") && (
           <form
             className="grid gap-2 border-t pt-3"
             onSubmit={(e) => {

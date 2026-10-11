@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { AlertTriangle, Download, Plus, RefreshCw, ShieldCheck, ShieldOff, Trash2, Wrench, X } from "lucide-react";
 import { api, type CsAlert, type Job } from "@/lib/api";
 import { useAgentState, waitJob } from "@/lib/ops";
-import { canOperate, useRole } from "@/lib/role";
+import { useAccess } from "@/lib/access";
 import { timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -29,14 +29,14 @@ const machineSuffix = (serverId: string) => "-" + serverId.slice(0, 6);
 
 export function ServerCrowdSec({ serverId, online, onOpenFail2ban }: { serverId: string; online: boolean; onOpenFail2ban: () => void }) {
   const { data, setData, busy, error, job, run } = useAgentState<CS>(serverId, "crowdsec.status", online);
-  const role = useRole();
+  const { can } = useAccess();
   const [panelBusy, setPanelBusy] = useState("");
   const [panelErr, setPanelErr] = useState("");
   const [panelJob, setPanelJob] = useState<Job | null>(null);
   const [trustLan, setTrustLan] = useState(true);
   const [newCol, setNewCol] = useState("");
   const [alerts, setAlerts] = useState<CsAlert[] | null>(null);
-  const disabled = !online || !!busy || !!panelBusy || !canOperate(role);
+  const disabled = !online || !!busy || !!panelBusy || !can("server.security", serverId);
 
   useEffect(() => {
     if (data?.trust_lan !== undefined) setTrustLan(data.trust_lan);
@@ -282,7 +282,7 @@ function Fail2banNote({ onOpen, onDisable, disabled }: { onOpen: () => void; onD
         <button type="button" className="cursor-pointer font-medium underline underline-offset-2 disabled:opacity-50" disabled={disabled} onClick={onDisable}>
           Disable Fail2ban
         </button>{" "}
-        ·{" "}
+        Â·{" "}
         <button type="button" className="cursor-pointer underline underline-offset-2" onClick={onOpen}>
           view its bans
         </button>

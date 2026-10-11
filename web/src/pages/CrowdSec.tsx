@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { Ban, Download, Link2, Plus, RefreshCw, ShieldAlert, Undo2, X } from "lucide-react";
 import { api, type CrowdSecOverview, type CsDecision, type Server } from "@/lib/api";
 import { waitJob } from "@/lib/ops";
-import { canOperate, isAdmin, useRole } from "@/lib/role";
+import { useAccess } from "@/lib/access";
 import { timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ type Row = CsDecision & { machine: string };
 // Central CrowdSec: one LAPI on the panel host, every server reports to it
 // and enforces the shared decisions with its firewall bouncer.
 export function CrowdSec() {
-  const role = useRole();
+  const ac = useAccess();
   const [ov, setOv] = useState<CrowdSecOverview | null>(null);
   const [servers, setServers] = useState<Server[]>([]);
   const [err, setErr] = useState("");
@@ -93,7 +93,7 @@ export function CrowdSec() {
   const machines = ov?.machines ?? [];
   const bouncers = ov?.bouncers ?? [];
   const protectedCount = servers.filter((s) => machines.some((m) => serverFor(m.machineId)?.id === s.id)).length;
-  const operate = canOperate(role);
+  const operate = ac.can("crowdsec.ban");
 
   return (
     <div className="grid gap-6">
@@ -248,10 +248,10 @@ export function CrowdSec() {
           {operate && <BanForm onBan={(b) => act(() => api.crowdsecBan(b), `Banned ${b.value} on all servers for ${b.duration}.`)} />}
           <Allowlist
             items={ov?.allowlist?.items ?? []}
-            editable={isAdmin(role)}
+            editable={ac.can("crowdsec.manage")}
             onChange={(action, v) => act(() => api.crowdsecAllow(action, v), action === "add" ? `${v} will never be banned.` : `${v} removed from the allowlist.`)}
           />
-          {isAdmin(role) && <Enroll onEnroll={(k, n) => act(async () => setMsg((await api.crowdsecEnroll(k, n)).result))} />}
+          {ac.can("crowdsec.manage") && <Enroll onEnroll={(k, n) => act(async () => setMsg((await api.crowdsecEnroll(k, n)).result))} />}
         </div>
       </div>
     </div>

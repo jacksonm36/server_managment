@@ -277,7 +277,7 @@ function TwoFactor({ info, onChange }: { info: AccountInfo; onChange: () => void
   );
 }
 
-function PasswordCard() {
+export function PasswordCard({ forced, onChanged }: { forced?: boolean; onChanged?: () => void }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -298,6 +298,7 @@ function PasswordCard() {
       setNext("");
       setConfirm("");
       setMsg({ ok: true, text: "Password changed. Other sessions were signed out." });
+      onChanged?.();
     } catch (err) {
       setMsg({ ok: false, text: (err as Error).message });
     } finally {
@@ -308,8 +309,12 @@ function PasswordCard() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Password</CardTitle>
-        <CardDescription>At least 12 characters. Changing it signs out your other sessions.</CardDescription>
+        <CardTitle>{forced ? "Choose a new password" : "Password"}</CardTitle>
+        <CardDescription>
+          {forced
+            ? "An admin set a temporary password for you. Pick your own (at least 12 characters) to continue."
+            : "At least 12 characters. Changing it signs out your other sessions."}
+        </CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={submit} className="grid gap-3">

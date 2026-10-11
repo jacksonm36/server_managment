@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import { AlertTriangle, ArrowRight, BellRing, CheckCircle2, Cpu, HardDrive, MemoryStick, Server as ServerIcon, ServerOff, XCircle } from "lucide-react";
-import { api, type AlertEvent, type AuditEntry, type JobSummary, type Role, type Server } from "@/lib/api";
+import { useAccess } from "@/lib/access";
+import { api, type AlertEvent, type AuditEntry, type JobSummary, type Server } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { outdated, useAgentBuild } from "@/lib/agentBuild";
 import { pct, timeAgo } from "@/lib/utils";
@@ -33,7 +34,9 @@ function Tile({ icon, label, value, sub, tone = "default", href }: { icon: React
 
 const worst = (s: Server) => (s.latest ? Math.max(s.latest.cpu, pct(s.latest.mem_used, s.latest.mem_total), pct(s.latest.disk_used, s.latest.disk_total)) : -1);
 
-export function Dashboard({ role }: { role: Role }) {
+export function Dashboard() {
+  const { can } = useAccess();
+  const auditable = can("audit.view");
   const map = useLive((s) => s.servers);
   const jobTick = useLive((s) => s.jobTick);
   const servers = useMemo(() => [...map.values()], [map]);
@@ -52,8 +55,8 @@ export function Dashboard({ role }: { role: Role }) {
     void api.recentJobs().then(setJobs).catch(() => {});
   }, [jobTick]);
   useEffect(() => {
-    if (role !== "viewer") void api.audit({ limit: 8 }).then(setAudit).catch(() => setAudit(null));
-  }, [role]);
+    if (auditable) void api.audit({ limit: 8 }).then(setAudit).catch(() => setAudit(null));
+  }, [auditable]);
 
   const online = servers.filter((s) => s.online);
   const offline = servers.filter((s) => !s.online);
@@ -72,7 +75,7 @@ export function Dashboard({ role }: { role: Role }) {
           <p className="max-w-md text-sm text-muted-foreground">
             Add your first server: you get a one-line install command, the agent connects out to this panel, and the server shows up here with live stats.
           </p>
-          {role === "admin" && <AddServerDialog />}
+          {can("servers.add") && <AddServerDialog />}
         </Card>
       </div>
     );
