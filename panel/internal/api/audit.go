@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"time"
 
 	"github.com/jacksonm36/servermgr/panel/internal/store"
 )
@@ -51,7 +52,14 @@ func (a *API) handleListAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleRecentJobs(w http.ResponseWriter, r *http.Request) {
-	list, err := a.Store.ListRecentJobs(r.Context(), queryInt(r, "limit", 100, 500))
+	var list []*store.JobSummary
+	var err error
+	if r.URL.Query().Get("active") != "" {
+		// Running jobs plus those finished in the last 15 minutes (the jobs tray).
+		list, err = a.Store.ListActiveJobs(r.Context(), 15*time.Minute, queryInt(r, "limit", 100, 500))
+	} else {
+		list, err = a.Store.ListRecentJobs(r.Context(), queryInt(r, "limit", 100, 500))
+	}
 	if err != nil {
 		a.internal(w, err)
 		return

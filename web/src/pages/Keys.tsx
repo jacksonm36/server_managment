@@ -483,7 +483,7 @@ function DeployDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && (!busy || !!results) && onClose()}>
       <DialogContent className={`max-h-[90svh] overflow-y-auto ${results ? "sm:max-w-3xl" : "sm:max-w-xl"}`}>
         <DialogHeader>
           <DialogTitle>
@@ -508,7 +508,7 @@ function DeployDialog({
               onNavigate={onClose}
             />
             <div className="flex justify-end">
-              <Button variant="brand" onClick={onClose} disabled={busy}>
+              <Button variant="brand" onClick={onClose}>
                 Done
               </Button>
             </div>

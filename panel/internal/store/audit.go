@@ -66,10 +66,21 @@ type JobSummary struct {
 }
 
 func (s *Store) ListRecentJobs(ctx context.Context, limit int) ([]*JobSummary, error) {
+	return s.listJobSummaries(ctx, `ORDER BY j.created_at DESC LIMIT $1`, limit)
+}
+
+// ListActiveJobs returns unfinished jobs and jobs that finished within the
+// last `recent`, newest first.
+func (s *Store) ListActiveJobs(ctx context.Context, recent time.Duration, limit int) ([]*JobSummary, error) {
+	return s.listJobSummaries(ctx, `
+		WHERE j.status IN ('queued','running') OR j.finished_at > now() - make_interval(secs => $2)
+		ORDER BY j.created_at DESC LIMIT $1`, limit, recent.Seconds())
+}
+
+func (s *Store) listJobSummaries(ctx context.Context, tail string, args ...any) ([]*JobSummary, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT j.id::text, j.server_id::text, s.name, j.op, j.status, j.error, j.created_by, j.created_at, j.finished_at
-		FROM jobs j JOIN servers s ON s.id = j.server_id
-		ORDER BY j.created_at DESC LIMIT $1`, limit)
+		FROM jobs j JOIN servers s ON s.id = j.server_id `+tail, args...)
 	if err != nil {
 		return nil, err
 	}

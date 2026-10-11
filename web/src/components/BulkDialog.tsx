@@ -68,7 +68,8 @@ export function BulkDialog({ servers, onClose }: { servers: Server[]; onClose: (
         ) : (
           <div className="grid gap-3">
             <JobResults results={results} name={name} onNavigate={onClose} />
-            <div className="flex justify-end">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">You can close this. Running jobs stay in the lower right corner.</p>
               <Button variant="secondary" onClick={onClose}>
                 Close
               </Button>

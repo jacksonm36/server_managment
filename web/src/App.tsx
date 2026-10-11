@@ -16,6 +16,7 @@ import { CrowdSec } from "@/pages/CrowdSec";
 import { Proxmox } from "@/pages/Proxmox";
 import { Keys } from "@/pages/Keys";
 import { VaultBanner } from "@/components/Vault";
+import { JobsDock } from "@/components/JobsDock";
 import { setVaultStatus } from "@/lib/vault";
 import { AccessContext, accessFromMe, noAccess, readOnly } from "@/lib/access";
 import { reloadServerGroups } from "@/lib/groups";
@@ -123,7 +124,7 @@ export function App() {
         </div>
       </header>
       <AccessContext.Provider value={access}>
-      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+      <main className="mx-auto max-w-7xl px-4 pt-8 pb-24 sm:px-6">
         <VaultBanner />
         {readOnly(access) && (
           <p className="mb-6 rounded-lg border border-warning/30 bg-warning/10 px-4 py-2 text-sm text-warning">
@@ -164,6 +165,7 @@ export function App() {
           </Route>
         </Switch>
       </main>
+      <JobsDock me={user!} />
       </AccessContext.Provider>
     </div>
   );

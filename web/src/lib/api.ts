@@ -539,6 +539,7 @@ export const api = {
     return request<AuditEntry[]>("GET", `/api/v1/audit?${p}`);
   },
   recentJobs: () => request<JobSummary[]>("GET", "/api/v1/jobs?limit=200"),
+  activeJobs: () => request<JobSummary[]>("GET", "/api/v1/jobs?active=1"),
   bulk: (serverIds: string[], op: string, params: Record<string, string>) =>
     request<{ server_id: string; job_id?: string; error?: string }[]>("POST", "/api/v1/bulk", { server_ids: serverIds, op, params }),
   playbooks: () => request<Playbook[]>("GET", "/api/v1/playbooks"),
