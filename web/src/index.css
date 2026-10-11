@@ -93,4 +93,21 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+  /* Native dropdown lists (Windows draws them white unless told otherwise),
+     including options inside <optgroup> and disabled ones. */
+  .dark {
+    color-scheme: dark;
+  }
+  select option,
+  select optgroup {
+    background-color: var(--popover);
+    color: var(--popover-foreground);
+  }
+  select optgroup {
+    font-weight: 600;
+    color: var(--muted-foreground);
+  }
+  select option:disabled {
+    color: var(--muted-foreground);
+  }
 }
