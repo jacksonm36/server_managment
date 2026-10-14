@@ -15,7 +15,7 @@ import {
   Trash2,
   Undo2,
 } from "lucide-react";
-import { api, type PVECluster, type PVEGuest, type PVEProvision, type PVEResources, type PVESnapshot, type PVETenantInfo } from "@/lib/api";
+import { api, type PVECluster, type PVEGuest, type PVEGuestRef, type PVEProvision, type PVEResources, type PVESnapshot, type PVETenantInfo } from "@/lib/api";
 import { useAccess, type Access } from "@/lib/access";
 import { formatBytes, formatUptime, pct, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -241,7 +241,9 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
                     <td className="py-2 pr-3 font-mono text-xs">{g.vmid}</td>
                     <td className="py-2 pr-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{g.name}</span>
+                        <Link href={`/proxmox/${cluster.id}/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`} className="font-medium hover:text-brand hover:underline">
+                          {g.name}
+                        </Link>
                         <Badge variant="outline">{g.type === "qemu" ? "VM" : "CT"}</Badge>
                         {g.tenant && (
                           <Badge variant="outline" title={`In pool ${g.pool}`}>
@@ -574,7 +576,7 @@ function ClusterDialog({ cluster, onClose, onSaved }: { cluster: PVECluster | nu
   );
 }
 
-function SnapshotsDialog({ cluster, guest, ac, onClose }: { cluster: PVECluster; guest: PVEGuest; ac: Access; onClose: () => void }) {
+export function SnapshotsDialog({ cluster, guest, ac, onClose }: { cluster: PVECluster; guest: PVEGuestRef & { name: string }; ac: Access; onClose: () => void }) {
   const [list, setList] = useState<PVESnapshot[] | null>(null);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");

@@ -280,6 +280,15 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			out = append(out, map[string]string{"iface": b, "type": "bridge"})
 		}
 		f.reply(w, 200, out, "")
+	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "tasks" && r.Method == "GET":
+		vmid, _ := strconv.Atoi(r.Form.Get("vmid"))
+		if !f.canGuest(user, vmid, true) {
+			f.reply(w, 200, []any{}, "")
+			return
+		}
+		f.reply(w, 200, []map[string]any{{"upid": fmt.Sprintf("UPID:%s:0:0:0:qmstart:%d:%s:", parts[1], vmid, user), "type": "qmstart", "user": user, "starttime": 1, "status": "OK"}}, "")
+	case len(parts) == 5 && parts[0] == "nodes" && parts[2] == "tasks" && parts[4] == "log":
+		f.reply(w, 200, []map[string]any{{"n": 1, "t": "starting"}, {"n": 2, "t": "TASK OK"}}, "")
 	case len(parts) >= 4 && parts[0] == "nodes" && parts[2] == "tasks":
 		f.reply(w, 200, map[string]string{"status": "stopped", "exitstatus": "OK"}, "")
 	case len(parts) >= 4 && parts[0] == "nodes" && (parts[2] == "qemu" || parts[2] == "lxc"):
@@ -329,8 +338,18 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 			g.status = "stopped"
 		}
 		f.reply(w, 200, upid, "")
+	case sub == "status/current" && r.Method == "GET":
+		f.reply(w, 200, map[string]any{"status": g.status, "vmid": vmid, "name": g.name, "cpus": g.cores, "maxmem": g.memMB << 20}, "")
+	case sub == "rrddata" && r.Method == "GET":
+		f.reply(w, 200, []map[string]any{{"time": 60, "cpu": 0.5, "maxcpu": 2, "secret": "x"}, {"time": 120, "cpu": 0.25}}, "")
+	case (sub == "agent/network-get-interfaces" || sub == "interfaces") && r.Method == "GET":
+		f.reply(w, 200, map[string]any{"result": []map[string]any{{"ip-addresses": []map[string]string{{"ip-address": "127.0.0.1"}, {"ip-address": "10.0.0.5"}, {"ip-address": "fe80::1"}}}}}, "")
 	case sub == "config" && r.Method == "GET":
-		f.reply(w, 200, map[string]string{"name": g.name, "hostname": g.name}, "")
+		out := map[string]string{"name": g.name, "hostname": g.name}
+		for k, v := range g.config {
+			out[k] = v
+		}
+		f.reply(w, 200, out, "")
 	case sub == "config" && r.Method == "PUT":
 		if n := r.Form.Get("net0"); n != "" {
 			_, br, _ := strings.Cut(n, "bridge=")

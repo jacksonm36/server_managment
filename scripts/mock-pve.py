@@ -153,6 +153,22 @@ class H(BaseHTTPRequestHandler):
         if m and method == "GET":
             t = TASKS.get(urllib.parse.unquote(m.group(2)))
             return self.send(200, t) if t else self.send(404, err="no such task")
+        m = re.fullmatch(r"/nodes/([\w-]+)/tasks/([^/]+)/log", p)
+        if m and method == "GET":
+            t = TASKS.get(urllib.parse.unquote(m.group(2)))
+            if not t:
+                return self.send(404, err="no such task")
+            lines = [f"{t['type']} {t['id']} on {t['node']}", "TASK OK" if t["status"] == "stopped" else "running…"]
+            return self.send(200, [{"n": i + 1, "t": x} for i, x in enumerate(lines)])
+        m = re.fullmatch(r"/nodes/([\w-]+)/tasks", p)
+        if m and method == "GET":
+            vmid = int(q.get("vmid", 0))
+            if not can_guest(user, vmid):
+                return self.send(200, [])
+            out = [{"upid": u, "type": t["type"], "user": "root@pam!servermgr", "starttime": t["starttime"], "node": t["node"],
+                    **({"endtime": t["starttime"] + 2, "status": t["exitstatus"]} if t["status"] == "stopped" else {})}
+                   for u, t in TASKS.items() if t["node"] == m.group(1) and t["id"] == str(vmid)]
+            return self.send(200, sorted(out, key=lambda t: -t["starttime"]))
         m = re.fullmatch(r"/nodes/([\w-]+)/(qemu|lxc)/(\d+)(/.*)?", p)
         if not m:
             return self.send(501, err=f"mock: {method} {p} not implemented")
@@ -185,9 +201,32 @@ class H(BaseHTTPRequestHandler):
                     g["status"] = "paused"
             return self.send(200, task(node, f"qm{act}", vmid, apply))
         if rest == "/status/current" and method == "GET":
-            return self.send(200, {"status": g["status"], "vmid": vmid, "name": g["name"], "qmpstatus": g["status"]})
+            r = next((x for x in resources() if x.get("vmid") == vmid), {})
+            up = g["status"] == "running"
+            return self.send(200, {"status": "running" if g["status"] == "paused" else g["status"], "vmid": vmid, "name": g["name"],
+                                   "qmpstatus": g["status"], "cpus": g["maxcpu"], "cpu": r.get("cpu", 0), "mem": r.get("mem", 0),
+                                   "maxmem": g["maxmem"], "maxdisk": g["maxdisk"], "disk": g["maxdisk"] // 3 if typ == "lxc" else 0,
+                                   "uptime": now() - g["started"] if up else 0, "netin": 123456789 if up else 0, "netout": 23456789 if up else 0})
+        if rest == "/rrddata" and method == "GET":
+            step = {"hour": 60, "day": 1800, "week": 10800, "month": 43200, "year": 604800}.get(q.get("timeframe"), 60)
+            t1, out = now() // step * step, []
+            import math
+            for i in range(70):
+                t = t1 - (69 - i) * step
+                w = (math.sin(t / (step * 7) + vmid) + 1) / 2
+                out.append({"time": t, "cpu": 0.05 + 0.4 * w, "maxcpu": g["maxcpu"], "mem": g["maxmem"] * (0.3 + 0.3 * w), "maxmem": g["maxmem"],
+                            "netin": 20000 + 400000 * w, "netout": 8000 + 90000 * (1 - w), "diskread": 50000 * w, "diskwrite": 120000 * (1 - w)})
+            out[-1] = {"time": t1}  # Proxmox leaves the unfinished interval empty
+            return self.send(200, out)
+        if rest == "/interfaces" and method == "GET" and typ == "lxc":
+            return self.send(200, [{"name": "lo", "inet": "127.0.0.1/8"}, {"name": "eth0", "inet": "10.247.11.20/24", "inet6": "fd00::20/64"}])
         if rest == "/config" and method == "GET":
-            return self.send(200, {"name": g["name"], "cores": g["maxcpu"], "memory": g["maxmem"] >> 20, **g["config"]})
+            hw = {"sockets": 1, "cpu": "x86-64-v2-AES", "scsihw": "virtio-scsi-single", "scsi0": f"local-lvm:vm-{vmid}-disk-0,iothread=1,size={g['maxdisk'] >> 30}G",
+                  "net0": "virtio=BC:24:11:00:00:01,bridge=vmbr0", "ostype": "l26", "boot": "order=scsi0", "onboot": 1, "agent": "1",
+                  "ciuser": "debian", "cipassword": "$5$mock$hash", "description": "Mock guest for development."} if typ == "qemu" else {
+                  "hostname": g["name"], "rootfs": f"local-lvm:vm-{vmid}-disk-0,size={g['maxdisk'] >> 30}G", "arch": "amd64",
+                  "net0": "name=eth0,bridge=vmbr0,ip=dhcp", "ostype": "debian", "unprivileged": 1, "swap": 512}
+            return self.send(200, {"name": g["name"], "cores": g["maxcpu"], "memory": g["maxmem"] >> 20, **hw, **g["config"]})
         if rest == "/config" and method in ("POST", "PUT"):
             g["config"].update(form)
             if "cores" in form:

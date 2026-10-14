@@ -170,7 +170,35 @@ func TestTenantIsolation(t *testing.T) {
 		expect("delete snapshot "+other, first(call(al, "DELETE", other+"/snapshots/base", nil)), 404)
 		expect("rollback "+other, first(call(al, "POST", other+"/snapshots/base/rollback", nil)), 404)
 		expect("delete "+other, first(call(al, "DELETE", other, map[string]string{"confirm": "globex-db"})), 404)
+		expect("detail "+other, first(call(al, "GET", other, nil)), 404)
+		expect("rrd "+other, first(call(al, "GET", other+"/rrd?timeframe=day", nil)), 404)
+		expect("tasks "+other, first(call(al, "GET", other+"/tasks", nil)), 404)
+		expect("task log "+other, first(call(al, "GET", other+"/tasks/log?upid=UPID:pve1:0:0:0:qmstart:101:x:", nil)), 404)
 	}
+
+	// Her own guest's detail page: secrets redacted, only chart columns.
+	pve.mu.Lock()
+	pve.guests[100].config["cipassword"] = "$6$hash"
+	pve.mu.Unlock()
+	code, det, _ := call(al, "GET", g("pve1", "qemu", 100), nil)
+	expect("alice views her VM", code, 200)
+	if cfg, _ := det["config"].(map[string]any); cfg == nil || cfg["cipassword"] == "$6$hash" {
+		t.Errorf("guest config not redacted: %v", det["config"])
+	}
+	if ips, _ := det["ips"].([]any); len(ips) != 1 || ips[0] != "10.0.0.5" {
+		t.Errorf("guest IPs = %v", det["ips"])
+	}
+	_, _, rrd := call(al, "GET", g("pve1", "qemu", 100)+"/rrd?timeframe=week", nil)
+	if len(rrd) != 2 || rrd[0].(map[string]any)["secret"] != nil || rrd[0].(map[string]any)["cpu"] != 0.5 {
+		t.Errorf("rrd = %v", rrd)
+	}
+	expect("bad timeframe", first(call(al, "GET", g("pve1", "qemu", 100)+"/rrd?timeframe=decade", nil)), 400)
+	_, _, tasks := call(al, "GET", g("pve1", "qemu", 100)+"/tasks", nil)
+	if len(tasks) != 1 {
+		t.Errorf("tasks = %v", tasks)
+	}
+	expect("log of her task", first(call(al, "GET", g("pve1", "qemu", 100)+"/tasks/log?upid=UPID:pve1:0:0:0:qmstart:100:x:", nil)), 200)
+	expect("log of another guest's task via hers", first(call(al, "GET", g("pve1", "qemu", 100)+"/tasks/log?upid=UPID:pve1:0:0:0:qmstart:101:x:", nil)), 404)
 	expect("alice powers her VM", first(call(al, "POST", g("pve1", "qemu", 100)+"/power", map[string]string{"action": "shutdown"})), 204)
 	expect("alice lists her snapshots", first(call(al, "GET", g("pve1", "qemu", 100)+"/snapshots", nil)), 200)
 	expect("bob powers alice's VM", first(call(bo, "POST", g("pve1", "qemu", 100)+"/power", map[string]string{"action": "start"})), 404)

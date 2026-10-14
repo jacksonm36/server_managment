@@ -59,6 +59,7 @@ cd web && npx tsc -b && npm run build   # then: git checkout web/dist/.gitkeep
 | Bulk actions catalog (UI) | `web/src/lib/catalog.ts` |
 | Tenants, Proxmox isolation setup | `panel/internal/api/tenants.go`, `web/src/pages/Tenants.tsx` |
 | Proxmox routes, per-tenant scope (`pveScope`, `pveGuest`) | `panel/internal/api/proxmox.go` |
+| Proxmox guest detail, RRD, tasks | `panel/internal/api/pveguest.go`, `web/src/pages/ProxmoxGuest.tsx`, `web/src/components/HistoryChart.tsx` |
 
 ## App store (one-click apps)
 
@@ -137,6 +138,7 @@ Part of bringing CloudManager (a separate Proxmox manager) into servermgr. Tenan
 - **Panel side:** `loadAccess` clamps a tenant user's permissions to `tenantPerms` (proxmox view/operate/console/guests, audit.view), whatever their roles say. Server permissions only apply to the tenant's server group. Audit entries and provisioning runs carry `tenant_id`, and tenants only see their own.
 - **Proxmox side:** setup creates the pool and the Proxmox user `sm-<slug>@pve` (no password). It grants exactly PVEVMAdmin and PVEPoolAdmin on the pool, PVEDatastoreUser on the storages, PVESDNUser on `/sdn/zones/localnetwork/<bridge>` and PVETemplateUser on the templates. It issues a privsep=0 token, then checks the token sees nothing outside the pool. Tenant requests use that token, and `pveGuest` also checks the pool. Anything outside it is a 404.
 - **Not handled:** deleting a whole cluster from servermgr leaves the tenants' Proxmox users on it (remove access per tenant first). Moving a user into or out of a tenant ends their sessions.
+- **Guest page** (`/proxmox/<cluster>/<node>/<type>/<vmid>`): live status every 5 s, RRD graphs (CPU, memory, network, disk I/O; hour to year), hardware and options from the config with `cipassword` masked, guest IPs, recent tasks with their logs. All of it goes through `pveGuest`; a task log is only served when the UPID names this guest.
 - **Tests:** `TestTenantIsolation` runs against an in-memory Proxmox (`pvefake_test.go`) that enforces ACLs. `scripts/mock-pve.py` also mocks pools, users, tokens and ACLs.
 
 ## Owner preferences

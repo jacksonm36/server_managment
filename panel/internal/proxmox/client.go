@@ -16,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 )
@@ -249,4 +250,49 @@ func (c *Client) GuestIPv4(ctx context.Context, node string, vmid int) (string, 
 		}
 	}
 	return "", errors.New("the guest agent reports no IPv4 address yet")
+}
+
+// GuestIPs lists a running guest's addresses: from the QEMU guest agent, or
+// for a container from its interfaces. Loopback and link-local are left out.
+func (c *Client) GuestIPs(ctx context.Context, node, typ string, vmid int) ([]string, error) {
+	var addrs []string
+	if typ == "lxc" {
+		var ifs []struct {
+			Name  string `json:"name"`
+			Inet  string `json:"inet"`
+			Inet6 string `json:"inet6"`
+		}
+		if err := c.Do(ctx, http.MethodGet, GuestPath(node, typ, vmid)+"/interfaces", nil, &ifs); err != nil {
+			return nil, err
+		}
+		for _, i := range ifs {
+			for _, a := range []string{i.Inet, i.Inet6} {
+				addrs = append(addrs, strings.Split(a, " ")...)
+			}
+		}
+	} else {
+		var res struct {
+			Result []struct {
+				IPs []struct {
+					Addr string `json:"ip-address"`
+				} `json:"ip-addresses"`
+			} `json:"result"`
+		}
+		if err := c.Do(ctx, http.MethodGet, GuestPath(node, typ, vmid)+"/agent/network-get-interfaces", nil, &res); err != nil {
+			return nil, err
+		}
+		for _, i := range res.Result {
+			for _, a := range i.IPs {
+				addrs = append(addrs, a.Addr)
+			}
+		}
+	}
+	out := []string{}
+	for _, a := range addrs {
+		host, _, _ := strings.Cut(a, "/")
+		if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !slices.Contains(out, host) {
+			out = append(out, host)
+		}
+	}
+	return out, nil
 }

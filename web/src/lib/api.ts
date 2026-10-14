@@ -369,6 +369,17 @@ export type PVEResources = {
   storage?: PVEResource[];
   tenant?: PVETenantInfo;
 };
+export type PVEGuestDetail = {
+  node: string;
+  type: "qemu" | "lxc";
+  vmid: number;
+  status: Record<string, unknown> & { status: string; name?: string; cpu?: number; cpus?: number; mem?: number; maxmem?: number; disk?: number; maxdisk?: number; uptime?: number; netin?: number; netout?: number; qmpstatus?: string; lock?: string };
+  config: Record<string, string | number>;
+  ips: string[] | null;
+};
+export type PVETimeframe = "hour" | "day" | "week" | "month" | "year";
+export type PVERRDPoint = { time: number; cpu?: number; maxcpu?: number; mem?: number; maxmem?: number; netin?: number; netout?: number; diskread?: number; diskwrite?: number };
+export type PVETask = { upid: string; type: string; user: string; status?: string; starttime: number; endtime?: number };
 export type PVESnapshot = { name: string; description?: string; snaptime?: number; vmstate?: number; parent?: string };
 export type PVEProvision = {
   id: string;
@@ -641,13 +652,18 @@ export const api = {
   deletePVE: (id: string) => request<void>("DELETE", `/api/v1/proxmox/${id}`),
   pveResources: (id: string) => request<PVEResources>("GET", `/api/v1/proxmox/${id}/resources`),
   pveProvisions: () => request<PVEProvision[]>("GET", "/api/v1/proxmox/provisions"),
-  pvePower: (id: string, g: PVEGuest, action: string) => request<void>("POST", `${pveGuestURL(id, g)}/power`, { action }),
-  pveSnapshots: (id: string, g: PVEGuest) => request<PVESnapshot[]>("GET", `${pveGuestURL(id, g)}/snapshots`),
-  pveSnapshot: (id: string, g: PVEGuest, s: { name: string; description: string; vmstate: boolean }) =>
+  pvePower: (id: string, g: PVEGuestRef, action: string) => request<void>("POST", `${pveGuestURL(id, g)}/power`, { action }),
+  pveGuest: (id: string, g: PVEGuestRef) => request<PVEGuestDetail>("GET", pveGuestURL(id, g)),
+  pveGuestRRD: (id: string, g: PVEGuestRef, tf: PVETimeframe) => request<PVERRDPoint[]>("GET", `${pveGuestURL(id, g)}/rrd?timeframe=${tf}`),
+  pveGuestTasks: (id: string, g: PVEGuestRef) => request<PVETask[]>("GET", `${pveGuestURL(id, g)}/tasks`),
+  pveTaskLog: (id: string, g: PVEGuestRef, upid: string) =>
+    request<{ log: string }>("GET", `${pveGuestURL(id, g)}/tasks/log?upid=${encodeURIComponent(upid)}`),
+  pveSnapshots: (id: string, g: PVEGuestRef) => request<PVESnapshot[]>("GET", `${pveGuestURL(id, g)}/snapshots`),
+  pveSnapshot: (id: string, g: PVEGuestRef, s: { name: string; description: string; vmstate: boolean }) =>
     request<void>("POST", `${pveGuestURL(id, g)}/snapshots`, s),
-  pveDeleteSnapshot: (id: string, g: PVEGuest, name: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/snapshots/${name}`),
-  pveRollback: (id: string, g: PVEGuest, name: string) => request<void>("POST", `${pveGuestURL(id, g)}/snapshots/${name}/rollback`),
-  pveDeleteGuest: (id: string, g: PVEGuest, confirm: string) => request<void>("DELETE", pveGuestURL(id, g), { confirm }),
+  pveDeleteSnapshot: (id: string, g: PVEGuestRef, name: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/snapshots/${name}`),
+  pveRollback: (id: string, g: PVEGuestRef, name: string) => request<void>("POST", `${pveGuestURL(id, g)}/snapshots/${name}/rollback`),
+  pveDeleteGuest: (id: string, g: PVEGuestRef, confirm: string) => request<void>("DELETE", pveGuestURL(id, g), { confirm }),
   pveProvision: (
     id: string,
     b: {
@@ -730,7 +746,9 @@ export const api = {
   setBaseline: (playbookId: string) => request<{ playbook_id: string }>("PUT", "/api/v1/settings/baseline", { playbook_id: playbookId }),
 };
 
-function pveGuestURL(id: string, g: PVEGuest) {
+export type PVEGuestRef = Pick<PVEGuest, "node" | "type" | "vmid">;
+
+function pveGuestURL(id: string, g: PVEGuestRef) {
   return `/api/v1/proxmox/${id}/guests/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`;
 }
 
