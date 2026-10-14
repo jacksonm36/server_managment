@@ -12,6 +12,8 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/coder/websocket"
+
 	"github.com/jacksonm36/servermgr/panel/internal/proxmox"
 )
 
@@ -34,6 +36,15 @@ type fakePVE struct {
 	storage []string
 	bridges []string
 	groups  map[string][]string // user -> groups
+	// consoles are open vncproxy/termproxy sessions by ticket.
+	consoles map[string]fakeConsole
+}
+
+type fakeConsole struct {
+	user string
+	vmid int
+	port int
+	term bool
 }
 
 type fakeToken struct{ user, secret string }
@@ -53,15 +64,16 @@ const fakeRootSecret = "root-secret-0123456789"
 
 func newFakePVE(t *testing.T) *fakePVE {
 	f := &fakePVE{
-		t:       t,
-		tokens:  map[string]fakeToken{fakeRootToken: {"root@pam", fakeRootSecret}},
-		users:   map[string]bool{"root@pam": true},
-		pools:   map[string]bool{},
-		guests:  map[int]*fakeGuest{},
-		nextID:  500,
-		groups:  map[string][]string{},
-		storage: []string{"local", "local-lvm", "ceph"},
-		bridges: []string{"vmbr0", "vmbr1"},
+		t:        t,
+		tokens:   map[string]fakeToken{fakeRootToken: {"root@pam", fakeRootSecret}},
+		users:    map[string]bool{"root@pam": true},
+		pools:    map[string]bool{},
+		guests:   map[int]*fakeGuest{},
+		nextID:   500,
+		groups:   map[string][]string{},
+		consoles: map[string]fakeConsole{},
+		storage:  []string{"local", "local-lvm", "ceph"},
+		bridges:  []string{"vmbr0", "vmbr1"},
 	}
 	f.srv = httptest.NewTLSServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
@@ -120,6 +132,10 @@ func (f *fakePVE) canGuest(user string, vmid int, admin bool) bool {
 }
 
 func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
+	if strings.HasSuffix(r.URL.Path, "/vncwebsocket") {
+		f.consoleWS(w, r)
+		return
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "PVEAPIToken=")
@@ -368,6 +384,11 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 			g.config[k] = v[0]
 		}
 		f.reply(w, 200, nil, "")
+	case (sub == "vncproxy" || sub == "termproxy") && r.Method == "POST":
+		ticket := fmt.Sprintf("PVEVNC:%d:%d", vmid, len(f.consoles))
+		port := 5900 + len(f.consoles)
+		f.consoles[ticket] = fakeConsole{user, vmid, port, sub == "termproxy"}
+		f.reply(w, 200, map[string]any{"port": strconv.Itoa(port), "ticket": ticket, "user": user, "upid": upid}, "")
 	case sub == "resize":
 		f.reply(w, 200, nil, "")
 	case sub == "snapshot" && r.Method == "GET":
@@ -379,6 +400,63 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		f.reply(w, 200, upid, "")
 	default:
 		f.reply(w, 501, nil, "fake PVE: guest "+sub+" not implemented")
+	}
+}
+
+// consoleWS is vncwebsocket: the ticket must belong to this guest, port
+// and token user. A text console wants "user:ticket\n" first and answers
+// "OK", then echoes input frames; a graphical one sends an RFB greeting
+// and echoes everything.
+func (f *fakePVE) consoleWS(w http.ResponseWriter, r *http.Request) {
+	auth := strings.TrimPrefix(r.Header.Get("Authorization"), "PVEAPIToken=")
+	id, secret, _ := strings.Cut(auth, "=")
+	parts := strings.Split(strings.Trim(strings.TrimPrefix(r.URL.Path, "/api2/json"), "/"), "/")
+	vmid, _ := strconv.Atoi(parts[3])
+	port, _ := strconv.Atoi(r.URL.Query().Get("port"))
+	ticket := r.URL.Query().Get("vncticket")
+	f.mu.Lock()
+	tok, ok := f.tokens[id]
+	c, found := f.consoles[ticket]
+	delete(f.consoles, ticket)
+	f.mu.Unlock()
+	if !ok || tok.secret != secret || !found || c.user != tok.user || c.vmid != vmid || c.port != port {
+		f.reply(w, 401, nil, "invalid ticket")
+		return
+	}
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"binary"}})
+	if err != nil {
+		return
+	}
+	defer conn.CloseNow()
+	ctx := r.Context()
+	if c.term {
+		_, login, err := conn.Read(ctx)
+		if err != nil || string(login) != c.user+":"+ticket+"\n" {
+			conn.Close(websocket.StatusPolicyViolation, "bad login")
+			return
+		}
+		_ = conn.Write(ctx, websocket.MessageBinary, []byte("OK"))
+	} else {
+		_ = conn.Write(ctx, websocket.MessageBinary, []byte("RFB 003.008\n"))
+	}
+	for {
+		typ, data, err := conn.Read(ctx)
+		if err != nil {
+			return
+		}
+		if typ != websocket.MessageBinary {
+			conn.Close(websocket.StatusUnsupportedData, "binary only")
+			return
+		}
+		if c.term {
+			if !strings.HasPrefix(string(data), "0:") {
+				continue // resize, ping
+			}
+			data = []byte("echo " + string(data))
+		}
+		if conn.Write(ctx, websocket.MessageBinary, data) != nil {
+			return
+		}
 	}
 }
 

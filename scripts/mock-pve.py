@@ -6,13 +6,14 @@ auth, and the endpoints servermgr uses, with in-memory state.
   scripts/mock-pve.py --port 18006 --token 'root@pam!servermgr=SECRET'
       [--guest-ip 10.247.11.50]   # IP the guest agent reports for new VMs
 
-Tasks finish after ~2 s. Not for production use.
+Tasks finish after ~2 s. Consoles work too: termproxy gives a fake serial
+login prompt that echoes, vncproxy a plain RFB display. Not for production use.
 
 Tenant isolation is mocked too: pools, users, API tokens and ACLs. A
 token other than --token only sees and touches guests in pools its user
 has an ACL on (plus templates with an ACL on /vms/<id>), like Proxmox.
 """
-import argparse, json, os, re, ssl, subprocess, tempfile, threading, time, urllib.parse
+import argparse, base64, hashlib, json, os, re, secrets, socket, ssl, struct, subprocess, tempfile, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ap = argparse.ArgumentParser()
@@ -39,6 +40,7 @@ TOKENS = {}  # token id -> (user, secret); the --token one is root
 ACLS = []  # (path, role, user)
 SNAPS = {100: [{"name": "before-upgrade", "description": "pre apt upgrade", "snaptime": now() - 7200, "vmstate": 0}]}
 TASKS = {}
+CONSOLES = {}  # ticket -> (user, vmid, port, term)
 
 
 def task(node, kind, vmid, fn=None):
@@ -122,6 +124,14 @@ class H(BaseHTTPRequestHandler):
         if not p.startswith("/api2/json/"):
             return self.send(404, err="not found")
         p = p[len("/api2/json"):]
+        if p.endswith("/vncwebsocket"):
+            m = re.fullmatch(r"/nodes/[\w-]+/(?:qemu|lxc)/(\d+)/vncwebsocket", p)
+            q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
+            with lock:
+                c = CONSOLES.pop(q.get("vncticket", ""), None)
+            if not m or not c or c[0] != self.user or c[1] != int(m.group(1)) or str(c[2]) != q.get("port"):
+                return self.send(401, err="invalid ticket")
+            return ws_console(self, GUESTS[c[1]]["name"], q["vncticket"], c[0], c[3])
         n = int(self.headers.get("Content-Length") or 0)
         form = {k: v[0] for k, v in urllib.parse.parse_qs(self.rfile.read(n).decode() if n else "").items()}
         q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
@@ -267,6 +277,12 @@ class H(BaseHTTPRequestHandler):
                 GUESTS[newid] = {**{k: v for k, v in g.items() if k != "config"}, "node": target, "name": form.get("name", f"vm-{newid}"),
                                  "template": 0, "status": "stopped", "started": 0, "config": {"agent": "1"}, "pool": form.get("pool", "")}
             return self.send(200, task(node, "qmclone", vmid, clone))
+        if rest in ("/vncproxy", "/termproxy") and method == "POST":
+            if g["status"] != "running":
+                return self.send(500, err="VM is not running")
+            port, ticket = 5900 + len(CONSOLES), "PVEVNC:" + secrets.token_hex(12)
+            CONSOLES[ticket] = (user, vmid, port, rest == "/termproxy")
+            return self.send(200, {"port": str(port), "ticket": ticket, "user": user, "upid": task(node, "vncproxy", vmid)})
         if rest == "/resize" and method == "PUT":
             return self.send(200, None)
         if rest == "/agent/network-get-interfaces" and method == "GET":
@@ -339,6 +355,112 @@ class H(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self.handle_any("DELETE")
+
+
+class WS:
+    """Just enough of a WebSocket server (RFC 6455) for the console."""
+
+    def __init__(self, h):
+        self.f, self.w, self.buf = h.rfile, h.wfile, b""
+
+    def frame(self):
+        b0, b1 = self.f.read(2)
+        n = b1 & 0x7F
+        if n == 126:
+            n = struct.unpack(">H", self.f.read(2))[0]
+        elif n == 127:
+            n = struct.unpack(">Q", self.f.read(8))[0]
+        mask = self.f.read(4) if b1 & 0x80 else b"\0\0\0\0"
+        data = bytes(x ^ mask[i % 4] for i, x in enumerate(self.f.read(n)))
+        if b0 & 0x0F == 8:
+            raise EOFError
+        return data
+
+    def read(self, n):
+        while len(self.buf) < n:
+            self.buf += self.frame()
+        out, self.buf = self.buf[:n], self.buf[n:]
+        return out
+
+    def send(self, data):
+        n = len(data)
+        head = bytes([0x82, n]) if n < 126 else bytes([0x82, 126]) + struct.pack(">H", n) if n < 65536 else bytes([0x82, 127]) + struct.pack(">Q", n)
+        self.w.write(head + data)
+        self.w.flush()
+
+
+def ws_console(h, name, ticket, user, term):
+    key = h.headers.get("Sec-WebSocket-Key", "")
+    acc = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+    h.send_response(101)
+    for k, v in (("Upgrade", "websocket"), ("Connection", "Upgrade"), ("Sec-WebSocket-Accept", acc), ("Sec-WebSocket-Protocol", "binary")):
+        h.send_header(k, v)
+    h.end_headers()
+    ws = WS(h)
+    try:
+        if term:
+            serial_console(ws, name, ticket, user)
+        else:
+            vnc_console(ws, name)
+    except (EOFError, OSError, ValueError):
+        pass
+    h.close_connection = True
+
+
+def serial_console(ws, name, ticket, user):
+    if ws.frame() != f"{user}:{ticket}\n".encode():
+        return
+    ws.send(b"OK")
+    ws.send(f"\r\nDebian GNU/Linux 13 {name} ttyS0 (mock)\r\n\r\n{name} login: ".encode())
+    while True:
+        m = ws.frame().decode(errors="replace")
+        if m.startswith("0:"):
+            data = m.split(":", 2)[2]
+            ws.send(data.replace("\r", "\r\n").encode())
+
+
+def vnc_console(ws, name):
+    """RFB 3.8 without authentication: one full frame of a dark screen
+    with a lighter window, then input is read and ignored."""
+    W, H = 800, 600
+    ws.send(b"RFB 003.008\n")
+    ws.read(12)
+    ws.send(bytes([1, 1]))  # one security type: None
+    ws.read(1)
+    ws.send(struct.pack(">I", 0))
+    ws.read(1)  # ClientInit
+    title = f"{name} (mock display)".encode()
+    ws.send(struct.pack(">HHBBBBHHHBBB3xI", W, H, 32, 24, 0, 1, 255, 255, 255, 16, 8, 0, len(title)) + title)
+    shifts, big, sent = (16, 8, 0), False, False
+    while True:
+        t = ws.read(1)[0]
+        if t == 0:  # SetPixelFormat
+            pf = ws.read(19)[3:]
+            big, shifts, sent = bool(pf[2]), (pf[10], pf[11], pf[12]), False
+        elif t == 2:  # SetEncodings
+            n = struct.unpack(">xH", ws.read(3))[0]
+            ws.read(4 * n)
+        elif t == 3:  # FramebufferUpdateRequest
+            inc = ws.read(9)[0]
+            if sent and inc:
+                continue
+            px = {c: struct.pack(">I" if big else "<I", (c[0] << shifts[0]) | (c[1] << shifts[1]) | (c[2] << shifts[2]))
+                  for c in ((48, 64, 92), (26, 30, 38), (12, 14, 18))}
+            frame = bytearray()
+            for y in range(H):
+                for x in range(W):
+                    inside = 140 <= y < 460 and 120 <= x < 680
+                    frame += px[(48, 64, 92)] if inside and y < 172 else px[(26, 30, 38)] if inside else px[(12, 14, 18)]
+            ws.send(struct.pack(">BxHHHHHi", 0, 1, 0, 0, W, H, 0) + bytes(frame))
+            sent = True
+        elif t == 4:  # KeyEvent
+            ws.read(7)
+        elif t == 5:  # PointerEvent
+            ws.read(5)
+        elif t == 6:  # ClientCutText
+            ws.read(struct.unpack(">3xI", ws.read(7))[0])
+        else:
+            return
 
 
 os.makedirs(args.certdir, exist_ok=True)

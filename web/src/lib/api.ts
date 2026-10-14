@@ -656,6 +656,8 @@ export const api = {
   pveGuest: (id: string, g: PVEGuestRef) => request<PVEGuestDetail>("GET", pveGuestURL(id, g)),
   pveGuestRRD: (id: string, g: PVEGuestRef, tf: PVETimeframe) => request<PVERRDPoint[]>("GET", `${pveGuestURL(id, g)}/rrd?timeframe=${tf}`),
   pveGuestTasks: (id: string, g: PVEGuestRef) => request<PVETask[]>("GET", `${pveGuestURL(id, g)}/tasks`),
+  pveConsole: (id: string, g: PVEGuestRef, mode: "auto" | "vga" | "serial") =>
+    request<{ sid: string; mode: "vga" | "term"; password?: string; serial?: string }>("POST", `${pveGuestURL(id, g)}/console`, { mode }),
   pveTaskLog: (id: string, g: PVEGuestRef, upid: string) =>
     request<{ log: string }>("GET", `${pveGuestURL(id, g)}/tasks/log?upid=${encodeURIComponent(upid)}`),
   pveSnapshots: (id: string, g: PVEGuestRef) => request<PVESnapshot[]>("GET", `${pveGuestURL(id, g)}/snapshots`),

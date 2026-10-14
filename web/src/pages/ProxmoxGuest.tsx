@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Camera, Pause, Play, Power, RefreshCw, RotateCw, Square } from "lucide-react";
+import { ArrowLeft, Camera, MonitorPlay, Pause, Play, Power, RefreshCw, RotateCw, Square } from "lucide-react";
 import { api, type PVEGuestDetail, type PVEGuestRef, type PVERRDPoint, type PVETask, type PVETimeframe } from "@/lib/api";
 import { useAccess } from "@/lib/access";
 import { formatBytes, formatUptime } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HistoryChart } from "@/components/HistoryChart";
+import { GuestConsole } from "@/components/GuestConsole";
 import { Meter } from "@/components/LiveChart";
 import { SnapshotsDialog } from "@/pages/Proxmox";
 
@@ -49,6 +50,7 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [snaps, setSnaps] = useState(false);
   const [log, setLog] = useState<PVETask | null>(null);
+  const [console_, setConsole] = useState(false);
 
   const load = useCallback(
     () =>
@@ -142,6 +144,11 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {ac.can("proxmox.console") && running && (
+            <Button size="sm" variant="brand" onClick={() => setConsole(true)}>
+              <MonitorPlay /> Console
+            </Button>
+          )}
           {ac.can("proxmox.operate") && (
             <>
               {(!running || paused) && (
@@ -312,6 +319,7 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
       </Card>
 
       {snaps && <SnapshotsDialog cluster={{ id: cluster, name: "" }} guest={{ ...ref, name }} ac={ac} onClose={() => setSnaps(false)} />}
+      {console_ && <GuestConsole cluster={cluster} guest={ref} name={name} onClose={() => setConsole(false)} />}
       {log && <TaskLogDialog cluster={cluster} guest={ref} task={log} onClose={() => setLog(null)} />}
     </div>
   );

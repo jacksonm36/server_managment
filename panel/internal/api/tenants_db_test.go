@@ -1,12 +1,16 @@
 package api
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // TestTenantIsolation sets up two tenants on one (fake) Proxmox cluster
@@ -173,6 +177,7 @@ func TestTenantIsolation(t *testing.T) {
 		expect("detail "+other, first(call(al, "GET", other, nil)), 404)
 		expect("rrd "+other, first(call(al, "GET", other+"/rrd?timeframe=day", nil)), 404)
 		expect("tasks "+other, first(call(al, "GET", other+"/tasks", nil)), 404)
+		expect("console "+other, first(call(al, "POST", other+"/console", map[string]any{})), 404)
 		expect("task log "+other, first(call(al, "GET", other+"/tasks/log?upid=UPID:pve1:0:0:0:qmstart:101:x:", nil)), 404)
 	}
 
@@ -199,6 +204,74 @@ func TestTenantIsolation(t *testing.T) {
 	}
 	expect("log of her task", first(call(al, "GET", g("pve1", "qemu", 100)+"/tasks/log?upid=UPID:pve1:0:0:0:qmstart:100:x:", nil)), 200)
 	expect("log of another guest's task via hers", first(call(al, "GET", g("pve1", "qemu", 100)+"/tasks/log?upid=UPID:pve1:0:0:0:qmstart:101:x:", nil)), 404)
+
+	// Consoles: a one-time session for the user who opened it, relayed to
+	// Proxmox with the tenant's token.
+	wsDial := func(c client, sid string) (*websocket.Conn, int) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		conn, res, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(p.base, "http")+"/api/v1/proxmox-console/"+sid, &websocket.DialOptions{
+			HTTPHeader: http.Header{"Cookie": {sessionCookie + "=" + c.cookie}},
+		})
+		if err != nil {
+			if res == nil {
+				t.Fatalf("console dial: %v", err)
+			}
+			return nil, res.StatusCode
+		}
+		return conn, 101
+	}
+	vm100 := g("pve1", "qemu", 100)
+	expect("serial console without a serial port", first(call(al, "POST", vm100+"/console", map[string]any{"mode": "serial"})), 400)
+	code, con, _ := call(al, "POST", vm100+"/console", map[string]any{})
+	expect("alice opens a console", code, 200)
+	if con["mode"] != "vga" || con["password"] == nil {
+		t.Errorf("console = %v", con)
+	}
+	_, other, _ := call(al, "POST", vm100+"/console", map[string]any{})
+	_, code = wsDial(bo, other["sid"].(string))
+	expect("bob uses alice's console session", code, 404)
+	if ws, code := wsDial(al, other["sid"].(string)); ws != nil {
+		ws.CloseNow()
+	} else {
+		t.Errorf("alice's console after bob's attempt: %d", code)
+	}
+	_, code = wsDial(al, other["sid"].(string))
+	expect("a console session is single use", code, 404)
+	ws, code := wsDial(al, con["sid"].(string))
+	expect("alice connects to her console", code, 101)
+	if ws != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if _, d, err := ws.Read(ctx); err != nil || string(d) != "RFB 003.008\n" {
+			t.Errorf("vnc greeting %q %v", d, err)
+		}
+		_ = ws.Write(ctx, websocket.MessageText, []byte("hello"))
+		if _, d, err := ws.Read(ctx); err != nil || string(d) != "hello" {
+			t.Errorf("vnc relay %q %v", d, err)
+		}
+		cancel()
+		ws.CloseNow()
+	}
+	pve.mu.Lock()
+	pve.guests[100].config["serial0"] = "socket"
+	pve.guests[100].config["vga"] = "serial0"
+	pve.mu.Unlock()
+	_, con, _ = call(al, "POST", vm100+"/console", map[string]any{})
+	if con["mode"] != "term" || con["password"] != nil {
+		t.Errorf("serial console = %v", con)
+	}
+	ws, code = wsDial(al, con["sid"].(string))
+	expect("alice connects to her serial console", code, 101)
+	if ws != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = ws.Write(ctx, websocket.MessageText, []byte(`{"type":"resize","cols":80,"rows":24}`))
+		_ = ws.Write(ctx, websocket.MessageText, []byte(`{"type":"input","data":"ls\r"}`))
+		if _, d, err := ws.Read(ctx); err != nil || string(d) != "echo 0:3:ls\r" {
+			t.Errorf("serial relay %q %v", d, err)
+		}
+		cancel()
+		ws.CloseNow()
+	}
 	expect("alice powers her VM", first(call(al, "POST", g("pve1", "qemu", 100)+"/power", map[string]string{"action": "shutdown"})), 204)
 	expect("alice lists her snapshots", first(call(al, "GET", g("pve1", "qemu", 100)+"/snapshots", nil)), 200)
 	expect("bob powers alice's VM", first(call(bo, "POST", g("pve1", "qemu", 100)+"/power", map[string]string{"action": "start"})), 404)

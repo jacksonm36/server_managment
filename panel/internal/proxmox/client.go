@@ -17,8 +17,11 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 type Client struct {
@@ -295,4 +298,70 @@ func (c *Client) GuestIPs(ctx context.Context, node, typ string, vmid int) ([]st
 		}
 	}
 	return out, nil
+}
+
+// ConsoleProxy is a console session Proxmox opened with vncproxy or
+// termproxy: a port on the node and a short-lived ticket for it.
+type ConsoleProxy struct {
+	Port   int
+	Ticket string
+	User   string // termproxy: the user the ticket was issued to
+}
+
+// OpenConsole starts vncproxy (serial == "") or termproxy on serial
+// ("serial0"…; empty for a container's console when term is true).
+func (c *Client) OpenConsole(ctx context.Context, node, typ string, vmid int, term bool, serial string) (*ConsoleProxy, error) {
+	var res struct {
+		Port   json.Number `json:"port"`
+		Ticket string      `json:"ticket"`
+		User   string      `json:"user"`
+	}
+	form := url.Values{}
+	sub := "/vncproxy"
+	if term {
+		sub = "/termproxy"
+		if serial != "" {
+			form.Set("serial", serial)
+		}
+	} else {
+		form.Set("websocket", "1")
+	}
+	if err := c.Do(ctx, http.MethodPost, GuestPath(node, typ, vmid)+sub, form, &res); err != nil {
+		return nil, err
+	}
+	port, err := res.Port.Int64()
+	if err != nil || port <= 0 || res.Ticket == "" {
+		return nil, errors.New("proxmox returned no console port or ticket")
+	}
+	if res.User == "" {
+		res.User, _, _ = strings.Cut(c.TokenID, "!")
+	}
+	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, User: res.User}, nil
+}
+
+// DialConsole opens Proxmox's vncwebsocket for a console session, over the
+// pinned TLS connection and authenticated with the client's token.
+func (c *Client) DialConsole(ctx context.Context, node, typ string, vmid int, p *ConsoleProxy) (*websocket.Conn, error) {
+	u, err := url.Parse(c.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	u.Scheme = map[string]string{"https": "wss", "http": "ws"}[u.Scheme]
+	u.Path = "/api2/json" + GuestPath(node, typ, vmid) + "/vncwebsocket"
+	u.RawQuery = url.Values{"port": {strconv.Itoa(p.Port)}, "vncticket": {p.Ticket}}.Encode()
+	hc := *c.http
+	hc.Timeout = 0 // the context bounds the dial; the socket lives on
+	conn, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
+		HTTPClient:   &hc,
+		HTTPHeader:   http.Header{"Authorization": {"PVEAPIToken=" + c.TokenID + "=" + c.Secret}},
+		Subprotocols: []string{"binary"},
+	})
+	if err != nil {
+		if resp != nil {
+			return nil, fmt.Errorf("proxmox console: %s", resp.Status)
+		}
+		return nil, fmt.Errorf("proxmox console: %w", err)
+	}
+	conn.SetReadLimit(4 << 20)
+	return conn, nil
 }

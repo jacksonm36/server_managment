@@ -60,6 +60,8 @@ type API struct {
 	// not show up in their pool yet.
 	pveMu       sync.Mutex
 	pveReserved map[int64]tenantUsage
+	// pveConsoles are console sessions waiting for their WebSocket.
+	pveConsoles map[string]*pveConsole
 }
 
 func (a *API) Handler() http.Handler {
@@ -142,6 +144,8 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/rrd", need("proxmox.view", a.handlePVEGuestRRD))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/tasks", need("proxmox.view", a.handlePVEGuestTasks))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/tasks/log", need("proxmox.view", a.handlePVEGuestTaskLog))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/console", need("proxmox.console", a.handlePVEConsole))
+	authed.HandleFunc("GET /api/v1/proxmox-console/{sid}", need("proxmox.console", a.handlePVEConsoleWS))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("proxmox.view", a.handlePVESnapshots))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("proxmox.operate", a.handlePVESnapshotCreate))
 	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}", need("proxmox.operate", a.handlePVESnapshotDelete))
