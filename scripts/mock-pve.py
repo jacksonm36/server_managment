@@ -41,6 +41,9 @@ ACLS = []  # (path, role, user)
 SNAPS = {100: [{"name": "before-upgrade", "description": "pre apt upgrade", "snaptime": now() - 7200, "vmstate": 0}]}
 TASKS = {}
 CONSOLES = {}  # ticket -> (user, vmid, port, term)
+BACKUPS = {"local:backup/vzdump-qemu-100-2026_10_01-02_00_00.vma.zst": {"vmid": 100, "ctime": now() - 13 * 86400, "size": 3 << 30, "notes": "nightly"},
+           "local:backup/vzdump-qemu-100-2026_10_08-02_00_00.vma.zst": {"vmid": 100, "ctime": now() - 6 * 86400, "size": 3 << 30, "notes": "nightly"}}
+FIREWALL = {}  # vmid -> {"options": {...}, "rules": [...]}
 
 
 def task(node, kind, vmid, fn=None):
@@ -170,6 +173,36 @@ class H(BaseHTTPRequestHandler):
                 return self.send(404, err="no such task")
             lines = [f"{t['type']} {t['id']} on {t['node']}", "TASK OK" if t["status"] == "stopped" else "running…"]
             return self.send(200, [{"n": i + 1, "t": x} for i, x in enumerate(lines)])
+        m = re.fullmatch(r"/nodes/([\w-]+)/storage", p)
+        if m and method == "GET":
+            return self.send(200, [{"storage": st, "active": 1, "enabled": 1, "content": "backup,images"} for st in STORAGES if can(user, "/storage/" + st)])
+        m = re.fullmatch(r"/nodes/([\w-]+)/storage/([\w-]+)/content(?:/(.+))?", p)
+        if m:
+            st, volid = m.group(2), urllib.parse.unquote(m.group(3) or "")
+            if not can(user, "/storage/" + st):
+                return self.send(403, err="Permission check failed")
+            if method == "GET" and not volid:
+                vmid = int(q.get("vmid", 0))
+                return self.send(200, [{"volid": v, "format": "vma.zst", "content": "backup", **b} for v, b in BACKUPS.items()
+                                       if v.startswith(st + ":") and b["vmid"] == vmid and can_guest(user, vmid)])
+            if method == "DELETE" and volid in BACKUPS and can_guest(user, BACKUPS[volid]["vmid"]):
+                return self.send(200, task(m.group(1), "imgdel", BACKUPS[volid]["vmid"], lambda: BACKUPS.pop(volid, None)))
+            return self.send(500, err="no such volume")
+        m = re.fullmatch(r"/nodes/([\w-]+)/vzdump", p)
+        if m and method == "POST":
+            vmid, st = int(form.get("vmid", 0)), form.get("storage", "")
+            if vmid not in GUESTS or not can_guest(user, vmid) or not can(user, "/storage/" + st):
+                return self.send(403, err="Permission check failed")
+            kind = "qemu" if GUESTS[vmid]["type"] == "qemu" else "lxc"
+            vol = f"{st}:backup/vzdump-{kind}-{vmid}-{time.strftime('%Y_%m_%d-%H_%M_%S')}.{'vma' if kind == 'qemu' else 'tar'}.zst"
+            return self.send(200, task(m.group(1), "vzdump", vmid, lambda: BACKUPS.__setitem__(vol, {"vmid": vmid, "ctime": now(), "size": 2 << 30, "notes": form.get("notes-template", "")})))
+        m = re.fullmatch(r"/nodes/([\w-]+)/(qemu|lxc)", p)
+        if m and method == "POST" and form.get("force") == "1":
+            vmid = int(form.get("vmid", 0))
+            vol = form.get("archive") or form.get("ostemplate")
+            if vmid not in GUESTS or not can_guest(user, vmid) or BACKUPS.get(vol, {}).get("vmid") != vmid:
+                return self.send(403, err="Permission check failed")
+            return self.send(200, task(m.group(1), "qmrestore", vmid))
         m = re.fullmatch(r"/nodes/([\w-]+)/tasks", p)
         if m and method == "GET":
             vmid = int(q.get("vmid", 0))
@@ -283,6 +316,22 @@ class H(BaseHTTPRequestHandler):
             port, ticket = 5900 + len(CONSOLES), "PVEVNC:" + secrets.token_hex(12)
             CONSOLES[ticket] = (user, vmid, port, rest == "/termproxy")
             return self.send(200, {"port": str(port), "ticket": ticket, "user": user, "upid": task(node, "vncproxy", vmid)})
+        if rest.startswith("/firewall/"):
+            fw = FIREWALL.setdefault(vmid, {"options": {"enable": 0, "policy_in": "DROP", "policy_out": "ACCEPT"}, "rules": []})
+            if rest == "/firewall/options":
+                if method == "PUT":
+                    fw["options"].update({k: (int(v) if k == "enable" else v) for k, v in form.items()})
+                    return self.send(200, None)
+                return self.send(200, fw["options"])
+            if rest == "/firewall/rules":
+                if method == "POST":
+                    fw["rules"].insert(0, {k: (int(v) if k == "enable" else v) for k, v in form.items()})
+                    return self.send(200, None)
+                return self.send(200, [{"pos": i, **r} for i, r in enumerate(fw["rules"])])
+            fm = re.fullmatch(r"/firewall/rules/(\d+)", rest)
+            if fm and method == "DELETE" and int(fm.group(1)) < len(fw["rules"]):
+                fw["rules"].pop(int(fm.group(1)))
+                return self.send(200, None)
         if rest == "/resize" and method == "PUT":
             return self.send(200, None)
         if rest == "/agent/network-get-interfaces" and method == "GET":

@@ -38,6 +38,8 @@ type fakePVE struct {
 	groups  map[string][]string // user -> groups
 	// consoles are open vncproxy/termproxy sessions by ticket.
 	consoles map[string]fakeConsole
+	backups  map[string]int // volid -> vmid
+	firewall map[int][]map[string]string
 }
 
 type fakeConsole struct {
@@ -72,6 +74,8 @@ func newFakePVE(t *testing.T) *fakePVE {
 		nextID:   500,
 		groups:   map[string][]string{},
 		consoles: map[string]fakeConsole{},
+		backups:  map[string]int{},
+		firewall: map[int][]map[string]string{},
 		storage:  []string{"local", "local-lvm", "ceph"},
 		bridges:  []string{"vmbr0", "vmbr1"},
 	}
@@ -286,6 +290,59 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			f.acls = append(f.acls, e)
 		}
 		f.reply(w, 200, nil, "")
+	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "storage" && r.Method == "GET":
+		out := []map[string]any{}
+		for _, st := range f.storage {
+			if f.can(user, "/storage/"+st) {
+				out = append(out, map[string]any{"storage": st, "active": 1, "enabled": 1})
+			}
+		}
+		f.reply(w, 200, out, "")
+	case len(parts) == 5 && parts[0] == "nodes" && parts[2] == "storage" && parts[4] == "content" && r.Method == "GET":
+		if !f.can(user, "/storage/"+parts[3]) {
+			deny()
+			return
+		}
+		out := []map[string]any{}
+		for volid, vmid := range f.backups {
+			if strings.HasPrefix(volid, parts[3]+":") && strconv.Itoa(vmid) == r.Form.Get("vmid") && f.canGuest(user, vmid, true) {
+				out = append(out, map[string]any{"volid": volid, "size": 1 << 30, "ctime": 1700000000, "format": "vma.zst", "vmid": vmid})
+			}
+		}
+		f.reply(w, 200, out, "")
+	case len(parts) >= 6 && parts[0] == "nodes" && parts[2] == "storage" && parts[4] == "content" && r.Method == "DELETE":
+		volid := strings.Join(parts[5:], "/")
+		vmid, ok := f.backups[volid]
+		if !ok || !f.can(user, "/storage/"+parts[3]) || !f.canGuest(user, vmid, true) {
+			deny()
+			return
+		}
+		delete(f.backups, volid)
+		f.reply(w, 200, nil, "")
+	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "vzdump" && r.Method == "POST":
+		vmid, _ := strconv.Atoi(r.Form.Get("vmid"))
+		st := r.Form.Get("storage")
+		if !f.canGuest(user, vmid, true) || !f.can(user, "/storage/"+st) {
+			deny()
+			return
+		}
+		f.backups[fmt.Sprintf("%s:backup/vzdump-qemu-%d-new.vma.zst", st, vmid)] = vmid
+		f.reply(w, 200, fmt.Sprintf("UPID:%s:0:0:0:vzdump:%d:%s:", parts[1], vmid, user), "")
+	case len(parts) == 3 && parts[0] == "nodes" && (parts[2] == "qemu" || parts[2] == "lxc") && r.Method == "POST":
+		vmid, _ := strconv.Atoi(r.Form.Get("vmid"))
+		g := f.guests[vmid]
+		if g == nil || r.Form.Get("force") != "1" || !f.canGuest(user, vmid, true) {
+			deny()
+			return
+		}
+		if bv, ok := f.backups[r.Form.Get("archive")]; !ok || bv != vmid {
+			f.reply(w, 500, nil, "no such archive")
+			return
+		}
+		if pool := r.Form.Get("pool"); pool != "" {
+			g.pool = pool
+		}
+		f.reply(w, 200, fmt.Sprintf("UPID:%s:0:0:0:qmrestore:%d:%s:", parts[1], vmid, user), "")
 	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "network":
 		if !root {
 			deny()
@@ -389,6 +446,36 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		port := 5900 + len(f.consoles)
 		f.consoles[ticket] = fakeConsole{user, vmid, port, sub == "termproxy"}
 		f.reply(w, 200, map[string]any{"port": strconv.Itoa(port), "ticket": ticket, "user": user, "upid": upid}, "")
+	case sub == "firewall/options" && r.Method == "GET":
+		f.reply(w, 200, map[string]any{"enable": 0, "policy_in": "DROP"}, "")
+	case sub == "firewall/options" && r.Method == "PUT":
+		f.reply(w, 200, nil, "")
+	case sub == "firewall/rules" && r.Method == "GET":
+		out := []map[string]any{}
+		for i, r := range f.firewall[vmid] {
+			m := map[string]any{"pos": i, "enable": 1}
+			for k, v := range r {
+				m[k] = v
+			}
+			m["enable"], _ = strconv.Atoi(r["enable"])
+			out = append(out, m)
+		}
+		f.reply(w, 200, out, "")
+	case sub == "firewall/rules" && r.Method == "POST":
+		rule := map[string]string{}
+		for k, v := range r.Form {
+			rule[k] = v[0]
+		}
+		f.firewall[vmid] = append([]map[string]string{rule}, f.firewall[vmid]...)
+		f.reply(w, 200, nil, "")
+	case strings.HasPrefix(sub, "firewall/rules/") && r.Method == "DELETE":
+		pos, _ := strconv.Atoi(rest[2])
+		if pos >= len(f.firewall[vmid]) {
+			f.reply(w, 500, nil, "no rule")
+			return
+		}
+		f.firewall[vmid] = slices.Delete(f.firewall[vmid], pos, pos+1)
+		f.reply(w, 200, nil, "")
 	case sub == "resize":
 		f.reply(w, 200, nil, "")
 	case sub == "snapshot" && r.Method == "GET":

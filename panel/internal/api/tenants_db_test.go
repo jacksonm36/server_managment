@@ -177,6 +177,15 @@ func TestTenantIsolation(t *testing.T) {
 		expect("detail "+other, first(call(al, "GET", other, nil)), 404)
 		expect("rrd "+other, first(call(al, "GET", other+"/rrd?timeframe=day", nil)), 404)
 		expect("tasks "+other, first(call(al, "GET", other+"/tasks", nil)), 404)
+		expect("backups "+other, first(call(al, "GET", other+"/backups", nil)), 404)
+		expect("back up "+other, first(call(al, "POST", other+"/backups", map[string]any{"storage": "local-lvm"})), 404)
+		expect("delete backup "+other, first(call(al, "DELETE", other+"/backups?volid=ceph:backup/x", nil)), 404)
+		expect("restore "+other, first(call(al, "POST", other+"/restore", map[string]any{"volid": "ceph:backup/x", "confirm": "101"})), 404)
+		expect("cloud-init "+other, first(call(al, "PUT", other+"/cloudinit", map[string]any{"ciuser": "x"})), 404)
+		expect("firewall "+other, first(call(al, "GET", other+"/firewall", nil)), 404)
+		expect("firewall options "+other, first(call(al, "PUT", other+"/firewall/options", map[string]any{"enable": true, "policy_in": "ACCEPT", "policy_out": "ACCEPT"})), 404)
+		expect("firewall rule "+other, first(call(al, "POST", other+"/firewall/rules", map[string]any{"type": "in", "action": "ACCEPT"})), 404)
+		expect("delete firewall rule "+other, first(call(al, "DELETE", other+"/firewall/rules/0", nil)), 404)
 		expect("console "+other, first(call(al, "POST", other+"/console", map[string]any{})), 404)
 		expect("task log "+other, first(call(al, "GET", other+"/tasks/log?upid=UPID:pve1:0:0:0:qmstart:101:x:", nil)), 404)
 	}
@@ -274,6 +283,48 @@ func TestTenantIsolation(t *testing.T) {
 	}
 	expect("alice powers her VM", first(call(al, "POST", g("pve1", "qemu", 100)+"/power", map[string]string{"action": "shutdown"})), 204)
 	expect("alice lists her snapshots", first(call(al, "GET", g("pve1", "qemu", 100)+"/snapshots", nil)), 200)
+
+	// Backups: only her storages, only this guest's backups.
+	pve.mu.Lock()
+	pve.backups["local-lvm:backup/vzdump-qemu-100-old.vma.zst"] = 100
+	pve.backups["ceph:backup/vzdump-qemu-101-old.vma.zst"] = 101
+	pve.backups["local-lvm:backup/vzdump-qemu-101-old.vma.zst"] = 101
+	pve.mu.Unlock()
+	_, bk, _ := call(al, "GET", vm100+"/backups", nil)
+	if st, _ := bk["storages"].([]any); len(st) != 1 || st[0] != "local-lvm" {
+		t.Errorf("backup storages = %v", bk["storages"])
+	}
+	if b, _ := bk["backups"].([]any); len(b) != 1 {
+		t.Errorf("backups = %v", bk["backups"])
+	}
+	expect("back up to a storage not hers", first(call(al, "POST", vm100+"/backups", map[string]any{"storage": "ceph"})), 400)
+	expect("back up", first(call(al, "POST", vm100+"/backups", map[string]any{"storage": "local-lvm"})), 202)
+	expect("delete another guest's backup via hers", first(call(al, "DELETE", vm100+"/backups?volid=local-lvm:backup/vzdump-qemu-101-old.vma.zst", nil)), 404)
+	expect("restore another guest's backup over hers", first(call(al, "POST", vm100+"/restore", map[string]any{"volid": "local-lvm:backup/vzdump-qemu-101-old.vma.zst", "confirm": "100"})), 404)
+	expect("restore without confirming", first(call(al, "POST", vm100+"/restore", map[string]any{"volid": "local-lvm:backup/vzdump-qemu-100-old.vma.zst"})), 400)
+	expect("restore her backup", first(call(al, "POST", vm100+"/restore", map[string]any{"volid": "local-lvm:backup/vzdump-qemu-100-old.vma.zst", "confirm": "100"})), 202)
+	expect("delete her backup", first(call(al, "DELETE", vm100+"/backups?volid=local-lvm:backup/vzdump-qemu-100-old.vma.zst", nil)), 204)
+
+	// Cloud-init and firewall input is checked before it reaches Proxmox.
+	expect("bad ipconfig", first(call(al, "PUT", vm100+"/cloudinit", map[string]any{"ipconfig": map[string]string{"ipconfig0": "ip=10.0.0.5,gw=x"}})), 400)
+	expect("bad ssh key", first(call(al, "PUT", vm100+"/cloudinit", map[string]any{"sshkeys": "not a key"})), 400)
+	expect("cloud-init", first(call(al, "PUT", vm100+"/cloudinit", map[string]any{
+		"ciuser": "debian", "cipassword": "new-password-1", "sshkeys": "ssh-ed25519 AAAAC3Nza alice@laptop",
+		"nameserver": "1.1.1.1", "ipconfig": map[string]string{"ipconfig0": "ip=10.0.0.5/24,gw=10.0.0.1"},
+	})), 204)
+	pve.mu.Lock()
+	if c := pve.guests[100].config; c["ipconfig0"] != "ip=10.0.0.5/24,gw=10.0.0.1" || c["sshkeys"] != "ssh-ed25519%20AAAAC3Nza%20alice%40laptop" {
+		t.Errorf("cloud-init config = %v", c)
+	}
+	pve.mu.Unlock()
+	expect("firewall rule with a cluster ipset", first(call(al, "POST", vm100+"/firewall/rules", map[string]any{"type": "in", "action": "ACCEPT", "source": "+management"})), 400)
+	expect("firewall rule", first(call(al, "POST", vm100+"/firewall/rules", map[string]any{"type": "in", "action": "ACCEPT", "proto": "tcp", "dport": "22", "source": "10.0.0.0/8", "enable": 1})), 204)
+	_, fw, _ := call(al, "GET", vm100+"/firewall", nil)
+	if rules, _ := fw["rules"].([]any); len(rules) != 1 || rules[0].(map[string]any)["dport"] != "22" {
+		t.Errorf("firewall = %v", fw)
+	}
+	expect("firewall on", first(call(al, "PUT", vm100+"/firewall/options", map[string]any{"enable": true, "policy_in": "DROP", "policy_out": "ACCEPT"})), 204)
+	expect("delete firewall rule", first(call(al, "DELETE", vm100+"/firewall/rules/0", nil)), 204)
 	expect("bob powers alice's VM", first(call(bo, "POST", g("pve1", "qemu", 100)+"/power", map[string]string{"action": "start"})), 404)
 
 	// Provisioning: her template, storage and bridge only, into her pool,

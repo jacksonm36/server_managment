@@ -380,6 +380,22 @@ export type PVEGuestDetail = {
 export type PVETimeframe = "hour" | "day" | "week" | "month" | "year";
 export type PVERRDPoint = { time: number; cpu?: number; maxcpu?: number; mem?: number; maxmem?: number; netin?: number; netout?: number; diskread?: number; diskwrite?: number };
 export type PVETask = { upid: string; type: string; user: string; status?: string; starttime: number; endtime?: number };
+export type PVEBackup = { volid: string; storage: string; size: number; ctime: number; format?: string; notes?: string; protected?: number };
+export type PVEFirewallRule = {
+  pos: number;
+  type: "in" | "out";
+  action: "ACCEPT" | "DROP" | "REJECT";
+  enable: number;
+  proto?: string;
+  source?: string;
+  dest?: string;
+  dport?: string;
+  sport?: string;
+  iface?: string;
+  comment?: string;
+};
+export type PVEFirewall = { enable: number; policy_in: string; policy_out: string; rules: PVEFirewallRule[] };
+export type PVECloudInit = { ciuser: string; cipassword: string; sshkeys: string; nameserver: string; searchdomain: string; ipconfig: Record<string, string> };
 export type PVESnapshot = { name: string; description?: string; snaptime?: number; vmstate?: number; parent?: string };
 export type PVEProvision = {
   id: string;
@@ -658,6 +674,18 @@ export const api = {
   pveGuestTasks: (id: string, g: PVEGuestRef) => request<PVETask[]>("GET", `${pveGuestURL(id, g)}/tasks`),
   pveConsole: (id: string, g: PVEGuestRef, mode: "auto" | "vga" | "serial") =>
     request<{ sid: string; mode: "vga" | "term"; password?: string; serial?: string }>("POST", `${pveGuestURL(id, g)}/console`, { mode }),
+  pveBackups: (id: string, g: PVEGuestRef) => request<{ storages: string[]; backups: PVEBackup[] }>("GET", `${pveGuestURL(id, g)}/backups`),
+  pveBackup: (id: string, g: PVEGuestRef, b: { storage: string; mode: string; notes: string }) =>
+    request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/backups`, b),
+  pveDeleteBackup: (id: string, g: PVEGuestRef, volid: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/backups?volid=${encodeURIComponent(volid)}`),
+  pveRestore: (id: string, g: PVEGuestRef, volid: string, confirm: string) =>
+    request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/restore`, { volid, confirm }),
+  pveCloudInit: (id: string, g: PVEGuestRef, c: PVECloudInit) => request<void>("PUT", `${pveGuestURL(id, g)}/cloudinit`, c),
+  pveFirewall: (id: string, g: PVEGuestRef) => request<PVEFirewall>("GET", `${pveGuestURL(id, g)}/firewall`),
+  pveFirewallOptions: (id: string, g: PVEGuestRef, o: { enable: boolean; policy_in: string; policy_out: string }) =>
+    request<void>("PUT", `${pveGuestURL(id, g)}/firewall/options`, o),
+  pveFirewallAdd: (id: string, g: PVEGuestRef, r: Omit<PVEFirewallRule, "pos">) => request<void>("POST", `${pveGuestURL(id, g)}/firewall/rules`, r),
+  pveFirewallDelete: (id: string, g: PVEGuestRef, pos: number) => request<void>("DELETE", `${pveGuestURL(id, g)}/firewall/rules/${pos}`),
   pveTaskLog: (id: string, g: PVEGuestRef, upid: string) =>
     request<{ log: string }>("GET", `${pveGuestURL(id, g)}/tasks/log?upid=${encodeURIComponent(upid)}`),
   pveSnapshots: (id: string, g: PVEGuestRef) => request<PVESnapshot[]>("GET", `${pveGuestURL(id, g)}/snapshots`),
