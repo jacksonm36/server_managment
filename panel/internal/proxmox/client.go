@@ -88,6 +88,12 @@ func New(baseURL, tokenID, secret, pinned string) *Client {
 	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), TokenID: tokenID, Secret: secret, http: &http.Client{Transport: tr, Timeout: 60 * time.Second}}
 }
 
+// WithToken is a client for the same server (and pinned certificate)
+// that authenticates with another token.
+func (c *Client) WithToken(tokenID, secret string) *Client {
+	return &Client{BaseURL: c.BaseURL, TokenID: tokenID, Secret: secret, http: c.http}
+}
+
 // APIError is an error response from Proxmox.
 type APIError struct {
 	Status int
@@ -165,6 +171,8 @@ type Resource struct {
 	Uptime   int64   `json:"uptime"`
 	Template int     `json:"template,omitempty"`
 	Tags     string  `json:"tags,omitempty"`
+	Pool     string  `json:"pool,omitempty"`
+	Storage  string  `json:"storage,omitempty"`
 }
 
 func (c *Client) Resources(ctx context.Context) ([]Resource, error) {

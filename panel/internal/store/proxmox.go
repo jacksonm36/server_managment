@@ -125,11 +125,12 @@ type ProxmoxProvision struct {
 	CreatedBy  string     `json:"created_by"`
 	CreatedAt  time.Time  `json:"created_at"`
 	FinishedAt *time.Time `json:"finished_at"`
+	TenantID   *int64     `json:"tenant_id"`
 }
 
 func (s *Store) CreateProvision(ctx context.Context, p *ProxmoxProvision) error {
-	return s.db.QueryRow(ctx, `INSERT INTO proxmox_provisions (id, cluster_id, name, created_by) VALUES ($1, $2, $3, $4) RETURNING created_at`,
-		p.ID, p.ClusterID, p.Name, p.CreatedBy).Scan(&p.CreatedAt)
+	return s.db.QueryRow(ctx, `INSERT INTO proxmox_provisions (id, cluster_id, name, created_by, tenant_id) VALUES ($1, $2, $3, $4, $5) RETURNING created_at`,
+		p.ID, p.ClusterID, p.Name, p.CreatedBy, p.TenantID).Scan(&p.CreatedAt)
 }
 
 func (s *Store) UpdateProvision(ctx context.Context, p *ProxmoxProvision, finished bool) error {
@@ -141,9 +142,11 @@ func (s *Store) UpdateProvision(ctx context.Context, p *ProxmoxProvision, finish
 	return err
 }
 
-func (s *Store) ListProvisions(ctx context.Context, limit int) ([]*ProxmoxProvision, error) {
-	rows, err := s.db.Query(ctx, `SELECT id::text, cluster_id::text, name, vmid, status, log, server_id::text, created_by, created_at, finished_at
-		FROM proxmox_provisions ORDER BY created_at DESC LIMIT $1`, limit)
+// ListProvisions lists recent provisioning runs; a non-nil tenant only
+// sees its own.
+func (s *Store) ListProvisions(ctx context.Context, limit int, tenant *int64) ([]*ProxmoxProvision, error) {
+	rows, err := s.db.Query(ctx, `SELECT id::text, cluster_id::text, name, vmid, status, log, server_id::text, created_by, created_at, finished_at, tenant_id
+		FROM proxmox_provisions WHERE $2::bigint IS NULL OR tenant_id = $2 ORDER BY created_at DESC LIMIT $1`, limit, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +154,7 @@ func (s *Store) ListProvisions(ctx context.Context, limit int) ([]*ProxmoxProvis
 	out := []*ProxmoxProvision{}
 	for rows.Next() {
 		p := &ProxmoxProvision{}
-		if err := rows.Scan(&p.ID, &p.ClusterID, &p.Name, &p.VMID, &p.Status, &p.Log, &p.ServerID, &p.CreatedBy, &p.CreatedAt, &p.FinishedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.ClusterID, &p.Name, &p.VMID, &p.Status, &p.Log, &p.ServerID, &p.CreatedBy, &p.CreatedAt, &p.FinishedAt, &p.TenantID); err != nil {
 			return nil, err
 		}
 		out = append(out, p)

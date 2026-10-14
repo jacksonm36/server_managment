@@ -7,6 +7,10 @@ auth, and the endpoints servermgr uses, with in-memory state.
       [--guest-ip 10.247.11.50]   # IP the guest agent reports for new VMs
 
 Tasks finish after ~2 s. Not for production use.
+
+Tenant isolation is mocked too: pools, users, API tokens and ACLs. A
+token other than --token only sees and touches guests in pools its user
+has an ACL on (plus templates with an ACL on /vms/<id>), like Proxmox.
 """
 import argparse, json, os, re, ssl, subprocess, tempfile, threading, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,6 +31,12 @@ GUESTS = {
     200: {"type": "lxc", "node": "pve2", "name": "dns-ct", "status": "running", "maxcpu": 1, "maxmem": 512 << 20, "maxdisk": 8 << 30, "template": 0, "started": now() - 3600, "config": {}},
     9000: {"type": "qemu", "node": "pve1", "name": "debian-13-cloud", "status": "stopped", "maxcpu": 2, "maxmem": 2 << 30, "maxdisk": 10 << 30, "template": 1, "started": 0, "config": {}},
 }
+STORAGES = ["local", "local-lvm"]
+BRIDGES = ["vmbr0", "vmbr1"]
+POOLS = {}
+USERS = {"root@pam"}
+TOKENS = {}  # token id -> (user, secret); the --token one is root
+ACLS = []  # (path, role, user)
 SNAPS = {100: [{"name": "before-upgrade", "description": "pre apt upgrade", "snaptime": now() - 7200, "vmstate": 0}]}
 TASKS = {}
 
@@ -50,14 +60,35 @@ def task(node, kind, vmid, fn=None):
     return upid
 
 
-def resources():
+def can(user, path):
+    return user == "root@pam" or any(u == user and (p == "/" or p == path) for p, _, u in ACLS)
+
+
+def can_guest(user, vmid, admin=True):
+    g = GUESTS.get(vmid)
+    if not g:
+        return False
+    if g.get("pool") and can(user, "/pool/" + g["pool"]):
+        return True
+    return (not admin and can(user, f"/vms/{vmid}")) or user == "root@pam"
+
+
+def resources(user="root@pam"):
     out = []
     for n, v in NODES.items():
+        for s in STORAGES:
+            if can(user, "/storage/" + s):
+                out.append({"id": f"storage/{n}/{s}", "type": "storage", "storage": s, "node": n, "status": "available",
+                            "maxdisk": 500 << 30, "disk": 100 << 30})
+        if user != "root@pam":
+            continue
         out.append({"id": f"node/{n}", "type": "node", "node": n, "status": "online", "maxcpu": v["maxcpu"], "cpu": 0.12,
                     "maxmem": v["maxmem"], "mem": v["maxmem"] // 3, "maxdisk": 500 << 30, "disk": 120 << 30, "uptime": 99999})
     for vmid, g in GUESTS.items():
+        if not can_guest(user, vmid, admin=False):
+            continue
         run = g["status"] == "running"
-        out.append({"id": f"{g['type']}/{vmid}", "type": g["type"], "vmid": vmid, "node": g["node"], "name": g["name"],
+        out.append({"id": f"{g['type']}/{vmid}", "type": g["type"], "vmid": vmid, "node": g["node"], "name": g["name"], "pool": g.get("pool", ""),
                     "status": g["status"], "maxcpu": g["maxcpu"], "cpu": 0.05 if run else 0, "maxmem": g["maxmem"],
                     "mem": g["maxmem"] // 2 if run else 0, "maxdisk": g["maxdisk"], "disk": 0, "template": g["template"],
                     "uptime": now() - g["started"] if run else 0})
@@ -77,8 +108,15 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def handle_any(self, method):
-        if self.headers.get("Authorization") != "PVEAPIToken=" + args.token:
-            return self.send(401, err="authentication failure")
+        auth = self.headers.get("Authorization") or ""
+        if auth == "PVEAPIToken=" + args.token:
+            self.user = "root@pam"
+        else:
+            tid, _, sec = auth.removeprefix("PVEAPIToken=").partition("=")
+            t = TOKENS.get(tid)
+            if not t or t[1] != sec:
+                return self.send(401, err="authentication failure")
+            self.user = t[0]
         u = urllib.parse.urlparse(self.path)
         p = u.path
         if not p.startswith("/api2/json/"):
@@ -91,11 +129,17 @@ class H(BaseHTTPRequestHandler):
             return self.route(method, p, form, q)
 
     def route(self, method, p, form, q):
+        user, root = self.user, self.user == "root@pam"
+        deny = lambda: self.send(403, err="Permission check failed")
+        if p.startswith("/pools") or p.startswith("/access") or re.fullmatch(r"/nodes/[\w-]+/network", p):
+            if not root:
+                return deny()
+            return self.admin(method, p, form)
         if method == "GET" and p == "/version":
             return self.send(200, {"version": "8.4.1", "release": "8.4", "repoid": "mock"})
         if method == "GET" and p == "/cluster/resources":
             t = q.get("type")
-            res = resources()
+            res = resources(user)
             if t == "vm":
                 res = [r for r in res if r["type"] in ("qemu", "lxc")]
             elif t:
@@ -103,7 +147,7 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, res)
         if method == "GET" and p == "/cluster/nextid":
             return self.send(200, str(max([i for i in GUESTS if i < 9000] + [99]) + 1))
-        if method == "GET" and p == "/nodes":
+        if method == "GET" and p == "/nodes" and root:
             return self.send(200, [{"node": n, "status": "online", "maxcpu": v["maxcpu"], "cpu": 0.12, "maxmem": v["maxmem"], "mem": v["maxmem"] // 3, "uptime": 99999} for n, v in NODES.items()])
         m = re.fullmatch(r"/nodes/([\w-]+)/tasks/([^/]+)/status", p)
         if m and method == "GET":
@@ -116,6 +160,15 @@ class H(BaseHTTPRequestHandler):
         g = GUESTS.get(vmid)
         if not g or g["node"] != node or g["type"] != typ:
             return self.send(500, err=f"Configuration file 'nodes/{node}/{typ}-server/{vmid}.conf' does not exist")
+        if rest == "/clone":
+            if not can_guest(user, vmid, admin=False) or (not root and not can(user, "/pool/" + form.get("pool", ""))):
+                return deny()
+            if form.get("storage") and not can(user, "/storage/" + form["storage"]):
+                return deny()
+        elif not can_guest(user, vmid):
+            return deny()
+        if "net0" in form and not can(user, "/sdn/zones/localnetwork/" + form["net0"].partition("bridge=")[2].split(",")[0]):
+            return deny()
 
         sm = re.fullmatch(r"/status/(start|stop|shutdown|reboot|suspend|resume)", rest)
         if sm and method == "POST":
@@ -173,7 +226,7 @@ class H(BaseHTTPRequestHandler):
 
             def clone():
                 GUESTS[newid] = {**{k: v for k, v in g.items() if k != "config"}, "node": target, "name": form.get("name", f"vm-{newid}"),
-                                 "template": 0, "status": "stopped", "started": 0, "config": {"agent": "1"}}
+                                 "template": 0, "status": "stopped", "started": 0, "config": {"agent": "1"}, "pool": form.get("pool", "")}
             return self.send(200, task(node, "qmclone", vmid, clone))
         if rest == "/resize" and method == "PUT":
             return self.send(200, None)
@@ -188,6 +241,53 @@ class H(BaseHTTPRequestHandler):
                 return self.send(500, err="VM is running - destroy failed")
             return self.send(200, task(node, "qmdestroy", vmid, lambda: GUESTS.pop(vmid, None)))
         return self.send(501, err=f"mock: {method} {rest} not implemented")
+
+    def admin(self, method, p, form):
+        """Pools, users, tokens, ACLs and bridges (root token only)."""
+        if p == "/pools" and method == "GET":
+            return self.send(200, [{"poolid": k, "comment": v} for k, v in POOLS.items()])
+        if p == "/pools" and method == "POST":
+            POOLS[form["poolid"]] = form.get("comment", "")
+            return self.send(200, None)
+        if p == "/access/users" and method == "GET":
+            return self.send(200, [{"userid": u} for u in sorted(USERS)])
+        if p == "/access/users" and method == "POST":
+            USERS.add(form["userid"])
+            return self.send(200, None)
+        m = re.fullmatch(r"/access/users/([^/]+)", p)
+        if m and method == "DELETE":
+            u = urllib.parse.unquote(m.group(1))
+            if u not in USERS:
+                return self.send(500, err=f"user '{u}' does not exist")
+            USERS.discard(u)
+            for k in [k for k, t in TOKENS.items() if t[0] == u]:
+                del TOKENS[k]
+            ACLS[:] = [a for a in ACLS if a[2] != u]
+            return self.send(200, None)
+        m = re.fullmatch(r"/access/users/([^/]+)/token/([\w-]+)", p)
+        if m:
+            u, name = urllib.parse.unquote(m.group(1)), m.group(2)
+            full = f"{u}!{name}"
+            if method == "DELETE":
+                TOKENS.pop(full, None)
+                return self.send(200, None)
+            if u not in USERS or full in TOKENS:
+                return self.send(500, err="cannot create token")
+            sec = os.urandom(16).hex()
+            TOKENS[full] = (u, sec)
+            return self.send(200, {"full-tokenid": full, "value": sec})
+        if p == "/access/acl" and method == "GET":
+            return self.send(200, [{"path": a[0], "roleid": a[1], "type": "user", "ugid": a[2], "propagate": 1} for a in ACLS])
+        if p == "/access/acl" and method == "PUT":
+            e = (form["path"], form["roles"], form["users"])
+            if form.get("delete") == "1":
+                ACLS[:] = [a for a in ACLS if a != e]
+            elif e not in ACLS:
+                ACLS.append(e)
+            return self.send(200, None)
+        if re.fullmatch(r"/nodes/[\w-]+/network", p):
+            return self.send(200, [{"iface": b, "type": "bridge"} for b in BRIDGES])
+        return self.send(501, err=f"mock: {method} {p} not implemented")
 
     def do_GET(self):
         self.handle_any("GET")

@@ -20,6 +20,7 @@ type User struct {
 	MustChangePassword bool       `json:"must_change_password"`
 	TOTPEnabled        bool       `json:"totp_enabled"`
 	Groups             []int64    `json:"groups"`
+	TenantID           *int64     `json:"tenant_id"`
 	Sessions           int        `json:"sessions"`
 	LastLogin          *time.Time `json:"last_login"`
 	CreatedAt          time.Time  `json:"created_at"`
@@ -30,7 +31,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]*User, error) {
 		SELECT a.id, a.username, a.display_name, a.email, a.role, a.disabled, a.must_change_password, a.totp_enabled,
 		       COALESCE((SELECT array_agg(m.group_id ORDER BY m.group_id) FROM user_group_members m WHERE m.admin_id = a.id), '{}'),
 		       (SELECT count(*) FROM sessions x WHERE x.admin_id = a.id AND x.expires_at > now()),
-		       a.last_login, a.created_at
+		       a.last_login, a.created_at, a.tenant_id
 		FROM admins a ORDER BY a.username`)
 	if err != nil {
 		return nil, err
@@ -40,7 +41,7 @@ func (s *Store) ListUsers(ctx context.Context) ([]*User, error) {
 	for rows.Next() {
 		u := &User{}
 		if err := rows.Scan(&u.ID, &u.Username, &u.DisplayName, &u.Email, &u.Role, &u.Disabled, &u.MustChangePassword,
-			&u.TOTPEnabled, &u.Groups, &u.Sessions, &u.LastLogin, &u.CreatedAt); err != nil {
+			&u.TOTPEnabled, &u.Groups, &u.Sessions, &u.LastLogin, &u.CreatedAt, &u.TenantID); err != nil {
 			return nil, err
 		}
 		out = append(out, u)
@@ -52,9 +53,9 @@ func (s *Store) ListUsers(ctx context.Context) ([]*User, error) {
 func (s *Store) CreateUser(ctx context.Context, u *User, hash string) error {
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `
-			INSERT INTO admins (username, password_hash, role, display_name, email, must_change_password)
-			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-			u.Username, hash, u.Role, u.DisplayName, u.Email, u.MustChangePassword).Scan(&u.ID); err != nil {
+			INSERT INTO admins (username, password_hash, role, display_name, email, must_change_password, tenant_id)
+			VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+			u.Username, hash, u.Role, u.DisplayName, u.Email, u.MustChangePassword, u.TenantID).Scan(&u.ID); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx, `INSERT INTO user_group_members (group_id, admin_id) SELECT unnest($2::bigint[]), $1 ON CONFLICT DO NOTHING`, u.ID, u.Groups)
@@ -72,10 +73,29 @@ func (s *Store) CreateUser(ctx context.Context, u *User, hash string) error {
 // UpdateUser changes a user's profile, main role, disabled flag and groups.
 // It refuses to leave the panel without an enabled admin; disabling a user
 // also ends their sessions.
-func (s *Store) UpdateUser(ctx context.Context, u *User) error {
+//
+// keepTenant leaves the user's tenant as it is; otherwise u.TenantID is set.
+func (s *Store) UpdateUser(ctx context.Context, u *User, keepTenant bool) error {
 	err := pgx.BeginFunc(ctx, s.db, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE admins SET role = $2, disabled = $3, display_name = $4, email = $5 WHERE id = $1`,
-			u.ID, u.Role, u.Disabled, u.DisplayName, u.Email)
+		if keepTenant {
+			if err := tx.QueryRow(ctx, `SELECT tenant_id FROM admins WHERE id = $1`, u.ID).Scan(&u.TenantID); err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrNotFound
+				}
+				return err
+			}
+		}
+		// Moving a user into or out of a tenant ends their sessions, so
+		// no session keeps the access it had before.
+		var moved bool
+		if err := tx.QueryRow(ctx, `SELECT tenant_id IS DISTINCT FROM $2 FROM admins WHERE id = $1`, u.ID, u.TenantID).Scan(&moved); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
+		}
+		tag, err := tx.Exec(ctx, `UPDATE admins SET role = $2, disabled = $3, display_name = $4, email = $5, tenant_id = $6 WHERE id = $1`,
+			u.ID, u.Role, u.Disabled, u.DisplayName, u.Email, u.TenantID)
 		if err != nil {
 			return err
 		}
@@ -93,7 +113,7 @@ func (s *Store) UpdateUser(ctx context.Context, u *User) error {
 				return err
 			}
 		}
-		if u.Disabled {
+		if u.Disabled || moved {
 			_, err = tx.Exec(ctx, `DELETE FROM sessions WHERE admin_id = $1`, u.ID)
 		}
 		return err
@@ -104,11 +124,11 @@ func (s *Store) UpdateUser(ctx context.Context, u *User) error {
 	return err
 }
 
-var ErrLastAdmin = errors.New("at least one enabled admin must remain")
+var ErrLastAdmin = errors.New("at least one enabled admin outside any tenant must remain")
 
 func ensureAdmin(ctx context.Context, tx pgx.Tx) error {
 	var n int
-	if err := tx.QueryRow(ctx, `SELECT count(*) FROM admins WHERE role = 'admin' AND NOT disabled`).Scan(&n); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM admins WHERE role = 'admin' AND NOT disabled AND tenant_id IS NULL`).Scan(&n); err != nil {
 		return err
 	}
 	if n == 0 {

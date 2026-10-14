@@ -181,6 +181,7 @@ export type User = {
   sessions: number;
   last_login: string | null;
   created_at: string;
+  tenant_id: number | null;
 };
 
 export type UserBody = {
@@ -192,6 +193,7 @@ export type UserBody = {
   disabled: boolean;
   must_change_password?: boolean;
   groups: number[];
+  tenant_id?: number | null;
 };
 
 export type VaultStatus = { configured: boolean; unlocked: boolean };
@@ -243,7 +245,38 @@ export type Me = {
   permissions: string[];
   server_permissions: Record<string, string[]>;
   vault: VaultStatus;
+  tenant: { id: number; name: string } | null;
 };
+
+export type Tenant = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  server_group_id: number | null;
+  max_guests: number;
+  max_cores: number;
+  max_memory_mb: number;
+  max_disk_gb: number;
+  users: number;
+  created_at: string;
+  clusters: TenantCluster[];
+};
+export type TenantBody = Pick<Tenant, "name" | "description" | "server_group_id" | "max_guests" | "max_cores" | "max_memory_mb" | "max_disk_gb"> & { slug?: string };
+export type TenantCluster = {
+  tenant_id: number;
+  cluster_id: string;
+  pool: string;
+  storages: string[];
+  bridges: string[];
+  templates: number[];
+  pve_user: string;
+  token_id: string;
+  set_up_at: string | null;
+};
+export type TenantClusterBody = { pool: string; storages: string[]; bridges: string[]; templates: number[]; rotate?: boolean };
+export type TenantOptions = { storages: string[]; bridges: string[]; templates: { vmid: number; name: string; node: string }[]; pools: string[] };
+export type TenantUsage = { guests: number; cores: number; memory_mb: number; disk_gb: number };
 
 export type Permission = { key: string; label: string; group: string; server: boolean };
 
@@ -304,7 +337,8 @@ export type CatalogSource = {
 };
 export type CatalogStatus = { running: boolean; done: number; total: number; last_run: string | null; sources: CatalogSource[] };
 
-export type PVECluster = { id: string; name: string; url: string; token_id: string; fingerprint: string; created_at: string; updated_at: string };
+// A tenant's user gets only id, name and pool.
+export type PVECluster = { id: string; name: string; url?: string; token_id?: string; fingerprint?: string; pool?: string; created_at?: string; updated_at?: string };
 export type PVEResource = {
   id: string;
   type: "node" | "qemu" | "lxc" | "storage";
@@ -321,9 +355,20 @@ export type PVEResource = {
   uptime: number;
   template?: number;
   tags?: string;
+  pool?: string;
+  storage?: string;
 };
-export type PVEGuest = PVEResource & { server_id?: string; server_name?: string };
-export type PVEResources = { cluster: PVECluster; version?: string; error?: string; nodes?: PVEResource[]; guests?: PVEGuest[]; storage?: PVEResource[] };
+export type PVEGuest = PVEResource & { server_id?: string; server_name?: string; tenant?: string };
+export type PVETenantInfo = { name: string; pool: string; storages: string[]; bridges: string[]; usage: TenantUsage; quota: TenantUsage };
+export type PVEResources = {
+  cluster: PVECluster;
+  version?: string;
+  error?: string;
+  nodes?: PVEResource[];
+  guests?: PVEGuest[];
+  storage?: PVEResource[];
+  tenant?: PVETenantInfo;
+};
 export type PVESnapshot = { name: string; description?: string; snaptime?: number; vmstate?: number; parent?: string };
 export type PVEProvision = {
   id: string;
@@ -617,8 +662,18 @@ export const api = {
       ip: string;
       gateway: string;
       enroll: boolean;
+      storage?: string;
+      bridge?: string;
     },
   ) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/provision`, b),
+  tenants: () => request<Tenant[]>("GET", "/api/v1/tenants"),
+  saveTenant: (id: number | null, t: TenantBody) =>
+    id ? request<Tenant>("PUT", `/api/v1/tenants/${id}`, t) : request<Tenant>("POST", "/api/v1/tenants", t),
+  deleteTenant: (id: number) => request<void>("DELETE", `/api/v1/tenants/${id}`),
+  tenantOptions: (cluster: string) => request<TenantOptions>("GET", `/api/v1/tenant-options/${cluster}`),
+  setupTenantCluster: (id: number, cluster: string, b: TenantClusterBody) =>
+    request<{ cluster: TenantCluster; steps: string[] }>("PUT", `/api/v1/tenants/${id}/clusters/${cluster}`, b),
+  removeTenantCluster: (id: number, cluster: string) => request<void>("DELETE", `/api/v1/tenants/${id}/clusters/${cluster}`),
   tofu: () => request<TofuOverview>("GET", "/api/v1/tofu"),
   tofuSetup: () => request<void>("POST", "/api/v1/tofu/setup"),
   saveTofuWorkspace: (

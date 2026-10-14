@@ -15,7 +15,7 @@ import {
   Trash2,
   Undo2,
 } from "lucide-react";
-import { api, type PVECluster, type PVEGuest, type PVEProvision, type PVEResources, type PVESnapshot } from "@/lib/api";
+import { api, type PVECluster, type PVEGuest, type PVEProvision, type PVEResources, type PVESnapshot, type PVETenantInfo } from "@/lib/api";
 import { useAccess, type Access } from "@/lib/access";
 import { formatBytes, formatUptime, pct, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -154,11 +154,18 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">{cluster.name}</span>
-          <span className="font-mono text-xs text-muted-foreground">{cluster.url}</span>
+          {cluster.url && <span className="font-mono text-xs text-muted-foreground">{cluster.url}</span>}
           {res?.version && <Badge variant="outline">PVE {res.version}</Badge>}
-          <Badge variant="success" className="gap-1" title={`Pinned certificate SHA-256 ${cluster.fingerprint}`}>
-            <ShieldCheck className="size-3" /> pinned
-          </Badge>
+          {cluster.fingerprint && (
+            <Badge variant="success" className="gap-1" title={`Pinned certificate SHA-256 ${cluster.fingerprint}`}>
+              <ShieldCheck className="size-3" /> pinned
+            </Badge>
+          )}
+          {res?.tenant && (
+            <Badge variant="success" className="gap-1" title="Your organization's own pool, isolated by Proxmox">
+              <ShieldCheck className="size-3" /> pool {res.tenant.pool}
+            </Badge>
+          )}
         </div>
         <div className="flex gap-1">
           <Button size="icon" variant="ghost" className="size-8" aria-label="Refresh" onClick={load}>
@@ -188,6 +195,8 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
       {msg && (
         <p className={`rounded-lg border px-4 py-2 text-sm ${msg.ok ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive"}`}>{msg.text}</p>
       )}
+
+      {res?.tenant && <TenantUsageCard t={res.tenant} />}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {(res?.nodes ?? []).map((n) => (
@@ -234,6 +243,11 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium">{g.name}</span>
                         <Badge variant="outline">{g.type === "qemu" ? "VM" : "CT"}</Badge>
+                        {g.tenant && (
+                          <Badge variant="outline" title={`In pool ${g.pool}`}>
+                            {g.tenant}
+                          </Badge>
+                        )}
                         {g.server_id && (
                           <Link href={`/servers/${g.server_id}`} className="text-xs text-brand hover:underline">
                             managed
@@ -284,7 +298,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
                           <Icon title="Snapshots" onClick={() => setSnaps(g)}>
                             <Camera />
                           </Icon>
-                          {ac.can("proxmox.manage") && (
+                          {ac.can("proxmox.guests") && (
                             <Icon title={running ? "Stop it before deleting" : "Delete"} className="text-destructive" disabled={running || !!b} onClick={() => setDel(g)}>
                               <Trash2 />
                             </Icon>
@@ -320,7 +334,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
                         {t.vmid} · {t.node}
                       </span>
                     </span>
-                    {ac.can("proxmox.manage") && (
+                    {ac.can("proxmox.guests") && (
                       <Button size="sm" variant="brand" onClick={() => setNewVM(t)}>
                         <CloneIcon /> New VM
                       </Button>
@@ -388,6 +402,8 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
           cluster={cluster}
           template={newVM}
           nodes={(res?.nodes ?? []).map((n) => n.node)}
+          storages={[...new Set((res?.storage ?? []).map((x) => x.storage ?? ""))].filter(Boolean).sort()}
+          tenant={res?.tenant}
           onClose={() => setNewVM(null)}
           onStarted={() => {
             setNewVM(null);
@@ -404,6 +420,35 @@ function Icon({ title, onClick, disabled, className = "", children }: { title: s
     <Button size="icon" variant="ghost" className={`size-7 [&_svg]:size-3.5 ${className}`} title={title} aria-label={title} disabled={disabled} onClick={onClick}>
       {children}
     </Button>
+  );
+}
+
+function TenantUsageCard({ t }: { t: PVETenantInfo }) {
+  const rows: { label: string; used: number; max: number; fmt: (n: number) => string }[] = [
+    { label: "Guests", used: t.usage.guests, max: t.quota.guests, fmt: String },
+    { label: "vCPUs", used: t.usage.cores, max: t.quota.cores, fmt: String },
+    { label: "Memory", used: t.usage.memory_mb, max: t.quota.memory_mb, fmt: (n) => formatBytes(n * 1024 * 1024) },
+    { label: "Disk", used: t.usage.disk_gb, max: t.quota.disk_gb, fmt: (n) => `${n} GB` },
+  ];
+  return (
+    <Card className="p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span className="font-medium">{t.name}</span>
+        <span className="text-xs text-muted-foreground">
+          Storage: {t.storages.join(", ") || "none"} · Network: {t.bridges.join(", ") || "none"}
+        </span>
+      </div>
+      <div className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-4">
+        {rows.map((r) => (
+          <Meter
+            key={r.label}
+            label={r.label}
+            value={r.max > 0 ? (r.used / r.max) * 100 : 0}
+            text={r.max > 0 ? `${r.fmt(r.used)} of ${r.fmt(r.max)}` : `${r.fmt(r.used)} (no limit)`}
+          />
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -424,7 +469,7 @@ function Meter({ label, value, text }: { label: string; value: number; text: str
 
 function ClusterDialog({ cluster, onClose, onSaved }: { cluster: PVECluster | null; onClose: () => void; onSaved: (id: string) => void }) {
   const [f, setF] = useState({ name: cluster?.name ?? "", url: cluster?.url ?? "https://", token_id: cluster?.token_id ?? "", token_secret: "" });
-  const [probe, setProbe] = useState<{ fingerprint: string; subject: string } | null>(cluster ? { fingerprint: cluster.fingerprint, subject: "" } : null);
+  const [probe, setProbe] = useState<{ fingerprint: string; subject: string } | null>(cluster ? { fingerprint: cluster.fingerprint ?? "", subject: "" } : null);
   const [trusted, setTrusted] = useState(!!cluster);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -583,7 +628,7 @@ function SnapshotsDialog({ cluster, guest, ac, onClose }: { cluster: PVECluster;
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    {ac.can("proxmox.manage") && (
+                    {ac.can("proxmox.guests") && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -703,12 +748,16 @@ function ProvisionDialog({
   cluster,
   template,
   nodes,
+  storages,
+  tenant,
   onClose,
   onStarted,
 }: {
   cluster: PVECluster;
   template: PVEGuest;
   nodes: string[];
+  storages: string[];
+  tenant?: PVETenantInfo;
   onClose: () => void;
   onStarted: () => void;
 }) {
@@ -723,7 +772,10 @@ function ProvisionDialog({
     ip: "",
     gateway: "",
     enroll: true,
+    storage: tenant?.storages.length === 1 ? tenant.storages[0] : "",
+    bridge: tenant?.bridges.length === 1 ? tenant.bridges[0] : "",
   });
+  const storageChoices = tenant ? tenant.storages : storages;
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -755,6 +807,8 @@ function ProvisionDialog({
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
                 enroll: f.enroll,
+                storage: f.storage,
+                bridge: f.bridge.trim(),
               });
               onStarted();
             } catch (e) {
@@ -769,18 +823,48 @@ function ProvisionDialog({
               <Label htmlFor="pp-name">Hostname</Label>
               <Input id="pp-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="web-03" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" required />
             </div>
+            {!tenant && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="pp-node">Node</Label>
+                <Select id="pp-node" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })}>
+                  <option value="">{template.node} (same as template)</option>
+                  {nodes
+                    .filter((n) => n !== template.node)
+                    .map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                </Select>
+              </div>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label htmlFor="pp-node">Node</Label>
-              <Select id="pp-node" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })}>
-                <option value="">{template.node} (same as template)</option>
-                {nodes
-                  .filter((n) => n !== template.node)
-                  .map((n) => (
-                    <option key={n} value={n}>
-                      {n}
+              <Label htmlFor="pp-storage">Disk storage</Label>
+              <Select id="pp-storage" value={f.storage} required={!!tenant} onChange={(e) => setF({ ...f, storage: e.target.value })}>
+                {tenant ? <option value="">Pick one…</option> : <option value="">Same as the template</option>}
+                {storageChoices.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="pp-bridge">Network bridge</Label>
+              {tenant ? (
+                <Select id="pp-bridge" value={f.bridge} required onChange={(e) => setF({ ...f, bridge: e.target.value })}>
+                  <option value="">Pick one…</option>
+                  {tenant.bridges.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
                     </option>
                   ))}
-              </Select>
+                </Select>
+              ) : (
+                <Input id="pp-bridge" value={f.bridge} onChange={(e) => setF({ ...f, bridge: e.target.value })} placeholder="Same as the template (e.g. vmbr0)" />
+              )}
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -804,9 +888,12 @@ function ProvisionDialog({
               </div>
             )}
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={f.full_clone} onChange={(e) => setF({ ...f, full_clone: e.target.checked })} /> Full clone (independent of the template)
-          </label>
+          {!tenant && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={f.full_clone} onChange={(e) => setF({ ...f, full_clone: e.target.checked })} /> Full clone (independent of the
+              template)
+            </label>
+          )}
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-1" checked={f.enroll} onChange={(e) => setF({ ...f, enroll: e.target.checked })} />
             <span>

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
@@ -54,6 +55,11 @@ type API struct {
 	Ctx context.Context
 
 	limiter *loginLimiter
+
+	// pveReserved holds the quota of tenant VMs being created, which do
+	// not show up in their pool yet.
+	pveMu       sync.Mutex
+	pveReserved map[int64]tenantUsage
 }
 
 func (a *API) Handler() http.Handler {
@@ -129,13 +135,20 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("DELETE /api/v1/proxmox/{id}", need("proxmox.manage", a.handleDeletePVE))
 	authed.HandleFunc("GET /api/v1/proxmox/provisions", need("proxmox.operate", a.handleListProvisions))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/resources", need("proxmox.view", a.handlePVEResources))
-	authed.HandleFunc("POST /api/v1/proxmox/{id}/provision", need("proxmox.manage", a.handlePVEProvision))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/provision", need("proxmox.guests", a.handlePVEProvision))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/power", need("proxmox.operate", a.handlePVEPower))
-	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.manage", a.handlePVEDeleteGuest))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.guests", a.handlePVEDeleteGuest))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("proxmox.view", a.handlePVESnapshots))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("proxmox.operate", a.handlePVESnapshotCreate))
 	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}", need("proxmox.operate", a.handlePVESnapshotDelete))
-	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}/rollback", need("proxmox.manage", a.handlePVESnapshotRollback))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}/rollback", need("proxmox.guests", a.handlePVESnapshotRollback))
+	authed.HandleFunc("GET /api/v1/tenants", need("tenants.manage", a.handleListTenants))
+	authed.HandleFunc("POST /api/v1/tenants", need("tenants.manage", a.handleSaveTenant))
+	authed.HandleFunc("PUT /api/v1/tenants/{id}", need("tenants.manage", a.handleSaveTenant))
+	authed.HandleFunc("DELETE /api/v1/tenants/{id}", need("tenants.manage", a.handleDeleteTenant))
+	authed.HandleFunc("GET /api/v1/tenant-options/{cluster}", need("tenants.manage", a.handleTenantOptions))
+	authed.HandleFunc("PUT /api/v1/tenants/{id}/clusters/{cluster}", need("tenants.manage", a.handleSetupTenantCluster))
+	authed.HandleFunc("DELETE /api/v1/tenants/{id}/clusters/{cluster}", need("tenants.manage", a.handleRemoveTenantCluster))
 	authed.HandleFunc("GET /api/v1/tofu", need("tofu.view", a.handleTofuOverview))
 	authed.HandleFunc("POST /api/v1/tofu/setup", need("tofu.manage", a.handleTofuSetup))
 	authed.HandleFunc("POST /api/v1/tofu/workspaces", need("tofu.manage", a.handleSaveTofuWorkspace))

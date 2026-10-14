@@ -113,6 +113,11 @@ export function App() {
             )}
           </nav>
           <div className="flex items-center gap-3 text-sm">
+            {me.tenant && (
+              <span className="rounded-md border px-2 py-0.5 text-xs text-muted-foreground" title="You work inside this organization">
+                {me.tenant.name}
+              </span>
+            )}
             <ConnectionDot />
             <Link href="/account" className="text-muted-foreground hover:text-foreground" title={`Account & security (${me.role})`}>
               {me.display_name || user}
