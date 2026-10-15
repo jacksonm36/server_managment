@@ -53,7 +53,7 @@ type fakeConsole struct {
 // fakeStorageInfo is each storage's type and content types.
 var fakeStorageInfo = map[string][2]string{
 	"local":     {"dir", "iso,vztmpl,backup,import"},
-	"local-lvm": {"lvmthin", "images,rootdir"},
+	"local-lvm": {"lvmthin", "images,rootdir,backup"}, // backup: lets the tenant test back up to its one storage
 	"ceph":      {"rbd", "images"},
 	"nas":       {"nfs", "backup,iso"},
 }
@@ -305,8 +305,11 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "storage" && r.Method == "GET":
 		out := []map[string]any{}
 		for _, st := range f.storage {
+			info := fakeStorageInfo[st]
+			if c := r.Form.Get("content"); c != "" && !slices.Contains(strings.Split(info[1], ","), c) {
+				continue
+			}
 			if f.can(user, "/storage/"+st) {
-				info := fakeStorageInfo[st]
 				out = append(out, map[string]any{"storage": st, "active": 1, "enabled": 1, "type": info[0], "content": info[1]})
 			}
 		}
@@ -317,6 +320,13 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out := []map[string]any{}
+		if r.Form.Get("content") == "iso" {
+			if strings.Contains(fakeStorageInfo[parts[3]][1], "iso") {
+				out = append(out, map[string]any{"volid": parts[3] + ":iso/debian-13.iso"})
+			}
+			f.reply(w, 200, out, "")
+			return
+		}
 		if r.Form.Get("content") == "import" {
 			for volid := range f.imports {
 				if strings.HasPrefix(volid, parts[3]+":") {
@@ -452,7 +462,7 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 			return
 		}
 		newid, _ := strconv.Atoi(r.Form.Get("newid"))
-		ng := &fakeGuest{typ: g.typ, node: g.node, name: r.Form.Get("name"), pool: pool, status: "stopped", cores: g.cores, memMB: g.memMB, diskGB: g.diskGB, config: map[string]string{}}
+		ng := &fakeGuest{typ: g.typ, node: g.node, name: r.Form.Get("name") + r.Form.Get("hostname"), pool: pool, status: "stopped", cores: g.cores, memMB: g.memMB, diskGB: g.diskGB, config: map[string]string{}}
 		f.guests[newid] = ng
 		f.reply(w, 200, upid, "")
 	case !f.canGuest(user, vmid, true):
@@ -477,14 +487,21 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 			out[k] = v
 		}
 		f.reply(w, 200, out, "")
-	case sub == "config" && r.Method == "PUT":
-		if n := r.Form.Get("net0"); n != "" {
-			_, br, _ := strings.Cut(n, "bridge=")
-			if !f.can(user, "/sdn/zones/localnetwork/"+br) {
-				deny()
-				return
+	case sub == "config" && (r.Method == "PUT" || r.Method == "POST"):
+		for k, v := range r.Form {
+			if strings.HasPrefix(k, "net") {
+				_, br, _ := strings.Cut(v[0], "bridge=")
+				br, _, _ = strings.Cut(br, ",")
+				if !f.can(user, "/sdn/zones/localnetwork/"+br) {
+					deny()
+					return
+				}
 			}
 		}
+		for _, k := range strings.Split(r.Form.Get("delete"), ",") {
+			delete(g.config, k)
+		}
+		r.Form.Del("delete")
 		if c := r.Form.Get("cores"); c != "" {
 			g.cores, _ = strconv.Atoi(c)
 		}
@@ -534,7 +551,18 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		g.template = 1
 		f.reply(w, 200, nil, "")
 	case sub == "resize":
+		g.config["resized"] = r.Form.Get("disk") + " " + r.Form.Get("size")
 		f.reply(w, 200, nil, "")
+	case sub == "unlink" && r.Method == "PUT":
+		delete(g.config, r.Form.Get("idlist"))
+		f.reply(w, 200, nil, "")
+	case sub == "migrate" && r.Method == "POST":
+		if user != "root@pam" {
+			deny()
+			return
+		}
+		g.node = r.Form.Get("target")
+		f.reply(w, 200, upid, "")
 	case sub == "snapshot" && r.Method == "GET":
 		f.reply(w, 200, []map[string]any{{"name": "current"}, {"name": "base", "snaptime": 1}}, "")
 	case strings.HasPrefix(sub, "snapshot"):

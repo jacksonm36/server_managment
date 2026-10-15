@@ -389,6 +389,63 @@ func TestTenantIsolation(t *testing.T) {
 	expect("token: read users", pve.as(tok, sec, "GET", "/access/users", nil), 403)
 	expect("token: start own VM", pve.as(tok, sec, "POST", "/nodes/pve1/qemu/100/status/start", nil), 200)
 
+	// Hardware: tenants only pick their own storages, bridges and ISOs,
+	// stay inside their quota, and never reach another tenant's guest.
+	hw := "/api/v1/proxmox/" + cid + "/guests/pve1/qemu/100"
+	code, opts, _ := call(al, "GET", hw+"/hardware", nil)
+	expect("alice hardware options", code, 200)
+	if fmt.Sprint(opts["storages"]) != "[local-lvm]" || fmt.Sprint(opts["bridges"]) != "[vmbr1]" || fmt.Sprint(opts["isos"]) != "[]" {
+		t.Errorf("alice hardware options = %v", opts)
+	}
+	cfg := func(vmid int, k string) string {
+		pve.mu.Lock()
+		defer pve.mu.Unlock()
+		if g := pve.guests[vmid]; g != nil {
+			return g.config[k]
+		}
+		return ""
+	}
+	expect("alice: cores over quota", first(call(al, "PUT", hw+"/hardware", map[string]any{"cores": 64})), 403)
+	expect("alice: raw cpu string", first(call(al, "PUT", hw+"/hardware", map[string]any{"cpu": "host,args=-x"})), 400)
+	expect("alice: boot from a missing disk", first(call(al, "PUT", hw+"/hardware", map[string]any{"boot": []string{"scsi7"}})), 400)
+	expect("alice: memory, notes, tags", first(call(al, "PUT", hw+"/hardware", map[string]any{"memory": 3072, "description": "web box", "tags": []string{"web", "prod"}})), 204)
+	if cfg(100, "memory") != "3072" || cfg(100, "tags") != "web;prod" {
+		t.Errorf("hardware not applied: memory=%q tags=%q", cfg(100, "memory"), cfg(100, "tags"))
+	}
+	expect("alice: globex VM hardware", first(call(al, "PUT", "/api/v1/proxmox/"+cid+"/guests/pve1/qemu/101/hardware", map[string]any{"memory": 512})), 404)
+	expect("alice: globex VM options", first(call(al, "GET", "/api/v1/proxmox/"+cid+"/guests/pve1/qemu/101/hardware", nil)), 404)
+	expect("alice: disk on globex storage", first(call(al, "POST", hw+"/disks", map[string]any{"bus": "scsi", "storage": "ceph", "size_gb": 5})), 400)
+	expect("alice: add disk", first(call(al, "POST", hw+"/disks", map[string]any{"bus": "scsi", "storage": "local-lvm", "size_gb": 5})), 204)
+	if cfg(100, "scsi0") != "local-lvm:5,discard=on" {
+		t.Errorf("scsi0 = %q", cfg(100, "scsi0"))
+	}
+	expect("alice: grow disk", first(call(al, "POST", hw+"/disks/resize", map[string]any{"disk": "scsi0", "grow_gb": 5})), 204)
+	expect("alice: grow a missing disk", first(call(al, "POST", hw+"/disks/resize", map[string]any{"disk": "scsi3", "grow_gb": 5})), 400)
+	expect("alice: destroy without confirm", first(call(al, "POST", hw+"/disks/remove", map[string]any{"disk": "scsi0", "destroy": true})), 400)
+	expect("alice: destroy disk", first(call(al, "POST", hw+"/disks/remove", map[string]any{"disk": "scsi0", "destroy": true, "confirm": "scsi0"})), 204)
+	if cfg(100, "scsi0") != "" {
+		t.Errorf("scsi0 survived: %q", cfg(100, "scsi0"))
+	}
+	expect("alice: NIC on globex bridge", first(call(al, "PUT", hw+"/nics/net0", map[string]any{"model": "virtio", "bridge": "vmbr0"})), 400)
+	expect("alice: NIC", first(call(al, "PUT", hw+"/nics/net0", map[string]any{"model": "virtio", "bridge": "vmbr1", "vlan": 20, "firewall": true})), 204)
+	if cfg(100, "net0") != "virtio,bridge=vmbr1,tag=20,firewall=1" {
+		t.Errorf("net0 = %q", cfg(100, "net0"))
+	}
+	expect("alice: ISO from a storage she lacks", first(call(al, "PUT", hw+"/cdrom", map[string]any{"iso": "local:iso/debian-13.iso"})), 400)
+	expect("root: ISO", first(call(root, "PUT", hw+"/cdrom", map[string]any{"iso": "local:iso/debian-13.iso"})), 204)
+	if cfg(100, "ide2") != "local:iso/debian-13.iso,media=cdrom" {
+		t.Errorf("ide2 = %q", cfg(100, "ide2"))
+	}
+	expect("alice: clone globex VM", first(call(al, "POST", "/api/v1/proxmox/"+cid+"/guests/pve1/qemu/101/clone", map[string]any{"name": "copy"})), 404)
+	expect("alice: clone to globex storage", first(call(al, "POST", hw+"/clone", map[string]any{"name": "copy", "storage": "ceph"})), 400)
+	expect("alice: migrate", first(call(al, "POST", hw+"/migrate", map[string]any{"target": "pve2"})), 403)
+	expect("alice: make template", first(call(al, "POST", hw+"/template", map[string]any{"confirm": "100"})), 403)
+	expect("root: migrate to an offline node", first(call(root, "POST", "/api/v1/proxmox/"+cid+"/guests/pve2/lxc/102/migrate", map[string]any{"target": "pve3"})), 400)
+	expect("root: migrate", first(call(root, "POST", "/api/v1/proxmox/"+cid+"/guests/pve2/lxc/102/migrate", map[string]any{"target": "pve1"})), 202)
+	expect("root: clone", first(call(root, "POST", "/api/v1/proxmox/"+cid+"/guests/pve1/qemu/101/clone", map[string]any{"name": "globex-db-copy"})), 202)
+	expect("root: template without confirm", first(call(root, "POST", "/api/v1/proxmox/"+cid+"/guests/pve1/qemu/101/template", map[string]any{})), 400)
+	expect("root: make template", first(call(root, "POST", "/api/v1/proxmox/"+cid+"/guests/pve1/qemu/101/template", map[string]any{"confirm": "101"})), 204)
+
 	// A broader Proxmox ACL that leaks other guests to the tenant's user
 	// (here through a group it was put in) fails the isolation check.
 	pve.mu.Lock()

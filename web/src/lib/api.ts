@@ -377,6 +377,24 @@ export type PVEGuestDetail = {
   config: Record<string, string | number>;
   ips: string[] | null;
 };
+export type PVEHardwareOptions = { storages: string[]; bridges: string[]; isos: string[] };
+export type PVEHardwareReq = Partial<{
+  cores: number;
+  sockets: number;
+  cpu: string;
+  cpulimit: number;
+  memory: number;
+  balloon: number;
+  swap: number;
+  name: string;
+  description: string;
+  tags: string[];
+  onboot: boolean;
+  protection: boolean;
+  agent: boolean;
+  boot: string[];
+}>;
+export type PVENICReq = { model?: string; bridge: string; vlan?: number; firewall?: boolean; rate?: number; mac?: string; name?: string; ip?: string; gw?: string; link_down?: boolean };
 export type PVETimeframe = "hour" | "day" | "week" | "month" | "year";
 export type PVERRDPoint = { time: number; cpu?: number; maxcpu?: number; mem?: number; maxmem?: number; netin?: number; netout?: number; diskread?: number; diskwrite?: number };
 export type PVETask = { upid: string; type: string; user: string; status?: string; starttime: number; endtime?: number };
@@ -705,6 +723,20 @@ export const api = {
   pveFirewallDelete: (id: string, g: PVEGuestRef, pos: number) => request<void>("DELETE", `${pveGuestURL(id, g)}/firewall/rules/${pos}`),
   pveTaskLog: (id: string, g: PVEGuestRef, upid: string) =>
     request<{ log: string }>("GET", `${pveGuestURL(id, g)}/tasks/log?upid=${encodeURIComponent(upid)}`),
+  pveHardwareOptions: (id: string, g: PVEGuestRef) => request<PVEHardwareOptions>("GET", `${pveGuestURL(id, g)}/hardware`),
+  pveHardware: (id: string, g: PVEGuestRef, h: PVEHardwareReq) => request<void>("PUT", `${pveGuestURL(id, g)}/hardware`, h),
+  pveDiskAdd: (id: string, g: PVEGuestRef, d: { bus?: string; storage: string; size_gb: number; path?: string }) =>
+    request<void>("POST", `${pveGuestURL(id, g)}/disks`, d),
+  pveDiskResize: (id: string, g: PVEGuestRef, disk: string, grow_gb: number) => request<void>("POST", `${pveGuestURL(id, g)}/disks/resize`, { disk, grow_gb }),
+  pveDiskRemove: (id: string, g: PVEGuestRef, disk: string, destroy: boolean, confirm = "") =>
+    request<void>("POST", `${pveGuestURL(id, g)}/disks/remove`, { disk, destroy, confirm }),
+  pveNIC: (id: string, g: PVEGuestRef, key: string, n: PVENICReq) => request<void>("PUT", `${pveGuestURL(id, g)}/nics/${key}`, n),
+  pveNICDelete: (id: string, g: PVEGuestRef, key: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/nics/${key}`),
+  pveCDROM: (id: string, g: PVEGuestRef, iso: string) => request<void>("PUT", `${pveGuestURL(id, g)}/cdrom`, { iso }),
+  pveClone: (id: string, g: PVEGuestRef, c: { name: string; full: boolean; target?: string; storage?: string }) =>
+    request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/clone`, c),
+  pveMigrate: (id: string, g: PVEGuestRef, target: string, online: boolean) => request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/migrate`, { target, online }),
+  pveMakeTemplate: (id: string, g: PVEGuestRef, confirm: string) => request<void>("POST", `${pveGuestURL(id, g)}/template`, { confirm }),
   pveSnapshots: (id: string, g: PVEGuestRef) => request<PVESnapshot[]>("GET", `${pveGuestURL(id, g)}/snapshots`),
   pveSnapshot: (id: string, g: PVEGuestRef, s: { name: string; description: string; vmstate: boolean }) =>
     request<void>("POST", `${pveGuestURL(id, g)}/snapshots`, s),

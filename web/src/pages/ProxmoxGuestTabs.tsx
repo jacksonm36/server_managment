@@ -9,14 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input, Label } from "@/components/ui/input";
 import { Select, Textarea } from "@/components/ui/select";
 
-type TabProps = {
+export type TabProps = {
   cluster: string;
   guest: PVEGuestRef;
   detail: PVEGuestDetail;
   onChanged: () => void;
 };
 
-function useAction() {
+export function useAction() {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const run = async (label: string, f: () => Promise<unknown>, done?: string) => {

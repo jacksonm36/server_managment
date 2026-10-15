@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Camera, MonitorPlay, Pause, Play, Power, RefreshCw, RotateCw, Square } from "lucide-react";
+import { ArrowLeft, Camera, Copy, LayoutTemplate, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square } from "lucide-react";
 import { api, type PVEGuestDetail, type PVEGuestRef, type PVERRDPoint, type PVETask, type PVETimeframe } from "@/lib/api";
 import { useAccess } from "@/lib/access";
 import { formatBytes, formatUptime } from "@/lib/utils";
@@ -13,8 +13,9 @@ import { GuestConsole } from "@/components/GuestConsole";
 import { Meter } from "@/components/LiveChart";
 import { SnapshotsDialog } from "@/pages/Proxmox";
 import { BackupsTab, CloudInitTab, FirewallTab } from "@/pages/ProxmoxGuestTabs";
+import { GuestMoveDialog, HardwareTab } from "@/pages/ProxmoxGuestHardware";
 
-type Tab = "overview" | "config" | "backups" | "cloudinit" | "firewall" | "tasks";
+type Tab = "overview" | "hardware" | "config" | "backups" | "cloudinit" | "firewall" | "tasks";
 
 const timeframes: { tf: PVETimeframe; label: string }[] = [
   { tf: "hour", label: "Hour" },
@@ -56,6 +57,7 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
   const [log, setLog] = useState<PVETask | null>(null);
   const [console_, setConsole] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
+  const [move, setMove] = useState<"clone" | "migrate" | null>(null);
 
   const load = useCallback(
     () =>
@@ -155,6 +157,7 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
     .sort(([a], [b]) => a.localeCompare(b));
   const tabs: { id: Tab; label: string }[] = [
     { id: "overview", label: "Overview" },
+    { id: "hardware", label: "Hardware" },
     { id: "config", label: "Configuration" },
     { id: "backups", label: "Backups" },
     ...(g.type === "qemu" ? [{ id: "cloudinit" as const, label: "Cloud-init" }] : []),
@@ -225,6 +228,33 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
                 <Camera /> Snapshots
               </Button>
             </>
+          )}
+          {ac.can("proxmox.guests") && (
+            <Button size="sm" variant="secondary" onClick={() => setMove("clone")}>
+              <Copy /> Clone
+            </Button>
+          )}
+          {ac.can("proxmox.manage") && (
+            <Button size="sm" variant="secondary" onClick={() => setMove("migrate")}>
+              <MoveRight /> Migrate
+            </Button>
+          )}
+          {ac.can("proxmox.manage") && st.status === "stopped" && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const c = prompt(`Converting ${name} to a template can't be undone; it can then only be cloned. Type ${g.vmid} to confirm.`);
+                if (c)
+                  void api
+                    .pveMakeTemplate(cluster, ref, c)
+                    .then(() => setMsg({ ok: true, text: "Converted to a template." }))
+                    .catch((e) => setMsg({ ok: false, text: (e as Error).message }))
+                    .finally(load);
+              }}
+            >
+              <LayoutTemplate /> Make template
+            </Button>
           )}
         </div>
       </div>
@@ -334,6 +364,18 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
           </div>
         </>
       )}
+      {tab === "hardware" && (
+        <HardwareTab
+          key={JSON.stringify(g.config)}
+          cluster={cluster}
+          guest={ref}
+          detail={g}
+          onChanged={() => {
+            void load();
+            void loadTasks();
+          }}
+        />
+      )}
       {tab === "config" && (
         <>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -439,6 +481,21 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
       )}
 
       {snaps && <SnapshotsDialog cluster={{ id: cluster, name: "" }} guest={{ ...ref, name }} ac={ac} onClose={() => setSnaps(false)} />}
+      {move && (
+        <GuestMoveDialog
+          mode={move}
+          cluster={cluster}
+          guest={ref}
+          name={name}
+          running={running}
+          onClose={() => setMove(null)}
+          onDone={(text) => {
+            setMove(null);
+            setMsg({ ok: true, text });
+            void loadTasks();
+          }}
+        />
+      )}
       {console_ && <GuestConsole cluster={cluster} guest={ref} name={name} onClose={() => setConsole(false)} />}
       {log && <TaskLogDialog cluster={cluster} guest={ref} task={log} onClose={() => setLog(null)} />}
     </div>

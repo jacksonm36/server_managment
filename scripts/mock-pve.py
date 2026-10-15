@@ -177,8 +177,9 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, [{"n": i + 1, "t": x} for i, x in enumerate(lines)])
         m = re.fullmatch(r"/nodes/([\w-]+)/storage", p)
         if m and method == "GET":
-            return self.send(200, [{"storage": st, "active": 1, "enabled": 1, "type": STORAGE_INFO.get(st, ("dir", "backup,images"))[0],
-                                    "content": STORAGE_INFO.get(st, ("dir", "backup,images"))[1]} for st in STORAGES if can(user, "/storage/" + st)])
+            info = lambda st: STORAGE_INFO.get(st, ("dir", "backup,images"))
+            return self.send(200, [{"storage": st, "active": 1, "enabled": 1, "type": info(st)[0], "content": info(st)[1]} for st in STORAGES
+                                   if can(user, "/storage/" + st) and (not q.get("content") or q["content"] in info(st)[1].split(","))])
         m = re.fullmatch(r"/nodes/([\w-]+)/storage/([\w-]+)/download-url", p)
         if m and method == "POST":
             if user != "root@pam":
@@ -190,6 +191,9 @@ class H(BaseHTTPRequestHandler):
             st, volid = m.group(2), urllib.parse.unquote(m.group(3) or "")
             if not can(user, "/storage/" + st):
                 return self.send(403, err="Permission check failed")
+            if method == "GET" and not volid and q.get("content") == "iso":
+                return self.send(200, [{"volid": f"{st}:iso/{n}", "content": "iso", "size": 700 << 20} for n in ("debian-13.1.0-amd64-netinst.iso", "ubuntu-24.04.3-live-server-amd64.iso")
+                                       if "iso" in STORAGE_INFO.get(st, ("", ""))[1]])
             if method == "GET" and not volid and q.get("content") == "import":
                 return self.send(200, [{"volid": v, "content": "import", "format": "qcow2"} for v in IMPORTS if v.startswith(st + ":")])
             if method == "DELETE" and volid in IMPORTS:
@@ -295,8 +299,25 @@ class H(BaseHTTPRequestHandler):
                   "ciuser": "debian", "cipassword": "$5$mock$hash", "description": "Mock guest for development."} if typ == "qemu" else {
                   "hostname": g["name"], "rootfs": f"local-lvm:vm-{vmid}-disk-0,size={g['maxdisk'] >> 30}G", "arch": "amd64",
                   "net0": "name=eth0,bridge=vmbr0,ip=dhcp", "ostype": "debian", "unprivileged": 1, "swap": 512}
-            return self.send(200, {"name": g["name"], "cores": g["maxcpu"], "memory": g["maxmem"] >> 20, **hw, **g["config"]})
+            out = {"name": g["name"], "cores": g["maxcpu"], "memory": g["maxmem"] >> 20, **hw, **g["config"]}
+            return self.send(200, {k: v for k, v in out.items() if v is not None})
+        if rest == "/resize" and method == "PUT":
+            d, grow = form.get("disk", ""), int(form.get("size", "+0G").strip("+G") or 0)
+            if d in ("scsi0", "rootfs"):
+                g["maxdisk"] += grow << 30
+            return self.send(200, task(node, "resize", vmid))
+        if rest == "/unlink" and method == "PUT":
+            for d in form.get("idlist", "").split(","):
+                g["config"][d] = None
+            return self.send(200, None)
+        if rest == "/migrate" and method == "POST":
+            if not root:
+                return deny()
+            return self.send(200, task(node, "qmigrate", vmid, lambda: g.__setitem__("node", form.get("target", node))))
         if rest == "/config" and method in ("POST", "PUT"):
+            for k in form.pop("delete", "").split(","):
+                if k:
+                    g["config"][k] = None
             g["config"].update(form)
             if "cores" in form:
                 g["maxcpu"] = int(form["cores"])
