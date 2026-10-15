@@ -29,19 +29,19 @@
 }
 
 .dark {
-  --background: oklch(0.155 0.006 265);
+  --background: oklch(0.11 0 0);
   --foreground: oklch(0.96 0 0);
-  --card: oklch(0.195 0.007 265);
+  --card: oklch(0.155 0 0);
   --card-foreground: oklch(0.96 0 0);
-  --popover: oklch(0.21 0.007 265);
+  --popover: oklch(0.17 0 0);
   --popover-foreground: oklch(0.96 0 0);
   --primary: oklch(0.96 0 0);
   --primary-foreground: oklch(0.2 0 0);
-  --secondary: oklch(0.255 0.008 265);
+  --secondary: oklch(0.22 0 0);
   --secondary-foreground: oklch(0.96 0 0);
-  --muted: oklch(0.255 0.008 265);
-  --muted-foreground: oklch(0.68 0.01 265);
-  --accent: oklch(0.27 0.01 265);
+  --muted: oklch(0.22 0 0);
+  --muted-foreground: oklch(0.66 0 0);
+  --accent: oklch(0.24 0.012 55);
   --accent-foreground: oklch(0.96 0 0);
   --destructive: oklch(0.65 0.2 25);
   --border: oklch(1 0 0 / 9%);
