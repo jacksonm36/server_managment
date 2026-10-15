@@ -396,6 +396,19 @@ export type PVEFirewallRule = {
 };
 export type PVEFirewall = { enable: number; policy_in: string; policy_out: string; rules: PVEFirewallRule[] };
 export type PVECloudInit = { ciuser: string; cipassword: string; sshkeys: string; nameserver: string; searchdomain: string; ipconfig: Record<string, string> };
+export type PVEImage = { id: string; name: string; vendor: string; user: string; url: string; checksums?: string };
+export type PVETemplateTargets = { nodes: string[]; image_storages: string[]; file_storages: string[]; disk_storages: string[]; bridges: string[] };
+export type PVETemplateReq = {
+  image: string;
+  node: string;
+  name: string;
+  image_storage: string;
+  disk_storage: string;
+  bridge: string;
+  cores: number;
+  memory_mb: number;
+  disk_gb: number;
+};
 export type PVESnapshot = { name: string; description?: string; snaptime?: number; vmstate?: number; parent?: string };
 export type PVEProvision = {
   id: string;
@@ -667,6 +680,10 @@ export const api = {
       : request<{ cluster: PVECluster; version: string }>("POST", "/api/v1/proxmox", c),
   deletePVE: (id: string) => request<void>("DELETE", `/api/v1/proxmox/${id}`),
   pveResources: (id: string) => request<PVEResources>("GET", `/api/v1/proxmox/${id}/resources`),
+  pveImages: () => request<PVEImage[]>("GET", "/api/v1/proxmox-images"),
+  pveTemplateTargets: (id: string, node: string) =>
+    request<PVETemplateTargets>("GET", `/api/v1/proxmox/${id}/template-targets?node=${encodeURIComponent(node)}`),
+  pveTemplateCreate: (id: string, b: PVETemplateReq) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/templates`, b),
   pveProvisions: () => request<PVEProvision[]>("GET", "/api/v1/proxmox/provisions"),
   pvePower: (id: string, g: PVEGuestRef, action: string) => request<void>("POST", `${pveGuestURL(id, g)}/power`, { action }),
   pveGuest: (id: string, g: PVEGuestRef) => request<PVEGuestDetail>("GET", pveGuestURL(id, g)),

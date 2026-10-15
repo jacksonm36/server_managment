@@ -38,7 +38,8 @@ type fakePVE struct {
 	groups  map[string][]string // user -> groups
 	// consoles are open vncproxy/termproxy sessions by ticket.
 	consoles map[string]fakeConsole
-	backups  map[string]int // volid -> vmid
+	backups  map[string]int        // volid -> vmid
+	imports  map[string]url.Values // volid -> the download-url request
 	firewall map[int][]map[string]string
 }
 
@@ -47,6 +48,14 @@ type fakeConsole struct {
 	vmid int
 	port int
 	term bool
+}
+
+// fakeStorageInfo is each storage's type and content types.
+var fakeStorageInfo = map[string][2]string{
+	"local":     {"dir", "iso,vztmpl,backup,import"},
+	"local-lvm": {"lvmthin", "images,rootdir"},
+	"ceph":      {"rbd", "images"},
+	"nas":       {"nfs", "backup,iso"},
 }
 
 type fakeToken struct{ user, secret string }
@@ -75,8 +84,9 @@ func newFakePVE(t *testing.T) *fakePVE {
 		groups:   map[string][]string{},
 		consoles: map[string]fakeConsole{},
 		backups:  map[string]int{},
+		imports:  map[string]url.Values{},
 		firewall: map[int][]map[string]string{},
-		storage:  []string{"local", "local-lvm", "ceph"},
+		storage:  []string{"local", "local-lvm", "ceph", "nas"},
 		bridges:  []string{"vmbr0", "vmbr1"},
 	}
 	f.srv = httptest.NewTLSServer(http.HandlerFunc(f.serve))
@@ -182,6 +192,8 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 				"status": g.status, "pool": g.pool, "template": g.template, "maxcpu": g.cores, "maxmem": g.memMB << 20, "maxdisk": g.diskGB << 30})
 		}
 		f.reply(w, 200, out, "")
+	case p == "/nodes" && root:
+		f.reply(w, 200, []map[string]any{{"node": "pve1", "status": "online"}, {"node": "pve2", "status": "online"}, {"node": "pve3", "status": "offline"}}, "")
 	case p == "/cluster/nextid":
 		f.nextID++
 		f.reply(w, 200, strconv.Itoa(f.nextID), "")
@@ -294,7 +306,8 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 		out := []map[string]any{}
 		for _, st := range f.storage {
 			if f.can(user, "/storage/"+st) {
-				out = append(out, map[string]any{"storage": st, "active": 1, "enabled": 1})
+				info := fakeStorageInfo[st]
+				out = append(out, map[string]any{"storage": st, "active": 1, "enabled": 1, "type": info[0], "content": info[1]})
 			}
 		}
 		f.reply(w, 200, out, "")
@@ -304,6 +317,15 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		out := []map[string]any{}
+		if r.Form.Get("content") == "import" {
+			for volid := range f.imports {
+				if strings.HasPrefix(volid, parts[3]+":") {
+					out = append(out, map[string]any{"volid": volid})
+				}
+			}
+			f.reply(w, 200, out, "")
+			return
+		}
 		for volid, vmid := range f.backups {
 			if strings.HasPrefix(volid, parts[3]+":") && strconv.Itoa(vmid) == r.Form.Get("vmid") && f.canGuest(user, vmid, true) {
 				out = append(out, map[string]any{"volid": volid, "size": 1 << 30, "ctime": 1700000000, "format": "vma.zst", "vmid": vmid})
@@ -312,6 +334,11 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 		f.reply(w, 200, out, "")
 	case len(parts) >= 6 && parts[0] == "nodes" && parts[2] == "storage" && parts[4] == "content" && r.Method == "DELETE":
 		volid := strings.Join(parts[5:], "/")
+		if _, ok := f.imports[volid]; ok && root {
+			delete(f.imports, volid)
+			f.reply(w, 200, nil, "")
+			return
+		}
 		vmid, ok := f.backups[volid]
 		if !ok || !f.can(user, "/storage/"+parts[3]) || !f.canGuest(user, vmid, true) {
 			deny()
@@ -319,6 +346,33 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		delete(f.backups, volid)
 		f.reply(w, 200, nil, "")
+	case len(parts) == 5 && parts[0] == "nodes" && parts[2] == "storage" && parts[4] == "download-url" && r.Method == "POST":
+		if !root {
+			deny()
+			return
+		}
+		if !strings.HasSuffix(r.Form.Get("filename"), ".qcow2") || r.Form.Get("content") != "import" {
+			f.reply(w, 400, nil, "bad download")
+			return
+		}
+		f.imports[parts[3]+":import/"+r.Form.Get("filename")] = r.Form
+		f.reply(w, 200, fmt.Sprintf("UPID:%s:0:0:0:download:0:%s:", parts[1], user), "")
+	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "qemu" && r.Method == "POST" && r.Form.Get("force") == "":
+		vmid, _ := strconv.Atoi(r.Form.Get("vmid"))
+		_, from, _ := strings.Cut(r.Form.Get("scsi0"), "import-from=")
+		from, _, _ = strings.Cut(from, ",")
+		if !root || f.guests[vmid] != nil || f.imports[from] == nil {
+			f.reply(w, 500, nil, "cannot create VM "+strconv.Itoa(vmid))
+			return
+		}
+		g := &fakeGuest{typ: "qemu", node: parts[1], name: r.Form.Get("name"), status: "stopped", config: map[string]string{}}
+		for k, v := range r.Form {
+			g.config[k] = v[0]
+		}
+		g.cores, _ = strconv.Atoi(r.Form.Get("cores"))
+		g.memMB, _ = strconv.ParseInt(r.Form.Get("memory"), 10, 64)
+		f.guests[vmid] = g
+		f.reply(w, 200, fmt.Sprintf("UPID:%s:0:0:0:qmcreate:%d:%s:", parts[1], vmid, user), "")
 	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "vzdump" && r.Method == "POST":
 		vmid, _ := strconv.Atoi(r.Form.Get("vmid"))
 		st := r.Form.Get("storage")
@@ -475,6 +529,9 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 			return
 		}
 		f.firewall[vmid] = slices.Delete(f.firewall[vmid], pos, pos+1)
+		f.reply(w, 200, nil, "")
+	case sub == "template" && r.Method == "POST":
+		g.template = 1
 		f.reply(w, 200, nil, "")
 	case sub == "resize":
 		f.reply(w, 200, nil, "")

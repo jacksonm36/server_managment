@@ -43,7 +43,9 @@ TASKS = {}
 CONSOLES = {}  # ticket -> (user, vmid, port, term)
 BACKUPS = {"local:backup/vzdump-qemu-100-2026_10_01-02_00_00.vma.zst": {"vmid": 100, "ctime": now() - 13 * 86400, "size": 3 << 30, "notes": "nightly"},
            "local:backup/vzdump-qemu-100-2026_10_08-02_00_00.vma.zst": {"vmid": 100, "ctime": now() - 6 * 86400, "size": 3 << 30, "notes": "nightly"}}
-FIREWALL = {}  # vmid -> {"options": {...}, "rules": [...]}
+FIREWALL = {}
+IMPORTS = {}  # volid -> download-url form
+STORAGE_INFO = {"local": ("dir", "iso,vztmpl,backup,import"), "local-lvm": ("lvmthin", "images,rootdir")}  # vmid -> {"options": {...}, "rules": [...]}
 
 
 def task(node, kind, vmid, fn=None):
@@ -175,12 +177,24 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, [{"n": i + 1, "t": x} for i, x in enumerate(lines)])
         m = re.fullmatch(r"/nodes/([\w-]+)/storage", p)
         if m and method == "GET":
-            return self.send(200, [{"storage": st, "active": 1, "enabled": 1, "content": "backup,images"} for st in STORAGES if can(user, "/storage/" + st)])
+            return self.send(200, [{"storage": st, "active": 1, "enabled": 1, "type": STORAGE_INFO.get(st, ("dir", "backup,images"))[0],
+                                    "content": STORAGE_INFO.get(st, ("dir", "backup,images"))[1]} for st in STORAGES if can(user, "/storage/" + st)])
+        m = re.fullmatch(r"/nodes/([\w-]+)/storage/([\w-]+)/download-url", p)
+        if m and method == "POST":
+            if user != "root@pam":
+                return self.send(403, err="Permission check failed")
+            vol = f"{m.group(2)}:import/{form.get('filename', '')}"
+            return self.send(200, task(m.group(1), "download", 0, lambda: IMPORTS.__setitem__(vol, form)))
         m = re.fullmatch(r"/nodes/([\w-]+)/storage/([\w-]+)/content(?:/(.+))?", p)
         if m:
             st, volid = m.group(2), urllib.parse.unquote(m.group(3) or "")
             if not can(user, "/storage/" + st):
                 return self.send(403, err="Permission check failed")
+            if method == "GET" and not volid and q.get("content") == "import":
+                return self.send(200, [{"volid": v, "content": "import", "format": "qcow2"} for v in IMPORTS if v.startswith(st + ":")])
+            if method == "DELETE" and volid in IMPORTS:
+                IMPORTS.pop(volid)
+                return self.send(200, None)
             if method == "GET" and not volid:
                 vmid = int(q.get("vmid", 0))
                 return self.send(200, [{"volid": v, "format": "vma.zst", "content": "backup", **b} for v, b in BACKUPS.items()
@@ -196,6 +210,18 @@ class H(BaseHTTPRequestHandler):
             kind = "qemu" if GUESTS[vmid]["type"] == "qemu" else "lxc"
             vol = f"{st}:backup/vzdump-{kind}-{vmid}-{time.strftime('%Y_%m_%d-%H_%M_%S')}.{'vma' if kind == 'qemu' else 'tar'}.zst"
             return self.send(200, task(m.group(1), "vzdump", vmid, lambda: BACKUPS.__setitem__(vol, {"vmid": vmid, "ctime": now(), "size": 2 << 30, "notes": form.get("notes-template", "")})))
+        m = re.fullmatch(r"/nodes/([\w-]+)/qemu", p)
+        if m and method == "POST" and not form.get("force"):
+            vmid = int(form.get("vmid", 0))
+            src = form.get("scsi0", "").partition("import-from=")[2].split(",")[0]
+            if user != "root@pam" or vmid in GUESTS or src not in IMPORTS:
+                return self.send(500, err=f"unable to create VM {vmid}")
+            cfg = {k: v for k, v in form.items() if k not in ("vmid", "name", "cores", "memory")}
+
+            def create():
+                GUESTS[vmid] = {"type": "qemu", "node": m.group(1), "name": form.get("name", f"vm-{vmid}"), "status": "stopped", "maxcpu": int(form.get("cores", 1)),
+                                "maxmem": int(form.get("memory", 512)) << 20, "maxdisk": 3 << 30, "template": 0, "started": 0, "config": cfg}
+            return self.send(200, task(m.group(1), "qmcreate", vmid, create))
         m = re.fullmatch(r"/nodes/([\w-]+)/(qemu|lxc)", p)
         if m and method == "POST" and form.get("force") == "1":
             vmid = int(form.get("vmid", 0))
@@ -332,6 +358,8 @@ class H(BaseHTTPRequestHandler):
             if fm and method == "DELETE" and int(fm.group(1)) < len(fw["rules"]):
                 fw["rules"].pop(int(fm.group(1)))
                 return self.send(200, None)
+        if rest == "/template" and method == "POST":
+            return self.send(200, task(node, "qmtemplate", vmid, lambda: g.__setitem__("template", 1)))
         if rest == "/resize" and method == "PUT":
             return self.send(200, None)
         if rest == "/agent/network-get-interfaces" and method == "GET":

@@ -491,7 +491,7 @@ function TaskLogDialog({ cluster, guest, task, onClose }: { cluster: string; gue
   }, [cluster, guest, task.upid]);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             {task.type} · {new Date(task.starttime * 1000).toLocaleString()}

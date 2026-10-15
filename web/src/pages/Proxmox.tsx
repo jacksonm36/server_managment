@@ -24,6 +24,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { ImageTemplateDialog } from "@/components/ImageTemplateDialog";
 
 const statusVariant = (s: string) => (s === "running" || s === "online" ? "success" : s === "stopped" ? "outline" : "warning");
 
@@ -114,6 +115,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
   const [snaps, setSnaps] = useState<PVEGuest | null>(null);
   const [del, setDel] = useState<PVEGuest | null>(null);
   const [newVM, setNewVM] = useState<PVEGuest | null>(null);
+  const [fromImage, setFromImage] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -319,9 +321,16 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle>Templates</CardTitle>
-            <CardDescription>Cloud-init VM templates. New VMs get the panel's SSH key and can enroll into servermgr automatically.</CardDescription>
+          <CardHeader className="flex-row items-start justify-between gap-3">
+            <div className="grid gap-1.5">
+              <CardTitle>Templates</CardTitle>
+              <CardDescription>Cloud-init VM templates. New VMs get the panel's SSH key and can enroll into servermgr automatically.</CardDescription>
+            </div>
+            {ac.can("proxmox.manage") && !res?.tenant && (
+              <Button size="sm" variant="secondary" onClick={() => setFromImage(true)}>
+                <Plus /> From image
+              </Button>
+            )}
           </CardHeader>
           <CardContent>
             {templates.length === 0 ? (
@@ -354,7 +363,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
             </CardHeader>
             <CardContent>
               {provs.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No VMs created from servermgr yet.</p>
+                <p className="text-sm text-muted-foreground">No VMs or templates created from servermgr yet.</p>
               ) : (
                 <ul className="divide-y text-sm">
                   {provs.slice(0, 10).map((p) => (
@@ -395,6 +404,16 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
           onDone={(text) => {
             setDel(null);
             setMsg({ ok: true, text });
+            void load();
+          }}
+        />
+      )}
+      {fromImage && (
+        <ImageTemplateDialog
+          cluster={cluster.id}
+          onClose={() => setFromImage(false)}
+          onStarted={() => {
+            setFromImage(false);
             void load();
           }}
         />
