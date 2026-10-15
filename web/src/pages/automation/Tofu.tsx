@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Boxes, Download, FileCode2, GitBranch, Lock, Pencil, Play, Plus, Square, Trash2, Unlock, X, Zap } from "lucide-react";
-import { api, type TofuOverview, type TofuRun, type TofuVar, type TofuWorkspaceView } from "@/lib/api";
+import { Boxes, Download, FileCode2, GitBranch, Layers, Lock, Pencil, Play, Plus, Server, Square, Trash2, Unlock, X, Zap } from "lucide-react";
+import { api, type PVECluster, type TofuOverview, type TofuRun, type TofuStack, type TofuVar, type TofuWorkspaceView } from "@/lib/api";
 import { useAccess, type Access } from "@/lib/access";
 import { timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -19,7 +19,17 @@ export function Tofu() {
   const [runs, setRuns] = useState<TofuRun[]>([]);
   const [err, setErr] = useState("");
   const [editing, setEditing] = useState<TofuWorkspaceView | "new" | null>(null);
+  const [preset, setPreset] = useState<Preset | null>(null);
+  const [picking, setPicking] = useState(false);
   const [viewing, setViewing] = useState<string | null>(null);
+  const [clusters, setClusters] = useState<PVECluster[]>([]);
+  useEffect(() => {
+    if (!ac.can("proxmox.view")) return;
+    api
+      .pveClusters()
+      .then(setClusters)
+      .catch(() => setClusters([]));
+  }, [ac]);
 
   const load = useCallback(async () => {
     try {
@@ -80,9 +90,23 @@ export function Tofu() {
           address, OS) if the configuration declares it.
         </p>
         {ac.can("tofu.manage") && (
-          <Button size="sm" variant="secondary" onClick={() => setEditing("new")}>
-            <Plus /> New workspace
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {clusters.length > 0 && (
+              <Button size="sm" variant="secondary" onClick={() => setPicking(true)}>
+                <Layers /> From a Proxmox stack
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                setPreset(null);
+                setEditing("new");
+              }}
+            >
+              <Plus /> New workspace
+            </Button>
+          </div>
         )}
       </div>
 
@@ -92,6 +116,7 @@ export function Tofu() {
             key={v.workspace.id}
             v={v}
             ac={ac}
+            cluster={clusters.find((c) => c.id === v.workspace.proxmox_cluster)?.name}
             onPlan={(destroy) => act(async () => setViewing((await api.tofuPlan(v.workspace.id, destroy)).id))}
             onView={setViewing}
             onEdit={() => setEditing(v)}
@@ -142,10 +167,23 @@ export function Tofu() {
       {editing && (
         <EditDialog
           view={editing === "new" ? null : editing}
+          preset={editing === "new" ? preset : null}
+          clusters={clusters}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
             void load();
+          }}
+        />
+      )}
+      {picking && (
+        <StackDialog
+          clusters={clusters}
+          onClose={() => setPicking(false)}
+          onPick={(p) => {
+            setPicking(false);
+            setPreset(p);
+            setEditing("new");
           }}
         />
       )}
@@ -165,6 +203,7 @@ function runSummary(r: TofuRun) {
 function WorkspaceCard({
   v,
   ac,
+  cluster,
   onPlan,
   onView,
   onEdit,
@@ -173,6 +212,7 @@ function WorkspaceCard({
 }: {
   v: TofuWorkspaceView;
   ac: Access;
+  cluster?: string;
   onPlan: (destroy: boolean) => void;
   onView: (id: string) => void;
   onEdit: () => void;
@@ -196,6 +236,11 @@ function WorkspaceCard({
             ) : (
               <Badge variant="outline" className="gap-1">
                 <FileCode2 className="size-3" /> {Object.keys(w.files).length} file(s)
+              </Badge>
+            )}
+            {w.proxmox_cluster && (
+              <Badge variant="outline" className="gap-1" title="The Proxmox provider reaches this cluster through the panel">
+                <Server className="size-3" /> {cluster ?? "Proxmox"}
               </Badge>
             )}
             {v.locked && (
@@ -289,12 +334,28 @@ variable "servermgr_servers" {
 }
 `;
 
-function EditDialog({ view, onClose, onSaved }: { view: TofuWorkspaceView | null; onClose: () => void; onSaved: () => void }) {
+// Preset is a new workspace's starting point from a Proxmox stack.
+type Preset = { name: string; description: string; files: Record<string, string>; cluster: string };
+
+function EditDialog({
+  view,
+  preset,
+  clusters,
+  onClose,
+  onSaved,
+}: {
+  view: TofuWorkspaceView | null;
+  preset: Preset | null;
+  clusters: PVECluster[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const w = view?.workspace;
-  const [name, setName] = useState(w?.name ?? "");
-  const [desc, setDesc] = useState(w?.description ?? "");
+  const [name, setName] = useState(w?.name ?? preset?.name ?? "");
+  const [desc, setDesc] = useState(w?.description ?? preset?.description ?? "");
   const [source, setSource] = useState<"inline" | "git">(w?.source ?? "inline");
-  const [files, setFiles] = useState<Record<string, string>>(w?.files && Object.keys(w.files).length ? w.files : { "main.tf": TEMPLATE });
+  const [cluster, setCluster] = useState(w?.proxmox_cluster ?? preset?.cluster ?? "");
+  const [files, setFiles] = useState<Record<string, string>>(w?.files && Object.keys(w.files).length ? w.files : (preset?.files ?? { "main.tf": TEMPLATE }));
   const [cur, setCur] = useState(Object.keys(files).sort()[0] ?? "main.tf");
   const [git, setGit] = useState({ url: w?.git_url ?? "", ref: w?.git_ref ?? "", path: w?.git_path ?? "" });
   const [vars, setVars] = useState<EditVar[]>((view?.vars ?? []).map((v) => ({ ...v, keep: v.sensitive && v.has_value })));
@@ -326,6 +387,7 @@ function EditDialog({ view, onClose, onSaved }: { view: TofuWorkspaceView | null
                 git_url: git.url,
                 git_ref: git.ref,
                 git_path: git.path,
+                proxmox_cluster: cluster || null,
                 vars: vars.map(({ key, value, kind, sensitive, keep }) => ({ key, value, kind, sensitive, keep: !!keep && !value })),
               });
               onSaved();
@@ -346,6 +408,26 @@ function EditDialog({ view, onClose, onSaved }: { view: TofuWorkspaceView | null
               <Input id="tw-desc" value={desc} onChange={(e) => setDesc(e.target.value)} maxLength={500} />
             </div>
           </div>
+
+          {(clusters.length > 0 || cluster) && (
+            <div className="grid gap-1.5">
+              <Label htmlFor="tw-pve">Proxmox cluster</Label>
+              <Select id="tw-pve" value={cluster} onChange={(e) => setCluster(e.target.value)}>
+                <option value="">None</option>
+                {clusters.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+                {cluster && !clusters.some((c) => c.id === cluster) && <option value={cluster}>(current cluster)</option>}
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {cluster
+                  ? "Leave the provider block empty: on each run servermgr gives the bpg/proxmox provider a short-lived token for this cluster. The cluster's own API token never reaches OpenTofu."
+                  : "Bind the workspace to a cluster to use the bpg/proxmox provider without storing credentials here."}
+              </p>
+            </div>
+          )}
 
           <div className="flex gap-1 rounded-lg border p-1 text-sm">
             {(["inline", "git"] as const).map((s) => (
@@ -471,6 +553,58 @@ function EditDialog({ view, onClose, onSaved }: { view: TofuWorkspaceView | null
             </Button>
           </div>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// StackDialog picks a ready-made Proxmox stack, filled in with the
+// cluster's node, storages, bridge and the panel's SSH key.
+function StackDialog({ clusters, onClose, onPick }: { clusters: PVECluster[]; onClose: () => void; onPick: (p: Preset) => void }) {
+  const [cluster, setCluster] = useState(clusters[0]?.id ?? "");
+  const [stacks, setStacks] = useState<TofuStack[] | null>(null);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    if (!cluster) return;
+    setStacks(null);
+    setErr("");
+    api
+      .tofuStacks(cluster)
+      .then(setStacks)
+      .catch((e) => setErr((e as Error).message));
+  }, [cluster]);
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>New workspace from a Proxmox stack</DialogTitle>
+          <DialogDescription>Each stack uses the bpg/proxmox provider. Its variables start with this cluster's node, storages, network and the panel's SSH key; you can edit everything before saving.</DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-1.5">
+          <Label htmlFor="st-pve">Cluster</Label>
+          <Select id="st-pve" value={cluster} onChange={(e) => setCluster(e.target.value)}>
+            {clusters.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        {!stacks && !err && <p className="text-sm text-muted-foreground">Reading the cluster…</p>}
+        <div className="grid gap-2 sm:grid-cols-2">
+          {stacks?.map((st) => (
+            <button
+              key={st.id}
+              type="button"
+              className="cursor-pointer rounded-lg border p-3 text-left text-sm transition-colors hover:border-brand hover:bg-brand/10"
+              onClick={() => onPick({ name: st.id, description: st.name, files: st.files, cluster })}
+            >
+              <div className="font-medium">{st.name}</div>
+              <div className="mt-1 text-xs text-muted-foreground">{st.summary}</div>
+            </button>
+          ))}
+        </div>
       </DialogContent>
     </Dialog>
   );

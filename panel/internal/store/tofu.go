@@ -19,16 +19,18 @@ type TofuWorkspace struct {
 	GitRef      string            `json:"git_ref"`
 	GitPath     string            `json:"git_path"`
 	SealedVars  string            `json:"-"`
-	CreatedAt   time.Time         `json:"created_at"`
-	UpdatedAt   time.Time         `json:"updated_at"`
+	// ProxmoxCluster ties runs to a Proxmox cluster (see tofupve.go).
+	ProxmoxCluster *string   `json:"proxmox_cluster"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
 }
 
-const tofuWsCols = `id::text, name, description, source, files, git_url, git_ref, git_path, vars, created_at, updated_at`
+const tofuWsCols = `id::text, name, description, source, files, git_url, git_ref, git_path, vars, proxmox_cluster::text, created_at, updated_at`
 
 func scanTofuWorkspace(row pgx.Row) (*TofuWorkspace, error) {
 	w := &TofuWorkspace{}
 	var files []byte
-	err := row.Scan(&w.ID, &w.Name, &w.Description, &w.Source, &files, &w.GitURL, &w.GitRef, &w.GitPath, &w.SealedVars, &w.CreatedAt, &w.UpdatedAt)
+	err := row.Scan(&w.ID, &w.Name, &w.Description, &w.Source, &files, &w.GitURL, &w.GitRef, &w.GitPath, &w.SealedVars, &w.ProxmoxCluster, &w.CreatedAt, &w.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -65,16 +67,16 @@ func (s *Store) SaveTofuWorkspace(ctx context.Context, w *TofuWorkspace) error {
 	if w.ID == "" {
 		w.ID = NewUUID()
 		_, err := s.db.Exec(ctx, `
-			INSERT INTO tofu_workspaces (id, name, description, source, files, git_url, git_ref, git_path, vars)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			w.ID, w.Name, w.Description, w.Source, files, w.GitURL, w.GitRef, w.GitPath, w.SealedVars)
+			INSERT INTO tofu_workspaces (id, name, description, source, files, git_url, git_ref, git_path, vars, proxmox_cluster)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::uuid)`,
+			w.ID, w.Name, w.Description, w.Source, files, w.GitURL, w.GitRef, w.GitPath, w.SealedVars, w.ProxmoxCluster)
 		return err
 	}
 	tag, err := s.db.Exec(ctx, `
 		UPDATE tofu_workspaces SET name = $2, description = $3, source = $4, files = $5, git_url = $6, git_ref = $7,
-			git_path = $8, vars = $9, updated_at = now()
+			git_path = $8, vars = $9, proxmox_cluster = $10::uuid, updated_at = now()
 		WHERE id::text = $1`,
-		w.ID, w.Name, w.Description, w.Source, files, w.GitURL, w.GitRef, w.GitPath, w.SealedVars)
+		w.ID, w.Name, w.Description, w.Source, files, w.GitURL, w.GitRef, w.GitPath, w.SealedVars, w.ProxmoxCluster)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}

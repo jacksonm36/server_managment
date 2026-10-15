@@ -15,6 +15,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"slices"
 	"strconv"
@@ -364,4 +365,22 @@ func (c *Client) DialConsole(ctx context.Context, node, typ string, vmid int, p 
 	}
 	conn.SetReadLimit(4 << 20)
 	return conn, nil
+}
+
+// Forwarder is a reverse proxy to the API (/api2/...) that authenticates
+// every request with the client's token over the pinned connection. The
+// caller decides who may use it; the client's secret never leaves the
+// panel.
+func (c *Client) Forwarder() http.Handler {
+	target, _ := url.Parse(c.BaseURL)
+	return &httputil.ReverseProxy{
+		Transport: c.http.Transport,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			pr.Out.Host = target.Host
+			pr.Out.Header.Set("Authorization", "PVEAPIToken="+c.TokenID+"="+c.Secret)
+			pr.Out.Header.Del("Cookie")
+			pr.Out.Header.Del("CSRFPreventionToken")
+		},
+	}
 }

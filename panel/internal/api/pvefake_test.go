@@ -197,7 +197,7 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.reply(w, 200, out, "")
 	case p == "/nodes" && root:
-		f.reply(w, 200, []map[string]any{{"node": "pve1", "status": "online"}, {"node": "pve2", "status": "online"}, {"node": "pve3", "status": "offline"}}, "")
+		f.reply(w, 200, []map[string]any{{"node": "pve1", "status": "online", "ssl_fingerprint": "AA:01"}, {"node": "pve2", "status": "online", "ssl_fingerprint": "AA:02"}, {"node": "pve3", "status": "offline", "ssl_fingerprint": "AA:03"}}, "")
 	case p == "/cluster/nextid":
 		f.nextID++
 		f.reply(w, 200, strconv.Itoa(f.nextID), "")

@@ -205,6 +205,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("DELETE /api/v1/tenants/{id}/clusters/{cluster}", need("tenants.manage", a.handleRemoveTenantCluster))
 	authed.HandleFunc("GET /api/v1/tofu", need("tofu.view", a.handleTofuOverview))
 	authed.HandleFunc("POST /api/v1/tofu/setup", need("tofu.manage", a.handleTofuSetup))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/tofu-stacks", need("tofu.manage", a.handleTofuStacks))
 	authed.HandleFunc("POST /api/v1/tofu/workspaces", need("tofu.manage", a.handleSaveTofuWorkspace))
 	authed.HandleFunc("PUT /api/v1/tofu/workspaces/{id}", need("tofu.manage", a.handleSaveTofuWorkspace))
 	authed.HandleFunc("DELETE /api/v1/tofu/workspaces/{id}", need("tofu.manage", a.handleDeleteTofuWorkspace))

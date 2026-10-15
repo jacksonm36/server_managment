@@ -467,9 +467,11 @@ export type TofuWorkspace = {
   git_url: string;
   git_ref: string;
   git_path: string;
+  proxmox_cluster: string | null;
   created_at: string;
   updated_at: string;
 };
+export type TofuStack = { id: string; name: string; summary: string; files: Record<string, string> };
 export type TofuSummary = {
   changes?: boolean;
   add?: number;
@@ -916,6 +918,7 @@ export const api = {
   tofuRuns: () => request<TofuRun[]>("GET", "/api/v1/tofu/runs"),
   tofuRun: (id: string, offset: number) =>
     request<{ run: TofuRun; output: string; total: number }>("GET", `/api/v1/tofu/runs/${id}?offset=${offset}`),
+  tofuStacks: (cluster: string) => request<TofuStack[]>("GET", `/api/v1/proxmox/${cluster}/tofu-stacks`),
   cancelTofuRun: (id: string) => request<void>("POST", `/api/v1/tofu/runs/${id}/cancel`),
   ansible: () => request<AnsibleOverview>("GET", "/api/v1/ansible"),
   ansibleSetup: () => request<void>("POST", "/api/v1/ansible/setup"),
