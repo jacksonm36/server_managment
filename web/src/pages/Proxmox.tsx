@@ -48,6 +48,7 @@ export function Proxmox() {
   useEffect(() => {
     void load();
   }, [load]);
+  const current = clusters?.find((c) => c.id === cur);
 
   return (
     <div className="grid gap-6">
@@ -83,23 +84,15 @@ export function Proxmox() {
           ))}
         </div>
       )}
-      {cur && clusters && (
-        <ClusterView
-          key={cur}
-          cluster={clusters.find((c) => c.id === cur)!}
-          ac={ac}
-          onEdit={() => setEditing(clusters.find((c) => c.id === cur)!)}
-          onDeleted={load}
-        />
-      )}
+      {current && <ClusterView key={current.id} cluster={current} ac={ac} onEdit={() => setEditing(current)} onDeleted={load} />}
       {editing && (
         <ClusterDialog
           cluster={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
           onSaved={(id) => {
             setEditing(null);
-            setCur(id);
-            void load();
+            // Load the list first: a new cluster isn't in it yet.
+            void load().then(() => setCur(id));
           }}
         />
       )}

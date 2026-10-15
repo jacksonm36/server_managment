@@ -21,6 +21,7 @@ import { api, type Me, type PVEGuest } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import { pct } from "@/lib/utils";
 import type { AccessData } from "@/lib/access";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // The app frame: a sectioned sidebar on the left (collapsible to icons on
 // desktop, a drawer on phones) and a top bar with search, fleet usage and
@@ -178,7 +179,9 @@ export function Shell({ me, access, onLogout, children }: { me: Me; access: Acce
             </button>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-4 pt-8 pb-24 sm:px-6">{children}</main>
+        <main className="mx-auto max-w-7xl px-4 pt-8 pb-24 sm:px-6">
+          <ErrorBoundary key={loc}>{children}</ErrorBoundary>
+        </main>
       </div>
     </div>
   );
