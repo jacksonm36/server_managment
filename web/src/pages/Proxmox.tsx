@@ -26,6 +26,8 @@ import { Input, Label } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ImageTemplateDialog } from "@/components/ImageTemplateDialog";
 import { PVEOverview } from "@/components/PVEOverview";
+import { ClusterAdmin, type AdminSection } from "@/pages/ProxmoxAdmin";
+import { CreateGuestDialog } from "@/pages/ProxmoxHardware";
 
 const statusVariant = (s: string) => (s === "running" || s === "online" ? "success" : s === "stopped" ? "outline" : "warning");
 
@@ -35,6 +37,9 @@ export function Proxmox() {
   const [cur, setCur] = useState("");
   const [editing, setEditing] = useState<PVECluster | "new" | null>(null);
   const [err, setErr] = useState("");
+  // After saving a new cluster, cur points at it before the list reloads.
+  const current = clusters?.find((c) => c.id === cur);
+  const [section, setSection] = useState<"guests" | AdminSection>("guests");
 
   const load = useCallback(async () => {
     try {
@@ -83,15 +88,24 @@ export function Proxmox() {
           ))}
         </div>
       )}
-      {cur && clusters && (
-        <ClusterView
-          key={cur}
-          cluster={clusters.find((c) => c.id === cur)!}
-          ac={ac}
-          onEdit={() => setEditing(clusters.find((c) => c.id === cur)!)}
-          onDeleted={load}
-        />
+      {current && ac.can("proxmox.manage") && (
+        <nav className="-mx-1 flex gap-1 overflow-x-auto px-1" aria-label="Cluster sections">
+          {(
+            [
+              ["guests", "Guests"],
+              ["nodes", "Nodes"],
+              ["storage", "Storage"],
+              ["datacenter", "Datacenter"],
+            ] as const
+          ).map(([id, label]) => (
+            <Button key={id} size="sm" variant={section === id ? "secondary" : "ghost"} onClick={() => setSection(id)}>
+              {label}
+            </Button>
+          ))}
+        </nav>
       )}
+      {current && section === "guests" && <ClusterView key={current.id} cluster={current} ac={ac} onEdit={() => setEditing(current)} onDeleted={load} />}
+      {current && section !== "guests" && <ClusterAdmin key={`${current.id}-${section}`} cluster={current} section={section} />}
       {editing && (
         <ClusterDialog
           cluster={editing === "new" ? null : editing}
@@ -117,6 +131,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
   const [del, setDel] = useState<PVEGuest | null>(null);
   const [newVM, setNewVM] = useState<PVEGuest | null>(null);
   const [fromImage, setFromImage] = useState(false);
+  const [create, setCreate] = useState<"qemu" | "lxc" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -150,6 +165,10 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
 
   const guests = useMemo(() => (res?.guests ?? []).filter((g) => !g.template), [res]);
   const templates = useMemo(() => (res?.guests ?? []).filter((g) => g.template && g.type === "qemu"), [res]);
+  const createNodes = useMemo(() => {
+    const online = (res?.nodes ?? []).filter((n) => n.status === "online").map((n) => n.node);
+    return (online.length ? online : [...new Set((res?.guests ?? []).map((g) => g.node))]).sort();
+  }, [res]);
   const shown = guests.filter((g) => !filter || `${g.vmid} ${g.name} ${g.node} ${g.status} ${g.server_name ?? ""}`.toLowerCase().includes(filter.toLowerCase()));
 
   return (
@@ -209,7 +228,19 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
             <CardTitle>Guests</CardTitle>
             <CardDescription>{guests.length} VMs and containers</CardDescription>
           </div>
-          <Input className="w-48" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter guests" />
+          <div className="flex flex-wrap gap-2">
+            {ac.can("proxmox.guests") && createNodes.length > 0 && (
+              <>
+                <Button size="sm" variant="brand" onClick={() => setCreate("qemu")}>
+                  <Plus /> Create VM
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setCreate("lxc")}>
+                  <Plus /> Create CT
+                </Button>
+              </>
+            )}
+            <Input className="w-48" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter guests" />
+          </div>
         </CardHeader>
         <CardContent className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -397,6 +428,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
           }}
         />
       )}
+      {create && <CreateGuestDialog cluster={cluster.id} nodes={createNodes} type={create} onClose={() => (setCreate(null), void load())} />}
       {fromImage && (
         <ImageTemplateDialog
           cluster={cluster.id}

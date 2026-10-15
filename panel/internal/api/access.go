@@ -56,7 +56,7 @@ var permissions = []Permission{
 	{"proxmox.operate", "Power actions and snapshots", "Proxmox", false},
 	{"proxmox.console", "Open a guest's console (full control of the guest)", "Proxmox", false},
 	{"proxmox.guests", "Create and delete VMs, roll back snapshots", "Proxmox", false},
-	{"proxmox.manage", "Add and change Proxmox clusters", "Proxmox", false},
+	{"proxmox.manage", "Add and change Proxmox clusters; manage their nodes, storage and datacenter settings", "Proxmox", false},
 	{"tenants.manage", "Create tenants and set up their isolation on Proxmox", "Panel", false},
 
 	{"audit.view", "See the audit log", "Panel", false},

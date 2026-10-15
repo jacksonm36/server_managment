@@ -477,7 +477,7 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 			out[k] = v
 		}
 		f.reply(w, 200, out, "")
-	case sub == "config" && r.Method == "PUT":
+	case sub == "config" && (r.Method == "PUT" || r.Method == "POST"):
 		if n := r.Form.Get("net0"); n != "" {
 			_, br, _ := strings.Cut(n, "bridge=")
 			if !f.can(user, "/sdn/zones/localnetwork/"+br) {

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
@@ -306,6 +307,7 @@ type ConsoleProxy struct {
 	Port   int
 	Ticket string
 	User   string // termproxy: the user the ticket was issued to
+	Base   string // API path the console belongs to: a guest or /nodes/<node>
 }
 
 // OpenConsole starts vncproxy (serial == "") or termproxy on serial
@@ -336,7 +338,88 @@ func (c *Client) OpenConsole(ctx context.Context, node, typ string, vmid int, te
 	if res.User == "" {
 		res.User, _, _ = strings.Cut(c.TokenID, "!")
 	}
-	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, User: res.User}, nil
+	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, User: res.User, Base: GuestPath(node, typ, vmid)}, nil
+}
+
+// OpenNodeShell starts termproxy for a node's own shell. cmd is "" for a
+// login shell or "upgrade" for Proxmox's package upgrade.
+func (c *Client) OpenNodeShell(ctx context.Context, node, cmd string) (*ConsoleProxy, error) {
+	var res struct {
+		Port   json.Number `json:"port"`
+		Ticket string      `json:"ticket"`
+		User   string      `json:"user"`
+	}
+	form := url.Values{}
+	if cmd != "" {
+		form.Set("cmd", cmd)
+	}
+	base := "/nodes/" + url.PathEscape(node)
+	if err := c.Do(ctx, http.MethodPost, base+"/termproxy", form, &res); err != nil {
+		return nil, err
+	}
+	port, err := res.Port.Int64()
+	if err != nil || port <= 0 || res.Ticket == "" {
+		return nil, errors.New("proxmox returned no console port or ticket")
+	}
+	if res.User == "" {
+		res.User, _, _ = strings.Cut(c.TokenID, "!")
+	}
+	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, User: res.User, Base: base}, nil
+}
+
+// Upload streams a file to path (a storage's /upload) as multipart form
+// data, without holding it in memory, and returns the task's UPID.
+func (c *Client) Upload(ctx context.Context, path string, fields map[string]string, filename string, file io.Reader) (string, error) {
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		var err error
+		defer func() { pw.CloseWithError(err) }()
+		for k, v := range fields {
+			if err = mw.WriteField(k, v); err != nil {
+				return
+			}
+		}
+		var part io.Writer
+		if part, err = mw.CreateFormFile("filename", filename); err != nil {
+			return
+		}
+		if _, err = io.Copy(part, file); err != nil {
+			return
+		}
+		err = mw.Close()
+	}()
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api2/json"+path, pr)
+	if err != nil {
+		pr.Close()
+		return "", err
+	}
+	req.Header.Set("Authorization", "PVEAPIToken="+c.TokenID+"="+c.Secret)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	hc := *c.http
+	hc.Timeout = 0 // the context bounds an upload, which can take a while
+	resp, err := hc.Do(req)
+	if err != nil {
+		pr.Close()
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var env struct {
+		Data    json.RawMessage `json:"data"`
+		Message string          `json:"message"`
+	}
+	_ = json.Unmarshal(raw, &env)
+	if resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(env.Message)
+		if msg == "" {
+			msg = resp.Status
+		}
+		return "", &APIError{resp.StatusCode, msg}
+	}
+	var upid string
+	_ = json.Unmarshal(env.Data, &upid)
+	return upid, nil
 }
 
 // DialConsole opens Proxmox's vncwebsocket for a console session, over the
@@ -347,7 +430,11 @@ func (c *Client) DialConsole(ctx context.Context, node, typ string, vmid int, p 
 		return nil, err
 	}
 	u.Scheme = map[string]string{"https": "wss", "http": "ws"}[u.Scheme]
-	u.Path = "/api2/json" + GuestPath(node, typ, vmid) + "/vncwebsocket"
+	base := p.Base
+	if base == "" {
+		base = GuestPath(node, typ, vmid)
+	}
+	u.Path = "/api2/json" + base + "/vncwebsocket"
 	u.RawQuery = url.Values{"port": {strconv.Itoa(p.Port)}, "vncticket": {p.Ticket}}.Encode()
 	hc := *c.http
 	hc.Timeout = 0 // the context bounds the dial; the socket lives on

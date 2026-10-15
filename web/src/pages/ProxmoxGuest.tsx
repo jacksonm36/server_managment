@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Camera, MonitorPlay, Pause, Play, Power, RefreshCw, RotateCw, Square } from "lucide-react";
+import { ArrowLeft, ArrowRightLeft, Camera, Copy, LayoutTemplate, MonitorPlay, Pause, Play, Power, RefreshCw, RotateCw, Square } from "lucide-react";
 import { api, type PVEGuestDetail, type PVEGuestRef, type PVERRDPoint, type PVETask, type PVETimeframe } from "@/lib/api";
 import { useAccess } from "@/lib/access";
 import { formatBytes, formatUptime } from "@/lib/utils";
@@ -13,6 +13,8 @@ import { GuestConsole } from "@/components/GuestConsole";
 import { Meter } from "@/components/LiveChart";
 import { SnapshotsDialog } from "@/pages/Proxmox";
 import { BackupsTab, CloudInitTab, FirewallTab } from "@/pages/ProxmoxGuestTabs";
+import { CloneDialog, HardwareTab, MigrateDialog } from "@/pages/ProxmoxHardware";
+import { pve } from "@/lib/pveapi";
 
 type Tab = "overview" | "config" | "backups" | "cloudinit" | "firewall" | "tasks";
 
@@ -24,23 +26,8 @@ const timeframes: { tf: PVETimeframe; label: string }[] = [
   { tf: "year", label: "Year" },
 ];
 
-// Config keys that describe virtual hardware; everything else is an option.
-const hardwareKey =
-  /^(cores|sockets|cpu|cpulimit|cpuunits|vcpus|memory|balloon|swap|bios|machine|scsihw|vga|arch|rootfs|efidisk\d|tpmstate\d|(scsi|virtio|sata|ide|net|mp|unused|usb|hostpci|serial)\d+)$/;
-const hiddenKey = new Set(["digest", "description", "meta", "vmgenid", "smbios1"]);
-
 const rate = (v: number) => `${formatBytes(v)}/s`;
 const took = (s: number) => (s < 60 ? `${s}s` : formatUptime(s));
-
-// Proxmox stores sshkeys URL-encoded.
-function shown(k: string, v: string | number) {
-  if (k !== "sshkeys") return String(v);
-  try {
-    return decodeURIComponent(String(v));
-  } catch {
-    return String(v);
-  }
-}
 
 export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; node: string; type: string; vmid: string }) {
   const ac = useAccess();
@@ -56,6 +43,7 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
   const [log, setLog] = useState<PVETask | null>(null);
   const [console_, setConsole] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
+  const [action, setAction] = useState<"clone" | "migrate" | null>(null);
 
   const load = useCallback(
     () =>
@@ -147,21 +135,14 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
   const paused = st.qmpstatus === "paused";
   const cpuPct = (st.cpu ?? 0) * 100;
   const memPct = st.maxmem ? ((st.mem ?? 0) / st.maxmem) * 100 : 0;
-  const hw = Object.entries(g.config)
-    .filter(([k]) => hardwareKey.test(k))
-    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }));
-  const opts = Object.entries(g.config)
-    .filter(([k]) => !hardwareKey.test(k) && !hiddenKey.has(k))
-    .sort(([a], [b]) => a.localeCompare(b));
   const tabs: { id: Tab; label: string }[] = [
     { id: "overview", label: "Overview" },
-    { id: "config", label: "Configuration" },
+    { id: "config", label: "Hardware & options" },
     { id: "backups", label: "Backups" },
     ...(g.type === "qemu" ? [{ id: "cloudinit" as const, label: "Cloud-init" }] : []),
     { id: "firewall", label: "Firewall" },
     { id: "tasks", label: "Tasks" },
   ];
-  const desc = typeof g.config.description === "string" ? g.config.description.trim() : "";
 
   return (
     <div className="grid gap-6">
@@ -224,6 +205,38 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
               <Button size="sm" variant="secondary" onClick={() => setSnaps(true)}>
                 <Camera /> Snapshots
               </Button>
+            </>
+          )}
+          {ac.can("proxmox.guests") && (
+            <>
+              <Button size="sm" variant="secondary" onClick={() => setAction("clone")}>
+                <Copy /> Clone
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setAction("migrate")}>
+                <ArrowRightLeft /> Migrate
+              </Button>
+              {!running && !g.config.template && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!!busy}
+                  onClick={async () => {
+                    if (!confirm(`Convert ${name} into a template? Templates cannot be started again; you clone them instead.`)) return;
+                    setBusy("converting");
+                    try {
+                      await pve.template(cluster, ref);
+                      setMsg({ ok: true, text: "Converted to a template." });
+                    } catch (e) {
+                      setMsg({ ok: false, text: (e as Error).message });
+                    } finally {
+                      setBusy("");
+                      void load();
+                    }
+                  }}
+                >
+                  <LayoutTemplate /> Make template
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -335,22 +348,16 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
         </>
       )}
       {tab === "config" && (
-        <>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ConfigCard title="Hardware" rows={hw} />
-            <ConfigCard title="Options" rows={opts} />
-          </div>
-          {desc && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Notes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <pre className="text-sm whitespace-pre-wrap">{desc}</pre>
-              </CardContent>
-            </Card>
-          )}
-        </>
+        <HardwareTab
+          cluster={cluster}
+          guest={ref}
+          detail={g}
+          canEdit={ac.can("proxmox.guests")}
+          onChanged={() => {
+            void load();
+            void loadTasks();
+          }}
+        />
       )}
       {tab === "backups" && (
         <BackupsTab
@@ -438,6 +445,19 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
         </>
       )}
 
+      {action === "clone" && (
+        <CloneDialog cluster={cluster} guest={ref} name={name} onClose={() => setAction(null)} onDone={(t) => (setMsg({ ok: true, text: t }), void loadTasks())} />
+      )}
+      {action === "migrate" && (
+        <MigrateDialog
+          cluster={cluster}
+          guest={ref}
+          name={name}
+          running={running}
+          onClose={() => setAction(null)}
+          onDone={(t) => (setMsg({ ok: true, text: t }), void loadTasks())}
+        />
+      )}
       {snaps && <SnapshotsDialog cluster={{ id: cluster, name: "" }} guest={{ ...ref, name }} ac={ac} onClose={() => setSnaps(false)} />}
       {console_ && <GuestConsole cluster={cluster} guest={ref} name={name} onClose={() => setConsole(false)} />}
       {log && <TaskLogDialog cluster={cluster} guest={ref} task={log} onClose={() => setLog(null)} />}
@@ -452,30 +472,6 @@ function Stat({ label, value, sub, meter }: { label: string; value: string; sub:
       <div className="tabular mt-1 text-xl font-semibold">{value}</div>
       <div className="text-xs text-muted-foreground">{sub}</div>
       {meter !== undefined && <Meter value={meter} className="mt-2" />}
-    </Card>
-  );
-}
-
-function ConfigCard({ title, rows }: { title: string; rows: [string, string | number][] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing set.</p>
-        ) : (
-          <dl className="divide-y text-sm">
-            {rows.map(([k, v]) => (
-              <div key={k} className="grid grid-cols-[8rem_1fr] gap-3 py-1.5">
-                <dt className="text-muted-foreground">{k}</dt>
-                <dd className="min-w-0 font-mono text-xs break-all whitespace-pre-wrap">{shown(k, v)}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </CardContent>
     </Card>
   );
 }
