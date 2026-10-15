@@ -22,10 +22,10 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.91 0 0);
   --input: oklch(0.91 0 0);
-  --ring: oklch(0.7 0.12 210);
-  --brand: oklch(0.6 0.13 215);
+  --ring: oklch(0.72 0.15 50);
+  --brand: oklch(0.64 0.19 45);
   --success: oklch(0.62 0.17 150);
-  --warning: oklch(0.72 0.16 75);
+  --warning: oklch(0.76 0.16 90);
 }
 
 .dark {
@@ -46,10 +46,10 @@
   --destructive: oklch(0.65 0.2 25);
   --border: oklch(1 0 0 / 9%);
   --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.75 0.13 210);
-  --brand: oklch(0.78 0.13 210);
+  --ring: oklch(0.74 0.16 52);
+  --brand: oklch(0.74 0.17 52);
   --success: oklch(0.75 0.17 155);
-  --warning: oklch(0.82 0.15 80);
+  --warning: oklch(0.86 0.16 95);
 }
 
 @theme inline {

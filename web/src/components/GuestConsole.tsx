@@ -66,7 +66,7 @@ export function GuestConsole({ cluster, guest, name, onClose }: { cluster: strin
         fontFamily: 'ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace',
         fontSize: 14,
         scrollback: 5000,
-        theme: { background: "#000000", foreground: "#e6e6e6", cursor: "#67d4f0", selectionBackground: "#2b4a5a" },
+        theme: { background: "#000000", foreground: "#e6e6e6", cursor: "#ff9d4d", selectionBackground: "#5a3a22" },
       });
       const fit = new FitAddon();
       term.loadAddon(fit);
