@@ -41,6 +41,10 @@ type fakePVE struct {
 	backups  map[string]int        // volid -> vmid
 	imports  map[string]url.Values // volid -> the download-url request
 	firewall map[int][]map[string]string
+	// storageCfg is extra storage added through POST /storage.
+	storageCfg map[string]url.Values
+	wiped      []string
+	zfs        map[string]url.Values // pool -> create request
 }
 
 type fakeConsole struct {
@@ -302,6 +306,12 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			f.acls = append(f.acls, e)
 		}
 		f.reply(w, 200, nil, "")
+	case parts[0] == "storage" || (len(parts) >= 3 && parts[0] == "nodes" && parts[2] == "disks"):
+		if !root {
+			deny()
+			return
+		}
+		f.storageAdmin(w, r, parts)
 	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "storage" && r.Method == "GET":
 		out := []map[string]any{}
 		for _, st := range f.storage {
@@ -361,11 +371,12 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			deny()
 			return
 		}
-		if !strings.HasSuffix(r.Form.Get("filename"), ".qcow2") || r.Form.Get("content") != "import" {
+		ok := map[string]string{"import": ".qcow2", "iso": ".iso", "vztmpl": ".tar.zst"}[r.Form.Get("content")]
+		if ok == "" || !strings.HasSuffix(r.Form.Get("filename"), ok) {
 			f.reply(w, 400, nil, "bad download")
 			return
 		}
-		f.imports[parts[3]+":import/"+r.Form.Get("filename")] = r.Form
+		f.imports[parts[3]+":"+r.Form.Get("content")+"/"+r.Form.Get("filename")] = r.Form
 		f.reply(w, 200, fmt.Sprintf("UPID:%s:0:0:0:download:0:%s:", parts[1], user), "")
 	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "qemu" && r.Method == "POST" && r.Form.Get("force") == "":
 		vmid, _ := strconv.Atoi(r.Form.Get("vmid"))
@@ -670,4 +681,89 @@ func (f *fakePVE) tokenOf(user string) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+// storageAdmin serves /storage and /nodes/{n}/disks for root.
+func (f *fakePVE) storageAdmin(w http.ResponseWriter, r *http.Request, parts []string) {
+	if f.storageCfg == nil {
+		f.storageCfg = map[string]url.Values{}
+		f.zfs = map[string]url.Values{}
+	}
+	upid := func(kind string) string { return fmt.Sprintf("UPID:%s:0:0:0:%s:0:root@pam:", parts[1], kind) }
+	switch {
+	case len(parts) == 1 && r.Method == "GET":
+		out := []map[string]any{}
+		for _, st := range f.storage {
+			out = append(out, map[string]any{"storage": st, "type": fakeStorageInfo[st][0], "content": fakeStorageInfo[st][1]})
+		}
+		for id, v := range f.storageCfg {
+			out = append(out, map[string]any{"storage": id, "type": v.Get("type"), "content": v.Get("content"), "nodes": v.Get("nodes")})
+		}
+		f.reply(w, 200, out, "")
+	case len(parts) == 1 && r.Method == "POST":
+		id := r.Form.Get("storage")
+		if _, dup := f.storageCfg[id]; dup || slices.Contains(f.storage, id) {
+			f.reply(w, 400, nil, "storage ID '"+id+"' already defined")
+			return
+		}
+		f.storageCfg[id] = r.Form
+	case len(parts) == 2 && r.Method == "PUT":
+		v, ok := f.storageCfg[parts[1]]
+		if !ok {
+			f.reply(w, 404, nil, "no such storage")
+			return
+		}
+		for k := range r.Form {
+			v.Set(k, r.Form.Get(k))
+		}
+	case len(parts) == 2 && r.Method == "DELETE":
+		if _, ok := f.storageCfg[parts[1]]; !ok {
+			f.reply(w, 404, nil, "no such storage")
+			return
+		}
+		delete(f.storageCfg, parts[1])
+	case len(parts) == 4 && parts[3] == "list":
+		f.reply(w, 200, []map[string]any{
+			{"devpath": "/dev/sda", "used": "LVM", "size": 500 << 30, "health": "PASSED", "type": "ssd", "model": "Samsung SSD"},
+			{"devpath": "/dev/sdb", "used": "", "size": 1 << 40, "health": "PASSED", "type": "hdd"},
+			{"devpath": "/dev/sdc", "used": "partitions", "size": 1 << 40, "health": "PASSED", "type": "hdd"},
+			{"devpath": "/dev/sdd", "used": "", "mounted": 1, "size": 1 << 40, "health": "PASSED", "type": "hdd"},
+		}, "")
+		return
+	case len(parts) == 4 && parts[3] == "smart":
+		f.reply(w, 200, map[string]any{"health": "PASSED", "type": "ata", "attributes": []any{}}, "")
+		return
+	case len(parts) == 4 && parts[3] == "wipedisk" && r.Method == "PUT":
+		f.wiped = append(f.wiped, r.Form.Get("disk"))
+		f.reply(w, 200, upid("wipedisk"), "")
+		return
+	case len(parts) == 4 && parts[3] == "zfs" && r.Method == "GET":
+		out := []map[string]any{}
+		for n := range f.zfs {
+			out = append(out, map[string]any{"name": n, "health": "ONLINE", "size": 1 << 40, "alloc": 0, "free": 1 << 40})
+		}
+		f.reply(w, 200, out, "")
+		return
+	case len(parts) == 4 && parts[3] == "zfs" && r.Method == "POST":
+		f.zfs[r.Form.Get("name")] = r.Form
+		f.reply(w, 200, upid("zfscreate"), "")
+		return
+	case len(parts) == 5 && parts[3] == "zfs" && r.Method == "GET":
+		if _, ok := f.zfs[parts[4]]; !ok {
+			f.reply(w, 404, nil, "no such pool")
+			return
+		}
+		f.reply(w, 200, map[string]any{"name": parts[4], "state": "ONLINE", "children": []any{}}, "")
+		return
+	case len(parts) == 5 && parts[3] == "zfs" && r.Method == "DELETE":
+		delete(f.zfs, parts[4])
+		f.reply(w, 200, upid("zfsremove"), "")
+		return
+	default:
+		f.reply(w, 501, nil, "fake: not implemented")
+		return
+	}
+	if r.Method != "GET" {
+		f.reply(w, 200, nil, "")
+	}
 }

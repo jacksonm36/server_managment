@@ -16,6 +16,7 @@ import { Dashboard } from "@/pages/Dashboard";
 import { CrowdSec } from "@/pages/CrowdSec";
 import { Proxmox } from "@/pages/Proxmox";
 import { ProxmoxGuest } from "@/pages/ProxmoxGuest";
+import { ProxmoxStorage } from "@/pages/ProxmoxStorage";
 import { Keys } from "@/pages/Keys";
 import { VaultBanner } from "@/components/Vault";
 import { JobsDock } from "@/components/JobsDock";
@@ -94,6 +95,9 @@ export function App() {
           </Route>
           <Route path="/proxmox">
             <Proxmox />
+          </Route>
+          <Route path="/storage">
+            <ProxmoxStorage />
           </Route>
           <Route path="/proxmox/:cluster/:node/:type/:vmid">{(p) => <ProxmoxGuest {...p} />}</Route>
           <Route path="/security">

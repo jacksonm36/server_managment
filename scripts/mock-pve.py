@@ -45,7 +45,16 @@ BACKUPS = {"local:backup/vzdump-qemu-100-2026_10_01-02_00_00.vma.zst": {"vmid": 
            "local:backup/vzdump-qemu-100-2026_10_08-02_00_00.vma.zst": {"vmid": 100, "ctime": now() - 6 * 86400, "size": 3 << 30, "notes": "nightly"}}
 FIREWALL = {}
 IMPORTS = {}  # volid -> download-url form
-STORAGE_INFO = {"local": ("dir", "iso,vztmpl,backup,import"), "local-lvm": ("lvmthin", "images,rootdir")}  # vmid -> {"options": {...}, "rules": [...]}
+STORAGE_INFO = {"local": ("dir", "iso,vztmpl,backup,import"), "local-lvm": ("lvmthin", "images,rootdir")}
+STORAGE_CFG = {"local": {"type": "dir", "path": "/var/lib/vz", "content": "iso,vztmpl,backup,import"},
+               "local-lvm": {"type": "lvmthin", "vgname": "pve", "thinpool": "data", "content": "images,rootdir"}}
+ISOS = {"debian-13.1.0-amd64-netinst.iso", "ubuntu-24.04.3-live-server-amd64.iso"}
+DISKS = {n: [{"devpath": "/dev/nvme0n1", "model": "Samsung SSD 990 PRO 1TB", "serial": f"S7KX{i}0001", "size": 1000 << 30, "type": "nvme", "health": "PASSED", "wearout": 97, "used": "LVM", "gpt": 1, "rpm": 0},
+             {"devpath": "/dev/sda", "model": "WDC WD40EFRX", "serial": f"WD-{i}A1", "size": 4000 << 30, "type": "hdd", "health": "PASSED", "wearout": "N/A", "used": "", "gpt": 0, "rpm": 5400},
+             {"devpath": "/dev/sdb", "model": "WDC WD40EFRX", "serial": f"WD-{i}A2", "size": 4000 << 30, "type": "hdd", "health": "PASSED", "wearout": "N/A", "used": "partitions", "gpt": 1, "rpm": 5400},
+             {"devpath": "/dev/sdc", "model": "ST4000VN008", "serial": f"ZD-{i}C3", "size": 4000 << 30, "type": "hdd", "health": "FAILED", "wearout": "N/A", "used": "", "gpt": 0, "rpm": 5900}]
+         for i, n in enumerate(NODES)}
+ZFS = {n: {} for n in NODES}  # node -> pool -> {"devices": [...], "raidlevel": ...}
 
 
 def task(node, kind, vmid, fn=None):
@@ -146,6 +155,10 @@ class H(BaseHTTPRequestHandler):
     def route(self, method, p, form, q):
         user, root = self.user, self.user == "root@pam"
         deny = lambda: self.send(403, err="Permission check failed")
+        if p == "/storage" or p.startswith("/storage/") or re.fullmatch(r"/nodes/[\w-]+/disks/.*", p):
+            if not root:
+                return deny()
+            return self.storage_admin(method, p, form, q)
         if p.startswith("/pools") or p.startswith("/access") or re.fullmatch(r"/nodes/[\w-]+/network", p):
             if not root:
                 return deny()
@@ -178,22 +191,40 @@ class H(BaseHTTPRequestHandler):
         m = re.fullmatch(r"/nodes/([\w-]+)/storage", p)
         if m and method == "GET":
             info = lambda st: STORAGE_INFO.get(st, ("dir", "backup,images"))
-            return self.send(200, [{"storage": st, "active": 1, "enabled": 1, "type": info(st)[0], "content": info(st)[1]} for st in STORAGES
-                                   if can(user, "/storage/" + st) and (not q.get("content") or q["content"] in info(st)[1].split(","))])
+            on = lambda st: m.group(1) in STORAGE_CFG.get(st, {}).get("nodes", m.group(1)).split(",") and STORAGE_CFG.get(st, {}).get("disable") != "1"
+            size = lambda st: (4000 << 30) if STORAGE_INFO.get(st, ("",))[0] in ("zfspool", "nfs") else (500 << 30)
+            return self.send(200, [{"storage": st, "active": 1, "enabled": 1, "type": info(st)[0], "content": info(st)[1], "shared": int(info(st)[0] == "nfs"),
+                                    "total": size(st), "used": size(st) // 5, "avail": size(st) - size(st) // 5} for st in STORAGES
+                                   if on(st) and can(user, "/storage/" + st) and (not q.get("content") or q["content"] in info(st)[1].split(","))])
         m = re.fullmatch(r"/nodes/([\w-]+)/storage/([\w-]+)/download-url", p)
         if m and method == "POST":
             if user != "root@pam":
                 return self.send(403, err="Permission check failed")
-            vol = f"{m.group(2)}:import/{form.get('filename', '')}"
-            return self.send(200, task(m.group(1), "download", 0, lambda: IMPORTS.__setitem__(vol, form)))
+            content = form.get("content", "import")
+            vol = f"{m.group(2)}:{content}/{form.get('filename', '')}"
+            add = (lambda: ISOS.add(form.get("filename"))) if content == "iso" else (lambda: IMPORTS.__setitem__(vol, form))
+            return self.send(200, task(m.group(1), "download", 0, add))
         m = re.fullmatch(r"/nodes/([\w-]+)/storage/([\w-]+)/content(?:/(.+))?", p)
         if m:
             st, volid = m.group(2), urllib.parse.unquote(m.group(3) or "")
             if not can(user, "/storage/" + st):
                 return self.send(403, err="Permission check failed")
             if method == "GET" and not volid and q.get("content") == "iso":
-                return self.send(200, [{"volid": f"{st}:iso/{n}", "content": "iso", "size": 700 << 20} for n in ("debian-13.1.0-amd64-netinst.iso", "ubuntu-24.04.3-live-server-amd64.iso")
+                return self.send(200, [{"volid": f"{st}:iso/{n}", "content": "iso", "size": 700 << 20} for n in sorted(ISOS)
                                        if "iso" in STORAGE_INFO.get(st, ("", ""))[1]])
+            if method == "GET" and not volid and root and not q.get("vmid"):
+                # the storage page's browser: everything on the storage
+                out = []
+                if "iso" in STORAGE_INFO.get(st, ("", ""))[1]:
+                    out += [{"volid": f"{st}:iso/{n}", "content": "iso", "format": "iso", "size": 700 << 20, "ctime": now() - 86400} for n in sorted(ISOS)]
+                out += [{"volid": v, "content": "import", "format": "qcow2", "size": 400 << 20} for v in IMPORTS if v.startswith(st + ":")]
+                out += [{"volid": v, "format": "vma.zst", "content": "backup", **b} for v, b in BACKUPS.items() if v.startswith(st + ":")]
+                if "images" in STORAGE_INFO.get(st, ("", ""))[1]:
+                    out += [{"volid": f"{st}:vm-{i}-disk-0", "content": "images", "format": "raw", "size": g["maxdisk"], "vmid": i} for i, g in GUESTS.items()]
+                return self.send(200, out)
+            if method == "DELETE" and volid.startswith(st + ":iso/") and root:
+                ISOS.discard(volid.split("/", 1)[1])
+                return self.send(200, None)
             if method == "GET" and not volid and q.get("content") == "import":
                 return self.send(200, [{"volid": v, "content": "import", "format": "qcow2"} for v in IMPORTS if v.startswith(st + ":")])
             if method == "DELETE" and volid in IMPORTS:
@@ -394,6 +425,95 @@ class H(BaseHTTPRequestHandler):
                 return self.send(500, err="VM is running - destroy failed")
             return self.send(200, task(node, "qmdestroy", vmid, lambda: GUESTS.pop(vmid, None)))
         return self.send(501, err=f"mock: {method} {rest} not implemented")
+
+    def storage_admin(self, method, p, form, q):
+        if p == "/storage" and method == "GET":
+            return self.send(200, [{"storage": k, **v} for k, v in STORAGE_CFG.items()])
+        if p == "/storage" and method == "POST":
+            sid = form.get("storage", "")
+            if sid in STORAGE_CFG:
+                return self.send(400, err=f"storage ID '{sid}' already defined")
+            STORAGE_CFG[sid] = {k: v for k, v in form.items() if k != "storage"}
+            STORAGE_INFO[sid] = (form.get("type"), form.get("content", ""))
+            STORAGES.append(sid)
+            return self.send(200, None)
+        m = re.fullmatch(r"/storage/([\w.-]+)", p)
+        if m:
+            sid = m.group(1)
+            if sid not in STORAGE_CFG:
+                return self.send(404, err="no such storage")
+            if method == "PUT":
+                cfg = STORAGE_CFG[sid]
+                for k in form.get("delete", "").split(","):
+                    cfg.pop(k, None)
+                cfg.update({k: v for k, v in form.items() if k != "delete"})
+                STORAGE_INFO[sid] = (cfg["type"], cfg.get("content", ""))
+                return self.send(200, None)
+            if method == "DELETE":
+                STORAGE_CFG.pop(sid)
+                STORAGE_INFO.pop(sid, None)
+                if sid in STORAGES:
+                    STORAGES.remove(sid)
+                return self.send(200, None)
+        m = re.fullmatch(r"/nodes/([\w-]+)/disks/(list|smart|wipedisk|zfs)(?:/([\w.:-]+))?", p)
+        if not m or m.group(1) not in NODES:
+            return self.send(501, err="mock: not implemented")
+        node, what, name = m.groups()
+        disks = DISKS[node]
+        if what == "list":
+            return self.send(200, disks)
+        if what == "smart":
+            d = next((d for d in disks if d["devpath"] == q.get("disk")), None)
+            if not d:
+                return self.send(400, err="no such disk")
+            if d["type"] == "nvme":
+                return self.send(200, {"health": d["health"], "type": "text", "text": "Critical Warning: 0x00\nTemperature: 41 Celsius\nAvailable Spare: 100%\nPercentage Used: 3%\nPower On Hours: 8,214\nMedia and Data Integrity Errors: 0"})
+            bad = d["health"] != "PASSED"
+            attrs = [(1, "Raw_Read_Error_Rate", 200, 51, "0"), (5, "Reallocated_Sector_Ct", 140 if bad else 200, 140, "512" if bad else "0"),
+                     (9, "Power_On_Hours", 62, 0, "27841"), (194, "Temperature_Celsius", 115, 0, "35"), (197, "Current_Pending_Sector", 200, 0, "37" if bad else "0")]
+            return self.send(200, {"health": d["health"], "type": "ata", "attributes": [
+                {"id": i, "name": n, "value": v, "worst": v, "threshold": t, "raw": raw, "flags": "PO--CK", "fail": "FAILING_NOW" if bad and i == 5 else "-"} for i, n, v, t, raw in attrs]})
+        if what == "wipedisk" and method == "PUT":
+            d = next((d for d in disks if d["devpath"] == form.get("disk")), None)
+            if not d:
+                return self.send(400, err="no such disk")
+            return self.send(200, task(node, "wipedisk", 0, lambda: d.update(used="", gpt=0)))
+        pools = ZFS[node]
+        if what == "zfs" and not name and method == "GET":
+            return self.send(200, [{"name": k, "health": "ONLINE", "size": v["size"], "alloc": v["size"] // 10, "free": v["size"] - v["size"] // 10, "frag": 1, "dedup": 1.0} for k, v in pools.items()])
+        if what == "zfs" and not name and method == "POST":
+            devs = form.get("devices", "").split(",")
+            def create():
+                n = len(devs)
+                usable = {"single": 1, "mirror": 1, "raid10": n // 2, "raidz": n - 1, "raidz2": n - 2, "raidz3": n - 3}[form["raidlevel"]]
+                pools[form["name"]] = {"devices": devs, "raidlevel": form["raidlevel"], "size": usable * (4000 << 30)}
+                for d in disks:
+                    if d["devpath"] in devs:
+                        d["used"] = "ZFS"
+                if form.get("add_storage") == "1":
+                    STORAGE_CFG[form["name"]] = {"type": "zfspool", "pool": form["name"], "content": "images,rootdir", "nodes": node}
+                    STORAGE_INFO[form["name"]] = ("zfspool", "images,rootdir")
+                    STORAGES.append(form["name"])
+            return self.send(200, task(node, "zfscreate", 0, create))
+        if what == "zfs" and name and name in pools and method == "GET":
+            v = pools[name]
+            kids = [{"name": d.removeprefix("/dev/"), "state": "ONLINE", "read": 0, "write": 0, "cksum": 0} for d in v["devices"]]
+            vdev = kids if v["raidlevel"] == "single" else [{"name": f"{v['raidlevel']}-0", "state": "ONLINE", "read": 0, "write": 0, "cksum": 0, "children": kids}]
+            return self.send(200, {"name": name, "state": "ONLINE", "status": "", "action": "", "scan": "scrub repaired 0B in 00:01:12 with 0 errors", "errors": "No known data errors",
+                                   "children": [{"name": name, "state": "ONLINE", "read": 0, "write": 0, "cksum": 0, "children": vdev}]})
+        if what == "zfs" and name and name in pools and method == "DELETE":
+            def destroy():
+                v = pools.pop(name)
+                for d in disks:
+                    if d["devpath"] in v["devices"]:
+                        d["used"] = "" if form.get("cleanup-disks") == "1" else "partitions"
+                if form.get("cleanup-config") == "1" and name in STORAGE_CFG:
+                    STORAGE_CFG.pop(name)
+                    STORAGE_INFO.pop(name, None)
+                    if name in STORAGES:
+                        STORAGES.remove(name)
+            return self.send(200, task(node, "zfsremove", 0, destroy))
+        return self.send(404, err="not found")
 
     def admin(self, method, p, form):
         """Pools, users, tokens, ACLs and bridges (root token only)."""

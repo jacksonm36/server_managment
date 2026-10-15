@@ -118,6 +118,10 @@ func TestTenantIsolation(t *testing.T) {
 		expect("alice GET "+path, first(call(al, "GET", path, nil)), 403)
 	}
 	expect("alice adds a cluster", first(call(al, "POST", "/api/v1/proxmox", map[string]any{"name": "x"})), 403)
+	for _, path := range []string{"/storage", "/nodes/pve1/disks", "/nodes/pve1/zfs", "/nodes/pve1/storage/local-lvm/content"} {
+		expect("alice GET storage admin "+path, first(call(al, "GET", "/api/v1/proxmox/"+cid+path, nil)), 403)
+	}
+	expect("alice wipes a disk", first(call(al, "POST", "/api/v1/proxmox/"+cid+"/nodes/pve1/disks/wipe", map[string]any{"disk": "/dev/sdb", "confirm": "/dev/sdb"})), 403)
 	expect("alice deletes the cluster", first(call(al, "DELETE", "/api/v1/proxmox/"+cid, nil)), 403)
 
 	// Servers: only the tenant's server group.

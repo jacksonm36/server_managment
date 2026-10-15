@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import {
   Boxes,
+  Database,
   ChevronLeft,
   ChevronsRight,
   History,
@@ -38,6 +39,7 @@ function navSections(perms: Set<string>): { title?: string; items: NavItem[] }[]
       items: [
         { href: "/servers", label: "Servers", icon: <Server />, show: true },
         { href: "/proxmox", label: "Proxmox", icon: <Boxes />, show: has("proxmox.view") },
+        { href: "/storage", label: "Storage", icon: <Database />, show: has("proxmox.manage") },
       ],
     },
     {

@@ -585,6 +585,61 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return data as T;
 }
 
+const pveNodeURL = (id: string, node: string) => `/api/v1/proxmox/${id}/nodes/${encodeURIComponent(node)}`;
+
+// Storage page (platform admins).
+export type PVEStorageConfig = {
+  storage: string;
+  type: string;
+  content?: string;
+  nodes?: string;
+  disable?: number;
+  shared?: number;
+  path?: string;
+  server?: string;
+  export?: string;
+  vgname?: string;
+  thinpool?: string;
+  pool?: string;
+};
+export type PVENodeStorage = { storage: string; type: string; content: string; active: number; enabled: number; shared?: number; total?: number; used?: number; avail?: number };
+export type PVEStorageOverview = { config: PVEStorageConfig[]; nodes: Record<string, PVENodeStorage[]>; errors: string[] | null };
+export type PVEStorageReq = {
+  storage: string;
+  type: "dir" | "nfs" | "lvmthin" | "zfspool";
+  content: string[];
+  nodes?: string[];
+  disable?: boolean;
+  path?: string;
+  server?: string;
+  export?: string;
+  vgname?: string;
+  thinpool?: string;
+  pool?: string;
+};
+export type PVEVolume = { volid: string; content: string; format?: string; size?: number; ctime?: number; vmid?: number; notes?: string };
+export type PVEDisk = {
+  devpath: string;
+  model?: string;
+  serial?: string;
+  size: number;
+  type?: string;
+  health?: string;
+  wearout?: number | string;
+  used?: string;
+  mounted?: number | boolean;
+  rpm?: number;
+};
+export type PVESMART = {
+  health: string;
+  type: string;
+  text?: string;
+  attributes?: { id: number | string; name: string; value: number | string; worst: number | string; threshold: number | string; raw: string; fail?: string }[];
+};
+export type PVEZPool = { name: string; health: string; size: number; alloc: number; free: number; frag?: number; dedup?: number };
+export type PVEZNode = { name: string; state?: string; read?: number; write?: number; cksum?: number; msg?: string; children?: PVEZNode[] };
+export type PVEZDetail = { name: string; state: string; status?: string; action?: string; scan?: string; errors?: string; children?: PVEZNode[] };
+
 export const api = {
   login: (username: string, password: string, otp?: string) =>
     request<{ username: string }>("POST", "/api/v1/auth/login", otp ? { username, password, otp } : { username, password }),
@@ -723,6 +778,32 @@ export const api = {
   pveFirewallDelete: (id: string, g: PVEGuestRef, pos: number) => request<void>("DELETE", `${pveGuestURL(id, g)}/firewall/rules/${pos}`),
   pveTaskLog: (id: string, g: PVEGuestRef, upid: string) =>
     request<{ log: string }>("GET", `${pveGuestURL(id, g)}/tasks/log?upid=${encodeURIComponent(upid)}`),
+  pveStorage: (id: string) => request<PVEStorageOverview>("GET", `/api/v1/proxmox/${id}/storage`),
+  pveStorageCreate: (id: string, b: PVEStorageReq) => request<void>("POST", `/api/v1/proxmox/${id}/storage`, b),
+  pveStorageUpdate: (id: string, storage: string, b: Partial<PVEStorageReq>) =>
+    request<void>("PUT", `/api/v1/proxmox/${id}/storage/${encodeURIComponent(storage)}`, b),
+  pveStorageDelete: (id: string, storage: string, confirm: string) =>
+    request<void>("DELETE", `/api/v1/proxmox/${id}/storage/${encodeURIComponent(storage)}?confirm=${encodeURIComponent(confirm)}`),
+  pveStorageContent: (id: string, node: string, storage: string) =>
+    request<PVEVolume[]>("GET", `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/content`),
+  pveVolumeDelete: (id: string, node: string, storage: string, volume: string, confirm: string) =>
+    request<void>(
+      "DELETE",
+      `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/content?volume=${encodeURIComponent(volume)}&confirm=${encodeURIComponent(confirm)}`,
+    ),
+  pveDownloadURL: (id: string, node: string, storage: string, b: { url: string; content: "iso" | "vztmpl"; filename?: string; checksum?: string; checksum_algorithm?: string }) =>
+    request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/download`, b),
+  pveNodeTask: (id: string, node: string, upid: string) =>
+    request<{ status: string; exitstatus: string; log: string[] }>("GET", `${pveNodeURL(id, node)}/task?upid=${encodeURIComponent(upid)}`),
+  pveDisks: (id: string, node: string) => request<PVEDisk[]>("GET", `${pveNodeURL(id, node)}/disks`),
+  pveDiskSMART: (id: string, node: string, disk: string) => request<PVESMART>("GET", `${pveNodeURL(id, node)}/disks/smart?disk=${encodeURIComponent(disk)}`),
+  pveDiskWipe: (id: string, node: string, disk: string, confirm: string) => request<void>("POST", `${pveNodeURL(id, node)}/disks/wipe`, { disk, confirm }),
+  pveZFS: (id: string, node: string) => request<PVEZPool[]>("GET", `${pveNodeURL(id, node)}/zfs`),
+  pveZFSDetail: (id: string, node: string, pool: string) => request<PVEZDetail>("GET", `${pveNodeURL(id, node)}/zfs/${encodeURIComponent(pool)}`),
+  pveZFSCreate: (id: string, node: string, b: { name: string; devices: string[]; raidlevel: string; ashift: number; compression: string; add_storage: boolean }) =>
+    request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/zfs`, b),
+  pveZFSDestroy: (id: string, node: string, pool: string, b: { confirm: string; cleanup_config: boolean; cleanup_disks: boolean }) =>
+    request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/zfs/${encodeURIComponent(pool)}/destroy`, b),
   pveHardwareOptions: (id: string, g: PVEGuestRef) => request<PVEHardwareOptions>("GET", `${pveGuestURL(id, g)}/hardware`),
   pveHardware: (id: string, g: PVEGuestRef, h: PVEHardwareReq) => request<void>("PUT", `${pveGuestURL(id, g)}/hardware`, h),
   pveDiskAdd: (id: string, g: PVEGuestRef, d: { bus?: string; storage: string; size_gb: number; path?: string }) =>
