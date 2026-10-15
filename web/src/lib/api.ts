@@ -603,6 +603,34 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 const pveNodeURL = (id: string, node: string) => `/api/v1/proxmox/${id}/nodes/${encodeURIComponent(node)}`;
 
+// Node details (platform users).
+export type PVENodeStatus = {
+  uptime?: number;
+  loadavg?: string[];
+  kversion?: string;
+  pveversion?: string;
+  cpu?: number;
+  wait?: number;
+  cpuinfo?: { model?: string; cpus?: number; sockets?: number; cores?: number; mhz?: string };
+  memory?: { total: number; used: number; free: number };
+  swap?: { total: number; used: number; free: number };
+  rootfs?: { total: number; used: number; avail: number };
+  "boot-info"?: { mode?: string };
+};
+export type PVENodeRRDPoint = {
+  time: number;
+  cpu?: number;
+  iowait?: number;
+  loadavg?: number;
+  memused?: number;
+  memtotal?: number;
+  swapused?: number;
+  netin?: number;
+  netout?: number;
+  rootused?: number;
+  roottotal?: number;
+};
+
 // Storage page (platform admins).
 export type PVEStorageConfig = {
   storage: string;
@@ -811,6 +839,9 @@ export const api = {
     request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/download`, b),
   pveNodeTask: (id: string, node: string, upid: string) =>
     request<{ status: string; exitstatus: string; log: string[] }>("GET", `${pveNodeURL(id, node)}/task?upid=${encodeURIComponent(upid)}`),
+  pveNodeStatus: (id: string, node: string) => request<PVENodeStatus>("GET", `${pveNodeURL(id, node)}/status`),
+  pveNodeRRD: (id: string, node: string, tf: PVETimeframe) => request<PVENodeRRDPoint[]>("GET", `${pveNodeURL(id, node)}/rrd?timeframe=${tf}`),
+  pveNodeTasks: (id: string, node: string) => request<(PVETask & { id?: string; node?: string })[]>("GET", `${pveNodeURL(id, node)}/tasks`),
   pveDisks: (id: string, node: string) => request<PVEDisk[]>("GET", `${pveNodeURL(id, node)}/disks`),
   pveDiskSMART: (id: string, node: string, disk: string) => request<PVESMART>("GET", `${pveNodeURL(id, node)}/disks/smart?disk=${encodeURIComponent(disk)}`),
   pveDiskWipe: (id: string, node: string, disk: string, confirm: string) => request<void>("POST", `${pveNodeURL(id, node)}/disks/wipe`, { disk, confirm }),

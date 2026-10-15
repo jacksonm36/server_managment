@@ -264,14 +264,35 @@ class H(BaseHTTPRequestHandler):
             if vmid not in GUESTS or not can_guest(user, vmid) or BACKUPS.get(vol, {}).get("vmid") != vmid:
                 return self.send(403, err="Permission check failed")
             return self.send(200, task(m.group(1), "qmrestore", vmid))
+        m = re.fullmatch(r"/nodes/([\w-]+)/(status|rrddata)", p)
+        if m and method == "GET" and root and m.group(1) in NODES:
+            n = NODES[m.group(1)]
+            if m.group(2) == "status":
+                return self.send(200, {"uptime": 99999, "loadavg": ["0.42", "0.38", "0.35"], "kversion": "Linux 6.8.12-4-pve #1 SMP PREEMPT_DYNAMIC",
+                                       "pveversion": "pve-manager/8.4.1/mock", "cpu": 0.12, "wait": 0.01,
+                                       "cpuinfo": {"model": "AMD EPYC 7302P 16-Core Processor", "cpus": n["maxcpu"], "sockets": 1, "cores": n["maxcpu"] // 2, "mhz": "3000.000"},
+                                       "memory": {"total": n["maxmem"], "used": n["maxmem"] // 3, "free": n["maxmem"] - n["maxmem"] // 3},
+                                       "swap": {"total": 8 << 30, "used": 0, "free": 8 << 30},
+                                       "rootfs": {"total": 100 << 30, "used": 24 << 30, "avail": 76 << 30},
+                                       "boot-info": {"mode": "efi"}, "current-kernel": {"release": "6.8.12-4-pve"}})
+            import math
+            step = {"hour": 60, "day": 1800, "week": 10800, "month": 43200, "year": 604800}.get(q.get("timeframe"), 60)
+            t1, out = now() // step * step, []
+            for i in range(70):
+                t = t1 - (69 - i) * step
+                w = (math.sin(t / (step * 9)) + 1) / 2
+                out.append({"time": t, "cpu": 0.08 + 0.3 * w, "iowait": 0.01 * w, "loadavg": 0.3 + 2 * w, "memused": n["maxmem"] * (0.3 + 0.1 * w), "memtotal": n["maxmem"],
+                            "swapused": 0, "netin": 100000 + 2e6 * w, "netout": 50000 + 1e6 * (1 - w), "rootused": 24 << 30, "roottotal": 100 << 30})
+            out[-1] = {"time": t1}
+            return self.send(200, out)
         m = re.fullmatch(r"/nodes/([\w-]+)/tasks", p)
         if m and method == "GET":
             vmid = int(q.get("vmid", 0))
-            if not can_guest(user, vmid):
+            if vmid and not can_guest(user, vmid) or not vmid and user != "root@pam":
                 return self.send(200, [])
-            out = [{"upid": u, "type": t["type"], "user": "root@pam!servermgr", "starttime": t["starttime"], "node": t["node"],
+            out = [{"upid": u, "type": t["type"], "id": t["id"], "user": "root@pam!servermgr", "starttime": t["starttime"], "node": t["node"],
                     **({"endtime": t["starttime"] + 2, "status": t["exitstatus"]} if t["status"] == "stopped" else {})}
-                   for u, t in TASKS.items() if t["node"] == m.group(1) and t["id"] == str(vmid)]
+                   for u, t in TASKS.items() if t["node"] == m.group(1) and (not vmid or t["id"] == str(vmid))]
             return self.send(200, sorted(out, key=lambda t: -t["starttime"]))
         m = re.fullmatch(r"/nodes/([\w-]+)/(qemu|lxc)/(\d+)(/.*)?", p)
         if not m:

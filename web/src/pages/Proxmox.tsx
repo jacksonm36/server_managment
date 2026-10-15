@@ -30,6 +30,8 @@ import { ImageTemplateDialog } from "@/components/ImageTemplateDialog";
 import { DeployDialog } from "@/components/DeployDialog";
 import { FlavorPicker, FlavorsDialog, useFlavors } from "@/components/Flavors";
 import { PVEOverview } from "@/components/PVEOverview";
+import { ComputeTree } from "@/components/ComputeTree";
+import { PVENodeView } from "@/components/PVENodeView";
 
 const statusVariant = (s: string) => (s === "running" || s === "online" ? "success" : s === "stopped" ? "outline" : "warning");
 
@@ -116,6 +118,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
   const [fromImage, setFromImage] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const [flavorsOpen, setFlavorsOpen] = useState(false);
+  const [node, setNode] = useState(""); // picked in the compute tree; "" = the whole cluster
 
   const load = useCallback(async () => {
     try {
@@ -149,7 +152,9 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
 
   const guests = useMemo(() => (res?.guests ?? []).filter((g) => !g.template), [res]);
   const templates = useMemo(() => (res?.guests ?? []).filter((g) => g.template && g.type === "qemu"), [res]);
-  const shown = guests.filter((g) => !filter || `${g.vmid} ${g.name} ${g.node} ${g.status} ${g.server_name ?? ""}`.toLowerCase().includes(filter.toLowerCase()));
+  const guestHref = (g: PVEGuest) => `/proxmox/${cluster.id}/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`;
+  const nodeInfo = res?.nodes?.find((n) => n.node === node);
+  const shown = guests.filter((g) => (!node || g.node === node) && (!filter || `${g.vmid} ${g.name} ${g.node} ${g.status} ${g.server_name ?? ""}`.toLowerCase().includes(filter.toLowerCase())));
 
   return (
     <div className="grid gap-4">
@@ -198,197 +203,208 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
         <p className={`rounded-lg border px-4 py-2 text-sm ${msg.ok ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive"}`}>{msg.text}</p>
       )}
 
-      {res?.tenant && <TenantUsageCard t={res.tenant} />}
-
-      {res && !res.error && <PVEOverview res={res} guestHref={(g) => `/proxmox/${cluster.id}/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`} />}
-
-      <Card>
-        <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle>Guests</CardTitle>
-            <CardDescription>{guests.length} VMs and containers</CardDescription>
-          </div>
-          <Input className="w-48" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter guests" />
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="py-2 pr-3 font-normal">ID</th>
-                <th className="py-2 pr-3 font-normal">Name</th>
-                <th className="py-2 pr-3 font-normal">Node</th>
-                <th className="py-2 pr-3 font-normal">Status</th>
-                <th className="hidden py-2 pr-3 font-normal md:table-cell">CPU / Memory</th>
-                <th className="py-2 font-normal" />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {shown.map((g) => {
-                const running = g.status === "running";
-                const b = busy[g.vmid];
-                return (
-                  <tr key={g.id}>
-                    <td className="py-2 pr-3 font-mono text-xs">{g.vmid}</td>
-                    <td className="py-2 pr-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Link href={`/proxmox/${cluster.id}/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`} className="font-medium hover:text-brand hover:underline">
-                          {g.name}
-                        </Link>
-                        <Badge variant="outline">{g.type === "qemu" ? "VM" : "CT"}</Badge>
-                        {g.tenant && (
-                          <Badge variant="outline" title={`In pool ${g.pool}`}>
-                            {g.tenant}
-                          </Badge>
-                        )}
-                        {g.server_id && (
-                          <Link href={`/servers/${g.server_id}`} className="text-xs text-brand hover:underline">
-                            managed
-                          </Link>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-2 pr-3 text-xs">{g.node}</td>
-                    <td className="py-2 pr-3">
-                      <Badge variant={statusVariant(g.status)}>{b ? `${b}…` : g.status}</Badge>
-                      {running && <div className="mt-0.5 text-[11px] text-muted-foreground">up {formatUptime(g.uptime)}</div>}
-                    </td>
-                    <td className="hidden py-2 pr-3 text-xs text-muted-foreground md:table-cell">
-                      {g.maxcpu} vCPU · {running ? `${formatBytes(g.mem)} / ` : ""}
-                      {formatBytes(g.maxmem)}
-                    </td>
-                    <td className="py-2 text-right whitespace-nowrap">
-                      {ac.can("proxmox.operate") && (
-                        <span className="inline-flex gap-0.5">
-                          {!running && (
-                            <Icon title="Start" onClick={() => power(g, g.status === "paused" ? "resume" : "start")} disabled={!!b}>
-                              <Play />
-                            </Icon>
-                          )}
-                          {running && (
-                            <>
-                              <Icon title="Shut down" onClick={() => power(g, "shutdown")} disabled={!!b}>
-                                <Power />
-                              </Icon>
-                              <Icon title="Reboot" onClick={() => power(g, "reboot")} disabled={!!b}>
-                                <RotateCw />
-                              </Icon>
-                              {g.type === "qemu" && (
-                                <Icon title="Suspend" onClick={() => power(g, "suspend")} disabled={!!b}>
-                                  <Pause />
-                                </Icon>
-                              )}
-                              <Icon
-                                title="Stop (hard)"
-                                className="text-destructive"
-                                onClick={() => confirm(`Hard-stop ${g.name}? Unsaved data in the guest is lost.`) && power(g, "stop")}
-                                disabled={!!b}
-                              >
-                                <Square />
-                              </Icon>
-                            </>
-                          )}
-                          <Icon title="Snapshots" onClick={() => setSnaps(g)}>
-                            <Camera />
-                          </Icon>
-                          {ac.can("proxmox.guests") && (
-                            <Icon title={running ? "Stop it before deleting" : "Delete"} className="text-destructive" disabled={running || !!b} onClick={() => setDel(g)}>
-                              <Trash2 />
-                            </Icon>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {res && shown.length === 0 && <p className="py-3 text-sm text-muted-foreground">No guests match.</p>}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
-            <div className="grid min-w-56 flex-1 gap-1.5">
-              <CardTitle>Templates</CardTitle>
-              <CardDescription>Cloud-init VM templates. New VMs get the panel's SSH key and can enroll into servermgr automatically.</CardDescription>
-            </div>
-            {ac.can("proxmox.manage") && !res?.tenant && (
-              <div className="flex flex-wrap gap-1">
-                <Button size="sm" variant="brand" onClick={() => setDeploying(true)}>
-                  <Rocket /> Deploy
-                </Button>
-                <Button size="sm" variant="secondary" onClick={() => setFromImage(true)}>
-                  <Plus /> From image
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => setFlavorsOpen(true)}>
-                  <Ruler /> Flavors
-                </Button>
-              </div>
-            )}
-          </CardHeader>
-          <CardContent>
-            {templates.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No VM templates on this cluster.</p>
-            ) : (
-              <ul className="divide-y text-sm">
-                {templates.map((t) => (
-                  <li key={t.id} className="flex items-center justify-between gap-2 py-2">
-                    <span>
-                      <span className="font-medium">{t.name}</span>
-                      <span className="ml-2 font-mono text-xs text-muted-foreground">
-                        {t.vmid} · {t.node}
-                      </span>
-                    </span>
-                    {ac.can("proxmox.guests") && (
-                      <Button size="sm" variant="brand" onClick={() => setNewVM(t)}>
-                        <CloneIcon /> New VM
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-        {ac.can("proxmox.operate") && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Provisioning</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {provs.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No VMs or templates created from servermgr yet.</p>
-              ) : (
-                <ul className="divide-y text-sm">
-                  {provs.slice(0, 10).map((p) => (
-                    <li key={p.id} className="py-2">
-                      <details>
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
-                          <span>
-                            <span className="font-medium">{p.name}</span>
-                            {p.vmid && <span className="ml-2 font-mono text-xs text-muted-foreground">{p.vmid}</span>}
-                            {p.server_id && (
-                              <Link href={`/servers/${p.server_id}`} className="ml-2 text-xs text-brand hover:underline">
-                                server
-                              </Link>
-                            )}
-                          </span>
-                          <span className="flex items-center gap-2">
-                            <Badge variant={p.status === "succeeded" ? "success" : p.status === "failed" ? "destructive" : "warning"}>{p.status}</Badge>
-                            <span className="text-xs text-muted-foreground">{timeAgo(p.created_at)}</span>
-                          </span>
-                        </summary>
-                        <pre className="mt-2 max-h-56 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{p.log}</pre>
-                      </details>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[16rem_minmax(0,1fr)] lg:items-start">
+        {res && !res.error && (
+          <Card className="p-3 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+            <ComputeTree name={cluster.name} res={res} selected={node} onSelect={setNode} guestHref={guestHref} />
           </Card>
         )}
+        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4 lg:col-start-2">
+          {res?.tenant && <TenantUsageCard t={res.tenant} />}
+
+          {res &&
+            !res.error &&
+            (nodeInfo ? <PVENodeView key={node} cluster={cluster.id} node={node} online={nodeInfo.status === "online"} /> : <PVEOverview res={res} guestHref={guestHref} />)}
+
+          <Card>
+            <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
+              <div>
+                <CardTitle>{node ? `Guests on ${node}` : "Guests"}</CardTitle>
+                <CardDescription>{node ? guests.filter((g) => g.node === node).length : guests.length} VMs and containers</CardDescription>
+              </div>
+              <Input className="w-48" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter guests" />
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-left text-xs text-muted-foreground">
+                  <tr>
+                    <th className="py-2 pr-3 font-normal">ID</th>
+                    <th className="py-2 pr-3 font-normal">Name</th>
+                    <th className="py-2 pr-3 font-normal">Node</th>
+                    <th className="py-2 pr-3 font-normal">Status</th>
+                    <th className="hidden py-2 pr-3 font-normal md:table-cell">CPU / Memory</th>
+                    <th className="py-2 font-normal" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {shown.map((g) => {
+                    const running = g.status === "running";
+                    const b = busy[g.vmid];
+                    return (
+                      <tr key={g.id}>
+                        <td className="py-2 pr-3 font-mono text-xs">{g.vmid}</td>
+                        <td className="py-2 pr-3">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Link href={`/proxmox/${cluster.id}/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`} className="font-medium hover:text-brand hover:underline">
+                              {g.name}
+                            </Link>
+                            <Badge variant="outline">{g.type === "qemu" ? "VM" : "CT"}</Badge>
+                            {g.tenant && (
+                              <Badge variant="outline" title={`In pool ${g.pool}`}>
+                                {g.tenant}
+                              </Badge>
+                            )}
+                            {g.server_id && (
+                              <Link href={`/servers/${g.server_id}`} className="text-xs text-brand hover:underline">
+                                managed
+                              </Link>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 pr-3 text-xs">{g.node}</td>
+                        <td className="py-2 pr-3">
+                          <Badge variant={statusVariant(g.status)}>{b ? `${b}…` : g.status}</Badge>
+                          {running && <div className="mt-0.5 text-[11px] text-muted-foreground">up {formatUptime(g.uptime)}</div>}
+                        </td>
+                        <td className="hidden py-2 pr-3 text-xs text-muted-foreground md:table-cell">
+                          {g.maxcpu} vCPU · {running ? `${formatBytes(g.mem)} / ` : ""}
+                          {formatBytes(g.maxmem)}
+                        </td>
+                        <td className="py-2 text-right whitespace-nowrap">
+                          {ac.can("proxmox.operate") && (
+                            <span className="inline-flex gap-0.5">
+                              {!running && (
+                                <Icon title="Start" onClick={() => power(g, g.status === "paused" ? "resume" : "start")} disabled={!!b}>
+                                  <Play />
+                                </Icon>
+                              )}
+                              {running && (
+                                <>
+                                  <Icon title="Shut down" onClick={() => power(g, "shutdown")} disabled={!!b}>
+                                    <Power />
+                                  </Icon>
+                                  <Icon title="Reboot" onClick={() => power(g, "reboot")} disabled={!!b}>
+                                    <RotateCw />
+                                  </Icon>
+                                  {g.type === "qemu" && (
+                                    <Icon title="Suspend" onClick={() => power(g, "suspend")} disabled={!!b}>
+                                      <Pause />
+                                    </Icon>
+                                  )}
+                                  <Icon
+                                    title="Stop (hard)"
+                                    className="text-destructive"
+                                    onClick={() => confirm(`Hard-stop ${g.name}? Unsaved data in the guest is lost.`) && power(g, "stop")}
+                                    disabled={!!b}
+                                  >
+                                    <Square />
+                                  </Icon>
+                                </>
+                              )}
+                              <Icon title="Snapshots" onClick={() => setSnaps(g)}>
+                                <Camera />
+                              </Icon>
+                              {ac.can("proxmox.guests") && (
+                                <Icon title={running ? "Stop it before deleting" : "Delete"} className="text-destructive" disabled={running || !!b} onClick={() => setDel(g)}>
+                                  <Trash2 />
+                                </Icon>
+                              )}
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {res && shown.length === 0 && <p className="py-3 text-sm text-muted-foreground">No guests match.</p>}
+            </CardContent>
+          </Card>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Card>
+              <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
+                <div className="grid min-w-56 flex-1 gap-1.5">
+                  <CardTitle>Templates</CardTitle>
+                  <CardDescription>Cloud-init VM templates. New VMs get the panel's SSH key and can enroll into servermgr automatically.</CardDescription>
+                </div>
+                {ac.can("proxmox.manage") && !res?.tenant && (
+                  <div className="flex flex-wrap gap-1">
+                    <Button size="sm" variant="brand" onClick={() => setDeploying(true)}>
+                      <Rocket /> Deploy
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setFromImage(true)}>
+                      <Plus /> From image
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setFlavorsOpen(true)}>
+                      <Ruler /> Flavors
+                    </Button>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent>
+                {templates.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No VM templates on this cluster.</p>
+                ) : (
+                  <ul className="divide-y text-sm">
+                    {templates.map((t) => (
+                      <li key={t.id} className="flex items-center justify-between gap-2 py-2">
+                        <span>
+                          <span className="font-medium">{t.name}</span>
+                          <span className="ml-2 font-mono text-xs text-muted-foreground">
+                            {t.vmid} · {t.node}
+                          </span>
+                        </span>
+                        {ac.can("proxmox.guests") && (
+                          <Button size="sm" variant="brand" onClick={() => setNewVM(t)}>
+                            <CloneIcon /> New VM
+                          </Button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+            {ac.can("proxmox.operate") && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Provisioning</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {provs.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No VMs or templates created from servermgr yet.</p>
+                  ) : (
+                    <ul className="divide-y text-sm">
+                      {provs.slice(0, 10).map((p) => (
+                        <li key={p.id} className="py-2">
+                          <details>
+                            <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
+                              <span>
+                                <span className="font-medium">{p.name}</span>
+                                {p.vmid && <span className="ml-2 font-mono text-xs text-muted-foreground">{p.vmid}</span>}
+                                {p.server_id && (
+                                  <Link href={`/servers/${p.server_id}`} className="ml-2 text-xs text-brand hover:underline">
+                                    server
+                                  </Link>
+                                )}
+                              </span>
+                              <span className="flex items-center gap-2">
+                                <Badge variant={p.status === "succeeded" ? "success" : p.status === "failed" ? "destructive" : "warning"}>{p.status}</Badge>
+                                <span className="text-xs text-muted-foreground">{timeAgo(p.created_at)}</span>
+                              </span>
+                            </summary>
+                            <pre className="mt-2 max-h-56 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{p.log}</pre>
+                          </details>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+        </div>
       </div>
 
       {snaps && <SnapshotsDialog cluster={cluster} guest={snaps} ac={ac} onClose={() => setSnaps(null)} />}

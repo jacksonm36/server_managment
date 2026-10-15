@@ -306,6 +306,10 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			f.acls = append(f.acls, e)
 		}
 		f.reply(w, 200, nil, "")
+	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "status" && root:
+		f.reply(w, 200, map[string]any{"uptime": 1000, "cpuinfo": map[string]any{"model": "Fake CPU", "cpus": 16}, "pveversion": "pve-manager/8.4.1"}, "")
+	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "rrddata" && root:
+		f.reply(w, 200, []map[string]any{{"time": 1700000000, "cpu": 0.1, "memused": 1 << 30, "secret": "x"}}, "")
 	case parts[0] == "storage" || (len(parts) >= 3 && parts[0] == "nodes" && parts[2] == "disks"):
 		if !root {
 			deny()

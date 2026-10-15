@@ -19,6 +19,19 @@ func TestPVEStorageAdmin(t *testing.T) {
 	expect("add cluster", code, 200)
 	base := "/api/v1/proxmox/" + body["cluster"].(map[string]any)["id"].(string)
 
+	code, ns, _ := call(root, "GET", base+"/nodes/pve1/status", nil)
+	expect("node status", code, 200)
+	if ns["pveversion"] != "pve-manager/8.4.1" {
+		t.Errorf("node status = %v", ns)
+	}
+	_, _, rrd := call(root, "GET", base+"/nodes/pve1/rrd?timeframe=day", nil)
+	if len(rrd) != 1 || rrd[0].(map[string]any)["secret"] != nil || rrd[0].(map[string]any)["memused"] == nil {
+		t.Errorf("node rrd = %v", rrd)
+	}
+	expect("node rrd timeframe", first(call(root, "GET", base+"/nodes/pve1/rrd?timeframe=decade", nil)), 400)
+	expect("node tasks", first(call(root, "GET", base+"/nodes/pve1/tasks", nil)), 200)
+	expect("unknown node", first(call(root, "GET", base+"/nodes/pve9/status", nil)), 404)
+
 	code, st, _ := call(root, "GET", base+"/storage", nil)
 	expect("list storage", code, 200)
 	if n := st["nodes"].(map[string]any); len(n) != 2 || len(st["config"].([]any)) != len(pve.storage) {

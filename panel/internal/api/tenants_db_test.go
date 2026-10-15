@@ -121,6 +121,9 @@ func TestTenantIsolation(t *testing.T) {
 	for _, path := range []string{"/storage", "/nodes/pve1/disks", "/nodes/pve1/zfs", "/nodes/pve1/storage/local-lvm/content"} {
 		expect("alice GET storage admin "+path, first(call(al, "GET", "/api/v1/proxmox/"+cid+path, nil)), 403)
 	}
+	for _, path := range []string{"/nodes/pve1/status", "/nodes/pve1/rrd", "/nodes/pve1/tasks"} {
+		expect("alice GET node "+path, first(call(al, "GET", "/api/v1/proxmox/"+cid+path, nil)), 404)
+	}
 	expect("alice wipes a disk", first(call(al, "POST", "/api/v1/proxmox/"+cid+"/nodes/pve1/disks/wipe", map[string]any{"disk": "/dev/sdb", "confirm": "/dev/sdb"})), 403)
 	expect("alice deletes the cluster", first(call(al, "DELETE", "/api/v1/proxmox/"+cid, nil)), 403)
 
