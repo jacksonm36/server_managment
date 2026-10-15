@@ -190,7 +190,7 @@ export function Docker({ serverId, online }: { serverId: string; online: boolean
                   Close
                 </Button>
               </div>
-              <pre className="max-h-96 overflow-auto rounded-lg border bg-[#0a0a0a] p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#d4d4d4]">{logs.text}</pre>
+              <pre className="max-h-96 overflow-auto rounded-lg border bg-[#0d1017] p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#d4d4d4]">{logs.text}</pre>
             </div>
           )}
           <OpStatus busy={busy} error={error} job={job} />

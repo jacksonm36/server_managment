@@ -141,7 +141,7 @@ export function Logs({ serverId, online, unit: initialUnit = "" }: { serverId: s
       </CardHeader>
       <CardContent>
         {error && <p className="mb-2 text-sm text-destructive">{error}</p>}
-        <pre ref={box} className="h-[32rem] overflow-auto rounded-lg border bg-[#0a0a0a] p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#d4d4d4]">
+        <pre ref={box} className="h-[32rem] overflow-auto rounded-lg border bg-[#0d1017] p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#d4d4d4]">
           {text}
         </pre>
       </CardContent>

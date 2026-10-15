@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { api, type PVECluster, type PVEGuest, type PVEGuestRef, type PVEProvision, type PVEResources, type PVESnapshot, type PVETenantInfo } from "@/lib/api";
 import { useAccess, type Access } from "@/lib/access";
-import { formatBytes, formatUptime, pct, timeAgo } from "@/lib/utils";
+import { formatBytes, formatUptime, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input, Label } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ImageTemplateDialog } from "@/components/ImageTemplateDialog";
+import { PVEOverview } from "@/components/PVEOverview";
 
 const statusVariant = (s: string) => (s === "running" || s === "online" ? "success" : s === "stopped" ? "outline" : "warning");
 
@@ -200,19 +201,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
 
       {res?.tenant && <TenantUsageCard t={res.tenant} />}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {(res?.nodes ?? []).map((n) => (
-          <Card key={n.node} className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">{n.node}</span>
-              <Badge variant={statusVariant(n.status)}>{n.status}</Badge>
-            </div>
-            <Meter label="CPU" value={n.cpu * 100} text={`${Math.round(n.cpu * 100)}% of ${n.maxcpu}`} />
-            <Meter label="Memory" value={pct(n.mem, n.maxmem)} text={`${formatBytes(n.mem)} / ${formatBytes(n.maxmem)}`} />
-            <div className="mt-2 text-xs text-muted-foreground">up {formatUptime(n.uptime)}</div>
-          </Card>
-        ))}
-      </div>
+      {res && !res.error && <PVEOverview res={res} guestHref={(g) => `/proxmox/${cluster.id}/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`} />}
 
       <Card>
         <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
