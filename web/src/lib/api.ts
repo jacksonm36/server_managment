@@ -414,6 +414,22 @@ export type PVEFirewallRule = {
 };
 export type PVEFirewall = { enable: number; policy_in: string; policy_out: string; rules: PVEFirewallRule[] };
 export type PVECloudInit = { ciuser: string; cipassword: string; sshkeys: string; nameserver: string; searchdomain: string; ipconfig: Record<string, string> };
+export type PVEFlavor = { id: number; name: string; cores: number; memory_mb: number; disk_gb: number; description: string };
+export type PVEDeployReq = {
+  image: string;
+  node: string;
+  name: string;
+  flavor_id?: number;
+  cores?: number;
+  memory_mb?: number;
+  disk_gb?: number;
+  image_storage: string;
+  disk_storage: string;
+  bridge: string;
+  ip: string;
+  gateway: string;
+  enroll: boolean;
+};
 export type PVEImage = { id: string; name: string; vendor: string; user: string; url: string; checksums?: string };
 export type PVETemplateTargets = { nodes: string[]; image_storages: string[]; file_storages: string[]; disk_storages: string[]; bridges: string[] };
 export type PVETemplateReq = {
@@ -833,7 +849,8 @@ export const api = {
       name: string;
       cores: number;
       memory_mb: number;
-      disk_grow_gb: number;
+      disk_grow_gb?: number;
+      disk_gb?: number;
       full_clone: boolean;
       ip: string;
       gateway: string;
@@ -842,6 +859,11 @@ export const api = {
       bridge?: string;
     },
   ) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/provision`, b),
+  pveFlavors: () => request<PVEFlavor[]>("GET", "/api/v1/proxmox-flavors"),
+  pveFlavorSave: (f: Omit<PVEFlavor, "id"> & { id?: number }) =>
+    f.id ? request<PVEFlavor>("PUT", `/api/v1/proxmox-flavors/${f.id}`, f) : request<PVEFlavor>("POST", "/api/v1/proxmox-flavors", f),
+  pveFlavorDelete: (id: number) => request<void>("DELETE", `/api/v1/proxmox-flavors/${id}`),
+  pveDeploy: (id: string, b: PVEDeployReq) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/deploy`, b),
   tenants: () => request<Tenant[]>("GET", "/api/v1/tenants"),
   saveTenant: (id: number | null, t: TenantBody) =>
     id ? request<Tenant>("PUT", `/api/v1/tenants/${id}`, t) : request<Tenant>("POST", "/api/v1/tenants", t),

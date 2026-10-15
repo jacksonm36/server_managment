@@ -543,6 +543,7 @@ type pveProvisionReq struct {
 	Cores        int    `json:"cores"`
 	MemoryMB     int    `json:"memory_mb"`
 	DiskGrowGB   int    `json:"disk_grow_gb"`
+	DiskGB       int    `json:"disk_gb"` // disk size to set (0 = the template's); never shrinks
 	Disk         string `json:"disk"`
 	FullClone    bool   `json:"full_clone"`
 	IP           string `json:"ip"` // "dhcp" or CIDR
@@ -573,7 +574,7 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 		bad("pick a template")
 		return
 	}
-	if req.Cores < 0 || req.Cores > 128 || req.MemoryMB < 0 || req.MemoryMB > 1<<20 || req.DiskGrowGB < 0 || req.DiskGrowGB > 10000 {
+	if req.Cores < 0 || req.Cores > 128 || req.MemoryMB < 0 || req.MemoryMB > 1<<20 || req.DiskGrowGB < 0 || req.DiskGrowGB > 10000 || req.DiskGB < 0 || req.DiskGB > 10000 {
 		bad("resources out of range")
 		return
 	}
@@ -681,7 +682,7 @@ func (a *API) tenantProvisionCheck(r *http.Request, s *pveScope, req *pveProvisi
 		return tenantUsage{}, "that template is not available to you"
 	}
 	tpl := res[i]
-	add := tenantUsage{Guests: 1, Cores: req.Cores, MemoryMB: int64(req.MemoryMB), DiskGB: tpl.MaxDisk>>30 + int64(req.DiskGrowGB)}
+	add := tenantUsage{Guests: 1, Cores: req.Cores, MemoryMB: int64(req.MemoryMB), DiskGB: max(tpl.MaxDisk>>30, int64(req.DiskGB)) + int64(req.DiskGrowGB)}
 	if add.Cores == 0 {
 		add.Cores = int(tpl.MaxCPU)
 	}
@@ -727,142 +728,165 @@ func encodeURIComponent(s string) string {
 	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
 
-func (a *API) runProvision(who Who, s *pveScope, p *store.ProxmoxProvision, req pveProvisionReq, cloned func()) {
-	c, cl := s.C, s.Cl
-	ctx, cancel := context.WithTimeout(a.baseCtx(), 30*time.Minute)
-	defer cancel()
+// provisionLog appends timestamped lines to a provisioning run's log.
+func (a *API) provisionLog(p *store.ProxmoxProvision) func(string, ...any) {
 	var mu sync.Mutex
-	logf := func(format string, args ...any) {
+	return func(format string, args ...any) {
 		mu.Lock()
 		p.Log += time.Now().UTC().Format("15:04:05 ") + fmt.Sprintf(format, args...) + "\n"
 		mu.Unlock()
 		_ = a.Store.UpdateProvision(a.baseCtx(), p, false)
 	}
-	err := func() error {
-		var next flexString
-		if err := cl.Do(ctx, http.MethodGet, "/cluster/nextid", nil, &next); err != nil {
-			return err
-		}
-		vmid, err := strconv.Atoi(string(next))
-		if err != nil {
-			return fmt.Errorf("unexpected nextid %q", next)
-		}
-		p.VMID = &vmid
-		node := req.Node
-		if req.Target != "" {
-			node = req.Target
-		}
-		logf("cloning template %d on %s to VM %d (%s)", req.TemplateVMID, req.Node, vmid, req.Name)
-		form := url.Values{"newid": {strconv.Itoa(vmid)}, "name": {req.Name}, "full": {map[bool]string{true: "1", false: "0"}[req.FullClone]}}
-		if req.Target != "" {
-			form.Set("target", req.Target)
-		}
-		if req.Storage != "" && req.FullClone {
-			form.Set("storage", req.Storage)
-		}
-		if s.TC != nil {
-			form.Set("pool", s.TC.Pool)
-			logf("the VM goes into pool %s", s.TC.Pool)
-		}
-		var upid string
-		if err := cl.Do(ctx, http.MethodPost, proxmox.GuestPath(req.Node, "qemu", req.TemplateVMID)+"/clone", form, &upid); err != nil {
-			return err
-		}
-		if err := cl.WaitTask(ctx, req.Node, upid); err != nil {
-			return err
-		}
-		cloned()
+}
 
-		_, pub, err := a.ansibleKey()
-		if err != nil {
-			return err
-		}
-		ipcfg := "ip=dhcp"
-		if req.IP != "dhcp" {
-			ipcfg = "ip=" + req.IP
-			if req.Gateway != "" {
-				ipcfg += ",gw=" + req.Gateway
-			}
-		}
-		cfg := url.Values{"ciuser": {"root"}, "sshkeys": {encodeURIComponent(pub + " servermgr-ansible")}, "ipconfig0": {ipcfg}, "agent": {"1"}}
-		if req.Cores > 0 {
-			cfg.Set("cores", strconv.Itoa(req.Cores))
-		}
-		if req.MemoryMB > 0 {
-			cfg.Set("memory", strconv.Itoa(req.MemoryMB))
-		}
-		if req.Bridge != "" {
-			cfg.Set("net0", "virtio,bridge="+req.Bridge)
-		}
-		logf("cloud-init: root with the panel SSH key, %s; agent enabled", ipcfg)
-		if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/config", cfg, nil); err != nil {
-			return err
-		}
-		if req.DiskGrowGB > 0 {
-			logf("growing %s by %d GB", req.Disk, req.DiskGrowGB)
-			if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/resize", url.Values{"disk": {req.Disk}, "size": {fmt.Sprintf("+%dG", req.DiskGrowGB)}}, nil); err != nil {
-				return err
-			}
-		}
-		logf("starting VM %d", vmid)
-		if err := cl.Do(ctx, http.MethodPost, proxmox.GuestPath(node, "qemu", vmid)+"/status/start", nil, &upid); err != nil {
-			return err
-		}
-		if err := cl.WaitTask(ctx, node, upid); err != nil {
-			return err
-		}
-		if !req.Enroll {
-			logf("done (not enrolling)")
-			return nil
-		}
-
-		// Address: the static IP, or what the guest agent reports.
-		addr := ""
-		if req.IP != "dhcp" {
-			ip, _, _ := net.ParseCIDR(req.IP)
-			addr = ip.String()
-		} else {
-			logf("waiting for the guest agent to report an IP")
-			for i := 0; i < 60 && addr == ""; i++ {
-				if ip, err := cl.GuestIPv4(ctx, node, vmid); err == nil {
-					addr = ip
-					break
-				}
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(5 * time.Second):
-				}
-			}
-			if addr == "" {
-				return errors.New("no IP from the guest agent after 5 minutes (is qemu-guest-agent in the template?)")
-			}
-		}
-		logf("VM address %s; enrolling the agent over SSH", addr)
-		serverID, err := a.enrollOverSSH(ctx, addr, req.Name, logf)
-		if err != nil {
-			return err
-		}
-		p.ServerID = &serverID
-		_ = a.Store.LinkProxmoxGuest(ctx, c.ID, vmid, serverID)
-		if t := who.Access.tenantGroup(); t != 0 {
-			if err := a.Store.AddServerToGroup(ctx, t, serverID); err != nil {
-				logf("warning: adding the server to your server group: %v", err)
-			}
-		}
-		logf("enrolled as server %s; restricting the panel key and pinning host keys (Prepare for Ansible)", serverID)
-		if _, err := a.Dispatch(ctx, Who{Actor: who.Actor, IP: "panel"}, serverID, "ansible.prepare", map[string]string{"address": addr}); err != nil {
-			logf("warning: ansible.prepare: %v", err)
-		}
-		return nil
-	}()
+// finishProvision records how a provisioning run ended.
+func (a *API) finishProvision(p *store.ProxmoxProvision, err error, logf func(string, ...any)) {
 	p.Status = "succeeded"
 	if err != nil {
 		p.Status = "failed"
 		logf("error: %v", err)
 	}
 	_ = a.Store.UpdateProvision(a.baseCtx(), p, true)
-	a.Log.Info("proxmox provision finished", "name", p.Name, "status", p.Status)
+	a.Log.Info("proxmox provisioning finished", "name", p.Name, "status", p.Status)
+}
+
+func (a *API) runProvision(who Who, s *pveScope, p *store.ProxmoxProvision, req pveProvisionReq, cloned func()) {
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 30*time.Minute)
+	defer cancel()
+	logf := a.provisionLog(p)
+	a.finishProvision(p, a.provisionVM(ctx, who, s, p, req, cloned, logf), logf)
+}
+
+// provisionVM clones a template into a new VM, sets cloud-init, starts it
+// and, if asked, enrolls it.
+func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.ProxmoxProvision, req pveProvisionReq, cloned func(), logf func(string, ...any)) error {
+	c, cl := s.C, s.Cl
+	var next flexString
+	if err := cl.Do(ctx, http.MethodGet, "/cluster/nextid", nil, &next); err != nil {
+		return err
+	}
+	vmid, err := strconv.Atoi(string(next))
+	if err != nil {
+		return fmt.Errorf("unexpected nextid %q", next)
+	}
+	p.VMID = &vmid
+	node := req.Node
+	if req.Target != "" {
+		node = req.Target
+	}
+	logf("cloning template %d on %s to VM %d (%s)", req.TemplateVMID, req.Node, vmid, req.Name)
+	form := url.Values{"newid": {strconv.Itoa(vmid)}, "name": {req.Name}, "full": {map[bool]string{true: "1", false: "0"}[req.FullClone]}}
+	if req.Target != "" {
+		form.Set("target", req.Target)
+	}
+	if req.Storage != "" && req.FullClone {
+		form.Set("storage", req.Storage)
+	}
+	if s.TC != nil {
+		form.Set("pool", s.TC.Pool)
+		logf("the VM goes into pool %s", s.TC.Pool)
+	}
+	var upid string
+	if err := cl.Do(ctx, http.MethodPost, proxmox.GuestPath(req.Node, "qemu", req.TemplateVMID)+"/clone", form, &upid); err != nil {
+		return err
+	}
+	if err := cl.WaitTask(ctx, req.Node, upid); err != nil {
+		return err
+	}
+	cloned()
+
+	_, pub, err := a.ansibleKey()
+	if err != nil {
+		return err
+	}
+	ipcfg := "ip=dhcp"
+	if req.IP != "dhcp" {
+		ipcfg = "ip=" + req.IP
+		if req.Gateway != "" {
+			ipcfg += ",gw=" + req.Gateway
+		}
+	}
+	cfg := url.Values{"ciuser": {"root"}, "sshkeys": {encodeURIComponent(pub + " servermgr-ansible")}, "ipconfig0": {ipcfg}, "agent": {"1"}}
+	if req.Cores > 0 {
+		cfg.Set("cores", strconv.Itoa(req.Cores))
+	}
+	if req.MemoryMB > 0 {
+		cfg.Set("memory", strconv.Itoa(req.MemoryMB))
+	}
+	if req.Bridge != "" {
+		cfg.Set("net0", "virtio,bridge="+req.Bridge)
+	}
+	logf("cloud-init: root with the panel SSH key, %s; agent enabled", ipcfg)
+	if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/config", cfg, nil); err != nil {
+		return err
+	}
+	if req.DiskGB > 0 {
+		logf("setting %s to %d GB", req.Disk, req.DiskGB)
+		err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/resize", url.Values{"disk": {req.Disk}, "size": {fmt.Sprintf("%dG", req.DiskGB)}}, nil)
+		var ae *proxmox.APIError
+		if errors.As(err, &ae) && strings.Contains(ae.Msg, "shrink") {
+			logf("the disk is already bigger than %d GB; keeping its size", req.DiskGB)
+		} else if err != nil {
+			return err
+		}
+	}
+	if req.DiskGrowGB > 0 {
+		logf("growing %s by %d GB", req.Disk, req.DiskGrowGB)
+		if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/resize", url.Values{"disk": {req.Disk}, "size": {fmt.Sprintf("+%dG", req.DiskGrowGB)}}, nil); err != nil {
+			return err
+		}
+	}
+	logf("starting VM %d", vmid)
+	if err := cl.Do(ctx, http.MethodPost, proxmox.GuestPath(node, "qemu", vmid)+"/status/start", nil, &upid); err != nil {
+		return err
+	}
+	if err := cl.WaitTask(ctx, node, upid); err != nil {
+		return err
+	}
+	if !req.Enroll {
+		logf("done (not enrolling)")
+		return nil
+	}
+
+	// Address: the static IP, or what the guest agent reports.
+	addr := ""
+	if req.IP != "dhcp" {
+		ip, _, _ := net.ParseCIDR(req.IP)
+		addr = ip.String()
+	} else {
+		logf("waiting for the guest agent to report an IP")
+		for i := 0; i < 60 && addr == ""; i++ {
+			if ip, err := cl.GuestIPv4(ctx, node, vmid); err == nil {
+				addr = ip
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+			}
+		}
+		if addr == "" {
+			return errors.New("no IP from the guest agent after 5 minutes (is qemu-guest-agent in the template?)")
+		}
+	}
+	logf("VM address %s; enrolling the agent over SSH", addr)
+	serverID, err := a.enrollOverSSH(ctx, addr, req.Name, logf)
+	if err != nil {
+		return err
+	}
+	p.ServerID = &serverID
+	_ = a.Store.LinkProxmoxGuest(ctx, c.ID, vmid, serverID)
+	if t := who.Access.tenantGroup(); t != 0 {
+		if err := a.Store.AddServerToGroup(ctx, t, serverID); err != nil {
+			logf("warning: adding the server to your server group: %v", err)
+		}
+	}
+	logf("enrolled as server %s; restricting the panel key and pinning host keys (Prepare for Ansible)", serverID)
+	if _, err := a.Dispatch(ctx, Who{Actor: who.Actor, IP: "panel"}, serverID, "ansible.prepare", map[string]string{"address": addr}); err != nil {
+		logf("warning: ansible.prepare: %v", err)
+	}
+	return nil
 }
 
 // flexString decodes a JSON string or number (Proxmox returns nextid as a

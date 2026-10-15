@@ -106,7 +106,7 @@ def resources(user="root@pam"):
         run = g["status"] == "running"
         out.append({"id": f"{g['type']}/{vmid}", "type": g["type"], "vmid": vmid, "node": g["node"], "name": g["name"], "pool": g.get("pool", ""),
                     "status": g["status"], "maxcpu": g["maxcpu"], "cpu": 0.05 if run else 0, "maxmem": g["maxmem"],
-                    "mem": g["maxmem"] // 2 if run else 0, "maxdisk": g["maxdisk"], "disk": 0, "template": g["template"],
+                    "mem": g["maxmem"] // 2 if run else 0, "maxdisk": g["maxdisk"], "disk": 0, "template": g["template"], "tags": g["config"].get("tags", ""),
                     "uptime": now() - g["started"] if run else 0})
     return out
 

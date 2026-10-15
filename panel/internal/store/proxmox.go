@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 type ProxmoxCluster struct {
@@ -165,5 +166,70 @@ func (s *Store) ListProvisions(ctx context.Context, limit int, tenant *int64) ([
 func (s *Store) FailStaleProvisions(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, `UPDATE proxmox_provisions SET status = 'failed', log = log || E'interrupted: the panel restarted\n', finished_at = now()
 		WHERE status = 'running'`)
+	return err
+}
+
+// ProxmoxFlavor is a named VM size.
+type ProxmoxFlavor struct {
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Cores       int    `json:"cores"`
+	MemoryMB    int    `json:"memory_mb"`
+	DiskGB      int    `json:"disk_gb"`
+	Description string `json:"description"`
+}
+
+func (s *Store) ListFlavors(ctx context.Context) ([]*ProxmoxFlavor, error) {
+	rows, err := s.db.Query(ctx, `SELECT id, name, cores, memory_mb, disk_gb, description FROM proxmox_flavors ORDER BY cores, memory_mb, name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*ProxmoxFlavor{}
+	for rows.Next() {
+		f := &ProxmoxFlavor{}
+		if err := rows.Scan(&f.ID, &f.Name, &f.Cores, &f.MemoryMB, &f.DiskGB, &f.Description); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) GetFlavor(ctx context.Context, id int64) (*ProxmoxFlavor, error) {
+	f := &ProxmoxFlavor{}
+	err := s.db.QueryRow(ctx, `SELECT id, name, cores, memory_mb, disk_gb, description FROM proxmox_flavors WHERE id = $1`, id).
+		Scan(&f.ID, &f.Name, &f.Cores, &f.MemoryMB, &f.DiskGB, &f.Description)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return f, err
+}
+
+// SaveFlavor inserts a flavor (ID 0) or updates it.
+func (s *Store) SaveFlavor(ctx context.Context, f *ProxmoxFlavor) error {
+	var err error
+	if f.ID == 0 {
+		err = s.db.QueryRow(ctx, `INSERT INTO proxmox_flavors (name, cores, memory_mb, disk_gb, description) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+			f.Name, f.Cores, f.MemoryMB, f.DiskGB, f.Description).Scan(&f.ID)
+	} else {
+		var tag pgconn.CommandTag
+		tag, err = s.db.Exec(ctx, `UPDATE proxmox_flavors SET name = $2, cores = $3, memory_mb = $4, disk_gb = $5, description = $6 WHERE id = $1`,
+			f.ID, f.Name, f.Cores, f.MemoryMB, f.DiskGB, f.Description)
+		if err == nil && tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+	}
+	if isUnique(err) {
+		return ErrExists
+	}
+	return err
+}
+
+func (s *Store) DeleteFlavor(ctx context.Context, id int64) error {
+	tag, err := s.db.Exec(ctx, `DELETE FROM proxmox_flavors WHERE id = $1`, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
 	return err
 }

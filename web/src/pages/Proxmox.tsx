@@ -9,6 +9,8 @@ import {
   Plus,
   Power,
   RefreshCw,
+  Rocket,
+  Ruler,
   RotateCw,
   ShieldCheck,
   Square,
@@ -25,6 +27,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input, Label } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ImageTemplateDialog } from "@/components/ImageTemplateDialog";
+import { DeployDialog } from "@/components/DeployDialog";
+import { FlavorPicker, FlavorsDialog, useFlavors } from "@/components/Flavors";
 import { PVEOverview } from "@/components/PVEOverview";
 
 const statusVariant = (s: string) => (s === "running" || s === "online" ? "success" : s === "stopped" ? "outline" : "warning");
@@ -110,6 +114,8 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
   const [del, setDel] = useState<PVEGuest | null>(null);
   const [newVM, setNewVM] = useState<PVEGuest | null>(null);
   const [fromImage, setFromImage] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [flavorsOpen, setFlavorsOpen] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -303,15 +309,23 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader className="flex-row items-start justify-between gap-3">
-            <div className="grid gap-1.5">
+          <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
+            <div className="grid min-w-56 flex-1 gap-1.5">
               <CardTitle>Templates</CardTitle>
               <CardDescription>Cloud-init VM templates. New VMs get the panel's SSH key and can enroll into servermgr automatically.</CardDescription>
             </div>
             {ac.can("proxmox.manage") && !res?.tenant && (
-              <Button size="sm" variant="secondary" onClick={() => setFromImage(true)}>
-                <Plus /> From image
-              </Button>
+              <div className="flex flex-wrap gap-1">
+                <Button size="sm" variant="brand" onClick={() => setDeploying(true)}>
+                  <Rocket /> Deploy
+                </Button>
+                <Button size="sm" variant="secondary" onClick={() => setFromImage(true)}>
+                  <Plus /> From image
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setFlavorsOpen(true)}>
+                  <Ruler /> Flavors
+                </Button>
+              </div>
             )}
           </CardHeader>
           <CardContent>
@@ -400,6 +414,19 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
           }}
         />
       )}
+      {deploying && (
+        <DeployDialog
+          cluster={cluster.id}
+          guests={res?.guests ?? []}
+          onClose={() => setDeploying(false)}
+          onStarted={() => {
+            setDeploying(false);
+            setMsg({ ok: true, text: "Deploy started; follow it under Provisioning." });
+            void load();
+          }}
+        />
+      )}
+      {flavorsOpen && <FlavorsDialog onClose={() => setFlavorsOpen(false)} />}
       {newVM && (
         <ProvisionDialog
           cluster={cluster}
@@ -769,7 +796,7 @@ function ProvisionDialog({
     target: "",
     cores: 2,
     memory_mb: 2048,
-    disk_grow_gb: 0,
+    disk_gb: 0,
     full_clone: true,
     ipMode: "dhcp",
     ip: "",
@@ -779,6 +806,8 @@ function ProvisionDialog({
     bridge: tenant?.bridges.length === 1 ? tenant.bridges[0] : "",
   });
   const storageChoices = tenant ? tenant.storages : storages;
+  const flavors = useFlavors();
+  const [flavor, setFlavor] = useState<number | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   return (
@@ -805,7 +834,7 @@ function ProvisionDialog({
                 name: f.name.trim(),
                 cores: f.cores,
                 memory_mb: f.memory_mb,
-                disk_grow_gb: f.disk_grow_gb,
+                disk_gb: f.disk_gb,
                 full_clone: f.full_clone,
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
@@ -870,10 +899,27 @@ function ProvisionDialog({
               )}
             </div>
           </div>
+          <FlavorPicker
+            flavors={flavors}
+            picked={flavor}
+            onPick={(x) => {
+              setFlavor(x ? x.id : null);
+              if (x) setF({ ...f, cores: x.cores, memory_mb: x.memory_mb, disk_gb: x.disk_gb });
+            }}
+          />
           <div className="grid grid-cols-3 gap-3">
-            <Num id="pp-cores" label="vCPUs" value={f.cores} min={1} max={128} onChange={(v) => setF({ ...f, cores: v })} />
-            <Num id="pp-mem" label="Memory (MB)" value={f.memory_mb} min={256} max={1048576} step={256} onChange={(v) => setF({ ...f, memory_mb: v })} />
-            <Num id="pp-disk" label="Grow disk (GB)" value={f.disk_grow_gb} min={0} max={10000} onChange={(v) => setF({ ...f, disk_grow_gb: v })} />
+            <Num id="pp-cores" label="vCPUs" value={f.cores} min={1} max={128} onChange={(v) => {
+              setFlavor(null);
+              setF({ ...f, cores: v });
+            }} />
+            <Num id="pp-mem" label="Memory (MB)" value={f.memory_mb} min={256} max={1048576} step={256} onChange={(v) => {
+              setFlavor(null);
+              setF({ ...f, memory_mb: v });
+            }} />
+            <Num id="pp-disk" label="Disk (GB, 0 = template's)" value={f.disk_gb} min={0} max={10000} onChange={(v) => {
+              setFlavor(null);
+              setF({ ...f, disk_gb: v });
+            }} />
           </div>
           <div className="grid gap-1.5">
             <Label>Network</Label>

@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/jacksonm36/servermgr/panel/internal/proxmox"
@@ -198,17 +197,26 @@ func (a *API) handlePVETemplateCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) buildTemplate(s *pveScope, p *store.ProxmoxProvision, img *proxmox.Image, req pveTemplateReq) {
-	cl, node := s.Cl, req.Node
 	ctx, cancel := context.WithTimeout(a.baseCtx(), 60*time.Minute)
 	defer cancel()
-	var mu sync.Mutex
-	logf := func(format string, args ...any) {
-		mu.Lock()
-		p.Log += time.Now().UTC().Format("15:04:05 ") + fmt.Sprintf(format, args...) + "\n"
-		mu.Unlock()
-		_ = a.Store.UpdateProvision(a.baseCtx(), p, false)
+	logf := a.provisionLog(p)
+	vmid, err := a.makeTemplate(ctx, s.Cl, img, req, logf)
+	if err == nil {
+		logf("done: template %d is ready to use in New VM", vmid)
 	}
+	if vmid != 0 {
+		p.VMID = &vmid
+	}
+	a.finishProvision(p, err, logf)
+}
+
+// makeTemplate has Proxmox download the image and builds a cloud-init
+// template from it on req.Node. It returns the template's VMID (also when
+// a later step failed, once the VM exists).
+func (a *API) makeTemplate(ctx context.Context, cl *proxmox.Client, img *proxmox.Image, req pveTemplateReq, logf func(string, ...any)) (int, error) {
+	node := req.Node
 	nodePath := "/nodes/" + url.PathEscape(node)
+	id := 0
 	err := func() error {
 		// A fresh download each time, so a template gets the vendor's
 		// current image. Templates keep their own copy of the disk.
@@ -262,7 +270,7 @@ func (a *API) buildTemplate(s *pveScope, p *store.ProxmoxProvision, img *proxmox
 		if err != nil {
 			return fmt.Errorf("unexpected nextid %q", next)
 		}
-		p.VMID = &vmid
+		id = vmid
 		logf("creating VM %d (%s) with the image as its disk on %s", vmid, req.Name, req.DiskStorage)
 		cfg := url.Values{
 			"vmid":        {strconv.Itoa(vmid)},
@@ -310,14 +318,7 @@ func (a *API) buildTemplate(s *pveScope, p *store.ProxmoxProvision, img *proxmox
 				return err
 			}
 		}
-		logf("done: template %d is ready to use in New VM", vmid)
 		return nil
 	}()
-	p.Status = "succeeded"
-	if err != nil {
-		p.Status = "failed"
-		logf("error: %v", err)
-	}
-	_ = a.Store.UpdateProvision(a.baseCtx(), p, true)
-	a.Log.Info("proxmox template build finished", "name", p.Name, "status", p.Status)
+	return id, err
 }

@@ -53,7 +53,9 @@ func TestPVEStorageAdmin(t *testing.T) {
 	expect("delete", first(call(root, "DELETE", base+"/storage/nas2?confirm=nas2", nil)), 204)
 
 	// Downloads and volumes.
-	dl := func(b map[string]any) int { return first(call(root, "POST", base+"/nodes/pve1/storage/local/download", b)) }
+	dl := func(b map[string]any) int {
+		return first(call(root, "POST", base+"/nodes/pve1/storage/local/download", b))
+	}
 	expect("download ftp", dl(map[string]any{"url": "ftp://x/a.iso", "content": "iso"}), 400)
 	expect("download bad name", dl(map[string]any{"url": "https://x/a.iso", "content": "iso", "filename": "../a.iso"}), 400)
 	expect("download unknown node", first(call(root, "POST", base+"/nodes/pve9/storage/local/download", map[string]any{"url": "https://x/a.iso", "content": "iso"})), 404)

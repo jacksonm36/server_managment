@@ -193,7 +193,7 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			out = append(out, map[string]any{"id": fmt.Sprintf("%s/%d", g.typ, vmid), "type": g.typ, "vmid": vmid, "node": g.node, "name": g.name,
-				"status": g.status, "pool": g.pool, "template": g.template, "maxcpu": g.cores, "maxmem": g.memMB << 20, "maxdisk": g.diskGB << 30})
+				"status": g.status, "pool": g.pool, "template": g.template, "maxcpu": g.cores, "maxmem": g.memMB << 20, "maxdisk": g.diskGB << 30, "tags": g.config["tags"]})
 		}
 		f.reply(w, 200, out, "")
 	case p == "/nodes" && root:
