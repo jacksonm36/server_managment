@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check as CheckIcon, Copy, Download, Loader2, Lock, LockOpen } from "lucide-react";
 import { pve, type WinProfile } from "@/lib/pveapi";
+import { api } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -33,6 +34,21 @@ export const winProfiles: { id: WinProfile; name: string; icon: typeof Lock; abo
 export const winTuning =
   "Both get the VirtIO drivers and guest agent, the High performance power plan, TRIM, no hibernation or device encryption, and Cloudbase-Init for the Administrator password, hostname and network.";
 
+// downloadISO has Proxmox download an ISO into storage and waits for it
+// (up to two hours: Windows ISOs are large).
+async function downloadISO(cluster: string, node: string, storage: string, url: string, filename: string) {
+  const r = await api.pveDownloadURL(cluster, node, storage, { url, content: "iso", filename });
+  for (let i = 0; i < 2400; i++) {
+    await new Promise((res) => setTimeout(res, 3000));
+    const t = await api.pveNodeTask(cluster, node, r.upid);
+    if (t.status === "stopped") {
+      if (t.exitstatus !== "OK") throw new Error(`Download failed: ${t.exitstatus}`);
+      return;
+    }
+  }
+  throw new Error("The download is still running; reload in a while.");
+}
+
 export type WinEditionCard = { id: string; name: string; iso: RegExp; index: number; client: boolean; disk: number };
 
 export function WindowsBuildDialog({
@@ -54,6 +70,7 @@ export function WindowsBuildDialog({
   const [reload, setReload] = useState(0);
   const { c, err } = useChoices(cluster, node, reload);
   const [dl, setDl] = useState("");
+  const [winDl, setWinDl] = useState("");
   const base = (i: string) => i.split("/").pop() ?? i;
   const [f, setF] = useState({
     iso: "",
@@ -169,17 +186,53 @@ export function WindowsBuildDialog({
         </Field>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Windows installer ISO" hint={c && !c.isos.length ? "No ISOs on this node yet: upload one on the Storage page." : undefined}>
-          <Select value={f.iso} onChange={(e) => up("iso")(e.target.value)} required>
-            <option value="">Pick the ISO…</option>
-            {c?.isos
-              .filter((i) => !/virtio-win/i.test(i))
-              .map((i) => (
-                <option key={i} value={i}>
-                  {base(i)}
-                </option>
-              ))}
-          </Select>
+        <Field
+          label="Windows installer ISO"
+          hint={
+            winDl ||
+            (!f.iso && isoStorage
+              ? "No ISO yet? Download the evaluation ISO straight from Microsoft (Server: 180 days, desktop: 90 days; activate later with your own key)."
+              : c && !c.isos.length
+                ? "No ISOs on this node yet: upload one on the Storage page."
+                : undefined)
+          }
+        >
+          <div className="flex gap-2">
+            <Select value={f.iso} onChange={(e) => up("iso")(e.target.value)} required>
+              <option value="">Pick the ISO…</option>
+              {c?.isos
+                .filter((i) => !/virtio-win/i.test(i))
+                .map((i) => (
+                  <option key={i} value={i}>
+                    {base(i)}
+                  </option>
+                ))}
+            </Select>
+            {!f.iso && isoStorage && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={!!winDl}
+                title={`Download the ${edition.name} evaluation ISO from Microsoft into ${isoStorage}`}
+                onClick={async () => {
+                  setWinDl("Looking up Microsoft's download…");
+                  try {
+                    const e = (await api.pveISOs()).find((x) => x.windows === edition.id);
+                    if (!e?.url || !e.file) throw new Error(e?.error || `No Microsoft download is known for ${edition.name}.`);
+                    setWinDl(`Downloading ${e.file} (about 5–7 GB)…`);
+                    await downloadISO(cluster, node, isoStorage, e.url, e.file);
+                    setWinDl("");
+                    setReload((n) => n + 1);
+                  } catch (x) {
+                    setWinDl((x as Error).message);
+                  }
+                }}
+              >
+                {winDl ? <Loader2 className="animate-spin" /> : <Download />} Download
+              </Button>
+            )}
+          </div>
         </Field>
         <Field label="Drivers ISO (virtio-win)" hint={dl || undefined}>
           <div className="flex gap-2">

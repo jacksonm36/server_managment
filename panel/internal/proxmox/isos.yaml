@@ -13,7 +13,12 @@
 # checksum file whose name changes per release from that folder; with
 # compression Proxmox unpacks the download (the hash is the packed file's).
 #
-# category: linux, bsd, hypervisor, tools
+# follow: resolve url through its redirects (Microsoft fwlinks) and store
+# the download under file. windows names the Windows template edition the
+# ISO installs. Microsoft publishes no checksum file for its evaluation
+# ISOs; they come straight from Microsoft's download servers over https.
+#
+# category: linux, bsd, windows, hypervisor, tools
 # icon: a logo hint for the UI (distro or vendor name)
 
 - id: debian-netinst
@@ -205,3 +210,48 @@
   category: tools
   icon: netboot
   url: https://boot.netboot.xyz/ipxe/netboot.xyz.iso
+- id: windows-11-eval
+  name: Windows 11 Enterprise (90-day evaluation)
+  vendor: Microsoft
+  category: windows
+  icon: windows
+  windows: win11
+  url: https://go.microsoft.com/fwlink/?linkid=2289031&clcid=0x409&culture=en-us&country=us
+  follow: true
+  file: windows-11-enterprise-eval-x64-en-us.iso
+- id: windows-10-eval
+  name: Windows 10 Enterprise 22H2 (90-day evaluation)
+  vendor: Microsoft
+  category: windows
+  icon: windows
+  windows: win10
+  url: https://go.microsoft.com/fwlink/p/?LinkID=2208844&clcid=0x409&culture=en-us&country=US
+  follow: true
+  file: windows-10-enterprise-eval-x64-en-us.iso
+- id: windows-server-2025-eval
+  name: Windows Server 2025 (180-day evaluation)
+  vendor: Microsoft
+  category: windows
+  icon: windows
+  windows: ws2025
+  url: https://go.microsoft.com/fwlink/?linkid=2293312&clcid=0x409&culture=en-us&country=us
+  follow: true
+  file: windows-server-2025-eval-x64-en-us.iso
+- id: windows-server-2022-eval
+  name: Windows Server 2022 (180-day evaluation)
+  vendor: Microsoft
+  category: windows
+  icon: windows
+  windows: ws2022
+  url: https://go.microsoft.com/fwlink/p/?LinkID=2195280&clcid=0x409&culture=en-us&country=US
+  follow: true
+  file: windows-server-2022-eval-x64-en-us.iso
+- id: windows-server-2019-eval
+  name: Windows Server 2019 (180-day evaluation)
+  vendor: Microsoft
+  category: windows
+  icon: windows
+  windows: ws2019
+  url: https://go.microsoft.com/fwlink/p/?LinkID=2195167&clcid=0x409&culture=en-us&country=US
+  follow: true
+  file: windows-server-2019-eval-x64-en-us.iso

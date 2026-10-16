@@ -367,8 +367,9 @@ export type PVEISO = {
   id: string;
   name: string;
   vendor: string;
-  category: "linux" | "bsd" | "hypervisor" | "tools";
+  category: "linux" | "bsd" | "windows" | "hypervisor" | "tools";
   icon: string;
+  windows?: string; // the Windows template edition this ISO installs
   url?: string;
   file?: string;
   checksum?: string;

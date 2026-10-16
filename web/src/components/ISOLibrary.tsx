@@ -15,6 +15,7 @@ const cats: [string, string][] = [
   ["", "All"],
   ["linux", "Linux"],
   ["bsd", "BSD & firewalls"],
+  ["windows", "Windows"],
   ["hypervisor", "Proxmox"],
   ["tools", "Tools"],
 ];

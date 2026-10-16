@@ -38,7 +38,15 @@ type ISO struct {
 	// Compression: the vendor ships the ISO compressed (gz, zst, bz2…);
 	// Proxmox unpacks it and stores it without that extension.
 	Compression string `yaml:"compression" json:"-"`
-	match       *regexp.Regexp
+	// Follow resolves url through its redirects (Microsoft's fwlink
+	// addresses) so Proxmox gets the file's real https address; File names
+	// the download when the real name is unhelpful.
+	Follow   bool   `yaml:"follow" json:"-"`
+	FileName string `yaml:"file" json:"-"`
+	// Windows is the Windows template edition (win11, ws2025…) this ISO
+	// installs, so the template builder can offer to download it.
+	Windows string `yaml:"windows" json:"windows,omitempty"`
+	match   *regexp.Regexp
 }
 
 // ResolvedISO is an ISO's current download: the newest file and its hash.
@@ -62,7 +70,8 @@ var ISOs = func() []ISO {
 	seen := map[string]bool{}
 	for i := range list {
 		x := &list[i]
-		if seen[x.ID] || (x.URL == "") == (x.Dir == "") || (x.Compression != "" && x.URL != "") {
+		if seen[x.ID] || (x.URL == "") == (x.Dir == "") || (x.Compression != "" && x.URL != "") || (x.Follow && x.URL == "") ||
+			(x.FileName != "" && !isoFileName.MatchString(x.FileName)) {
 			panic("proxmox/isos.yaml: bad or duplicate entry " + x.ID)
 		}
 		seen[x.ID] = true
@@ -85,6 +94,8 @@ var ISOs = func() []ISO {
 	}
 	return list
 }()
+
+var isoFileName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,120}\.iso$`)
 
 func ISOByID(id string) *ISO {
 	for i := range ISOs {
@@ -165,6 +176,28 @@ var (
 	}
 )
 
+// finalURL follows u's redirects (https only, see isoHTTP) without
+// downloading anything and returns where they end.
+func finalURL(ctx context.Context, u string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, u, nil)
+	if err != nil {
+		return "", err
+	}
+	res, err := isoHTTP.Do(req)
+	if err != nil {
+		return "", err
+	}
+	res.Body.Close()
+	if res.StatusCode >= 300 {
+		return "", fmt.Errorf("%s: %s", u, res.Status)
+	}
+	end := res.Request.URL
+	if end.Scheme != "https" || !strings.HasSuffix(strings.ToLower(end.Path), ".iso") {
+		return "", fmt.Errorf("%s does not lead to an https ISO", u)
+	}
+	return end.String(), nil
+}
+
 // newest is the naturally greatest name matching re.
 func newest(names []string, re *regexp.Regexp) string {
 	best := ""
@@ -180,7 +213,20 @@ func newest(names []string, re *regexp.Regexp) string {
 // server.
 func (x *ISO) Resolve(ctx context.Context) (*ResolvedISO, error) {
 	if x.URL != "" {
-		r := &ResolvedISO{URL: x.URL, File: path.Base(x.URL)}
+		u := x.URL
+		if x.Follow {
+			var err error
+			if u, err = finalURL(ctx, u); err != nil {
+				return nil, err
+			}
+		}
+		r := &ResolvedISO{URL: u, File: path.Base(u)}
+		if pu, err := url.Parse(u); err == nil {
+			r.File = path.Base(pu.Path)
+		}
+		if x.FileName != "" {
+			r.File = x.FileName
+		}
 		return r, x.addSum(ctx, r, nil)
 	}
 	dir := x.Dir

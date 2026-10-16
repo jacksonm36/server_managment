@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -117,5 +118,31 @@ func TestResolveISOFolders(t *testing.T) {
 	r, err = op.Resolve(context.Background())
 	if err != nil || r.File != "OPNsense-26.7-dvd-amd64.iso" || r.Compression != "bz2" || !strings.HasSuffix(r.URL, "/o/26.7/OPNsense-26.7-dvd-amd64.iso.bz2") || r.Checksum != strings.Repeat("0", 64) {
 		t.Fatalf("opnsense: %+v %v", r, err)
+	}
+}
+
+func TestWindowsISOsFollowRedirects(t *testing.T) {
+	end := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer end.Close()
+	fw := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, end.URL+"/dbazure/x/26100.1742_CLIENTENTERPRISEEVAL_x64FRE_en-us.iso", http.StatusFound)
+	}))
+	defer fw.Close()
+	old := isoHTTP.Transport
+	isoHTTP.Transport = fw.Client().Transport
+	defer func() { isoHTTP.Transport = old }()
+
+	x := &ISO{ID: "w", URL: fw.URL + "/fwlink/?linkid=1", Follow: true, FileName: "windows-11-eval.iso"}
+	r, err := x.Resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(r.URL, end.URL+"/dbazure/") || r.File != "windows-11-eval.iso" {
+		t.Errorf("resolved %+v", r)
+	}
+	for _, e := range []string{"win11", "win10", "ws2025", "ws2022", "ws2019"} {
+		if !slices.ContainsFunc(ISOs, func(i ISO) bool { return i.Windows == e && i.Follow }) {
+			t.Errorf("no Microsoft ISO for edition %s", e)
+		}
 	}
 }
