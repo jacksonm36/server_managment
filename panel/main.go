@@ -182,9 +182,15 @@ func run(log *slog.Logger) error {
 
 	// HTTPS for the UI, with a certificate from the panel CA (download it from
 	// /ca.crt to trust it). Plain HTTP stays up for agent install/enrollment,
-	// which pins the CA fingerprint itself. SM_HTTPS_ADDR=off disables it.
+	// which pins the CA fingerprint itself, and sends browsers to HTTPS
+	// (SM_HTTPS_REDIRECT=off keeps the UI on plain HTTP too). SM_HTTPS_ADDR=off
+	// disables HTTPS.
 	var hss *http.Server
 	if httpsAddr := env("SM_HTTPS_ADDR", ":8443"); httpsAddr != "off" {
+		if env("SM_HTTPS_REDIRECT", "on") != "off" {
+			hs.Handler = api.HTTPSRedirect(handler, portOf(httpsAddr))
+			log.Info("HTTP redirects browsers to HTTPS", "https_port", portOf(httpsAddr))
+		}
 		hss = &http.Server{
 			Addr:              httpsAddr,
 			Handler:           handler,
