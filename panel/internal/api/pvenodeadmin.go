@@ -2,8 +2,6 @@ package api
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -502,27 +500,10 @@ func (a *API) handlePVENodeShell(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	b := make([]byte, 24)
-	if _, err := rand.Read(b); err != nil {
-		writeErr(w, http.StatusInternalServerError, "cannot start the console")
+	sid, msg := a.addConsole(r, &pveConsole{cl: s.Cl, node: node, typ: "node", target: target, proxy: p, term: true, perm: "proxmox.manage"})
+	if msg != "" {
+		writeErr(w, http.StatusTooManyRequests, msg)
 		return
 	}
-	sid := hex.EncodeToString(b)
-	c := &pveConsole{
-		admin: adminFrom(r.Context()).ID, who: whoFrom(r), cl: s.Cl,
-		node: node, typ: "node", target: target,
-		proxy: p, term: true, expires: time.Now().Add(consoleTTL),
-	}
-	a.pveMu.Lock()
-	if a.pveConsoles == nil {
-		a.pveConsoles = map[string]*pveConsole{}
-	}
-	for k, v := range a.pveConsoles {
-		if time.Now().After(v.expires) {
-			delete(a.pveConsoles, k)
-		}
-	}
-	a.pveConsoles[sid] = c
-	a.pveMu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]any{"sid": sid, "mode": "term"})
 }

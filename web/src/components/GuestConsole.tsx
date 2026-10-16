@@ -26,7 +26,7 @@ import { Select, Textarea } from "@/components/ui/select";
 type Mode = "auto" | "vga" | "serial";
 type State = "connecting" | "open" | "closed";
 
-type Opened = { sid: string; mode: "vga" | "term"; password?: string };
+type Opened = { sid: string; mode: "vga" | "term" };
 
 // Display quality: lower JPEG quality means smaller updates, so more of
 // them per second on a slow link; less compression costs bandwidth but
@@ -130,6 +130,16 @@ function keysym(ch: string): number | null {
 }
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// clean drops control characters (escape sequences, C1 controls) from text
+// crossing between this computer and a guest, keeping tabs and line
+// breaks. Without it, pasted or copied text could carry a sequence that
+// ends a shell's bracketed paste early and runs what follows, or that
+// drives the terminal itself.
+export function clean(t: string): string {
+  // eslint-disable-next-line no-control-regex
+  return t.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]/g, "");
+}
+
 type Hooks = {
   sharedClip?: boolean; // the VM's display shares its clipboard (vga ...,clipboard=vnc)
   onPasteKey?: () => void; // Ctrl+Shift+V on a display without a shared clipboard
@@ -186,7 +196,8 @@ function useGuestConsole(
       if (c.mode === "vga") {
         const { default: RFB } = await import("@novnc/novnc");
         if (gone) return;
-        const rfb = new RFB(el, wsURL(c.sid), { credentials: { password: c.password }, wsProtocols: ["binary"] });
+        // The panel logs in to the display itself; noVNC holds no password.
+        const rfb = new RFB(el, wsURL(c.sid), { wsProtocols: ["binary"] });
         rfb.scaleViewport = true;
         rfb.viewOnly = !!preview;
         rfb.background = "#000";
@@ -198,17 +209,23 @@ function useGuestConsole(
           setState("closed");
           setNote((e as CustomEvent<{ clean: boolean }>).detail?.clean ? "Disconnected." : "The console connection was lost.");
         });
-        rfb.addEventListener("credentialsrequired", () => rfb.sendCredentials({ password: c.password }));
+        rfb.addEventListener("credentialsrequired", () => {
+          setNote("The display asked for a password; the panel should have answered it.");
+          rfb.disconnect();
+        });
         const q = qualities[savedQuality()];
         rfb.qualityLevel = q.quality;
         rfb.compressionLevel = q.compression;
         // The guest's clipboard, when it shares one (spice-vdagent or the
-        // Windows guest tools). Copied to this computer only while the
-        // console has focus, since the user turned the sharing on.
+        // Windows guest tools). It reaches this computer's clipboard only
+        // right after the user pressed copy (Ctrl+C, Ctrl+X, Ctrl+Insert) in
+        // the console; otherwise it waits behind "Copy from VM". A guest
+        // can't slip text onto the clipboard on its own.
+        let copyKeyAt = 0;
         rfb.addEventListener("clipboard", (e) => {
-          const t = String((e as CustomEvent<{ text: string }>).detail?.text ?? "").slice(0, 100000);
+          const t = clean(String((e as CustomEvent<{ text: string }>).detail?.text ?? "").slice(0, 100000));
           setGuestClip(t);
-          if (!preview && t && document.hasFocus() && el.contains(document.activeElement))
+          if (!preview && t && Date.now() - copyKeyAt < 2000 && document.hasFocus() && el.contains(document.activeElement))
             navigator.clipboard?.writeText(t).then(
               () => hk.current.onCopied?.("Copied from the VM."),
               () => {},
@@ -230,7 +247,9 @@ function useGuestConsole(
         // pastes like on a local machine. Without one, Ctrl+Shift+V opens
         // the type-it dialog.
         const onKey = (e: KeyboardEvent) => {
-          if (preview || !e.ctrlKey || e.altKey || e.metaKey || e.code !== "KeyV") return;
+          if (preview || !e.ctrlKey || e.altKey || e.metaKey) return;
+          if (e.code === "KeyC" || e.code === "KeyX" || e.code === "Insert") copyKeyAt = Date.now();
+          if (e.code !== "KeyV") return;
           if (hk.current.sharedClip) {
             e.stopPropagation(); // the paste event below sends the key
             return;
@@ -244,7 +263,7 @@ function useGuestConsole(
         const onPaste = (e: ClipboardEvent) => {
           if (preview || !hk.current.sharedClip) return;
           e.preventDefault();
-          const t = (e.clipboardData?.getData("text/plain") ?? "").slice(0, MAX_PASTE);
+          const t = clean(e.clipboardData?.getData("text/plain") ?? "").slice(0, MAX_PASTE);
           if (t) rfb.clipboardPasteFrom(t);
           // Ctrl (and Shift) are already down on the VM; give its clipboard a
           // moment to update, then press V.
@@ -257,7 +276,7 @@ function useGuestConsole(
         el.addEventListener("paste", onPaste, true);
         ctl.current = {
           keys: press,
-          clip: (t) => rfb.clipboardPasteFrom(t),
+          clip: (t) => rfb.clipboardPasteFrom(clean(t)),
           quality: (k) => {
             rfb.qualityLevel = qualities[k].quality;
             rfb.compressionLevel = qualities[k].compression;
@@ -267,7 +286,7 @@ function useGuestConsole(
           },
           screenshot: () => new Promise((res) => (canvas() ? canvas()!.toBlob(res, "image/png") : res(null))),
           type: async (text, cancelled, progress) => {
-            const chars = [...text.replace(/\r\n?/g, "\n")];
+            const chars = [...clean(text.replace(/\r\n?/g, "\n"))];
             for (let i = 0; i < chars.length; i++) {
               if (cancelled() || gone) return;
               const k = keysym(chars[i]);
@@ -315,7 +334,7 @@ function useGuestConsole(
       };
       const dataSub = term.onData((data) => send({ type: "input", data }));
       const copySel = () => {
-        const t = term.getSelection();
+        const t = clean(term.getSelection());
         term.clearSelection();
         void copyText(t).then((ok) => hk.current.onCopied?.(ok ? "Copied." : "The browser blocked the clipboard."));
       };
@@ -345,13 +364,21 @@ function useGuestConsole(
         e.preventDefault();
         if (term.hasSelection()) return copySel();
         navigator.clipboard?.readText().then(
-          (t) => t && term.paste(t.slice(0, MAX_PASTE)),
+          (t) => t && term.paste(clean(t).slice(0, MAX_PASTE)),
           () => hk.current.onCopied?.("Paste with Ctrl+V: the browser didn't allow reading the clipboard."),
         );
       };
       el.addEventListener("contextmenu", onMenu);
+      // Browser pastes (Ctrl+V, the menu) are cleaned before xterm sees them.
+      const onPaste = (e: ClipboardEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const t = clean(e.clipboardData?.getData("text/plain") ?? "").slice(0, MAX_PASTE);
+        if (t && !preview) term.paste(t);
+      };
+      el.addEventListener("paste", onPaste, true);
       ctl.current = {
-        paste: (t) => term.paste(t),
+        paste: (t) => term.paste(clean(t)),
         input: (d) => send({ type: "input", data: d }),
         selection: () => term.getSelection(),
         font: (d) => {
@@ -373,6 +400,7 @@ function useGuestConsole(
       cleanup = () => {
         ro.disconnect();
         el.removeEventListener("contextmenu", onMenu);
+        el.removeEventListener("paste", onPaste, true);
         dataSub.dispose();
         resizeSub.dispose();
         ws.close();
@@ -447,6 +475,14 @@ export function GuestConsole({
             className={`size-2 shrink-0 rounded-full ${state === "open" ? "bg-success" : state === "connecting" ? "animate-pulse bg-warning" : "bg-muted-foreground/50"}`}
           />
           <span className="truncate font-medium">{name}</span>
+          {location.protocol !== "https:" && (
+            <span
+              className="shrink-0 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-medium text-warning"
+              title="This page is plain http: keystrokes and the screen cross the network unencrypted unless a VPN carries them. Use the panel's https address."
+            >
+              not encrypted
+            </span>
+          )}
           <span className="truncate text-xs text-muted-foreground">
             {state === "open"
               ? `${mode === "vga" ? (sharedClip ? "display · shared clipboard" : "display") : "text console"} · audit-logged`

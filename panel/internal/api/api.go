@@ -62,6 +62,7 @@ type API struct {
 	pveReserved map[int64]tenantUsage
 	// pveConsoles are console sessions waiting for their WebSocket.
 	pveConsoles map[string]*pveConsole
+	pveOpen     map[int64]int // open consoles per user
 }
 
 func (a *API) Handler() http.Handler {

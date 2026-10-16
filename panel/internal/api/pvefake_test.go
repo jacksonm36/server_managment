@@ -48,10 +48,11 @@ type fakePVE struct {
 }
 
 type fakeConsole struct {
-	user string
-	vmid int
-	port int
-	term bool
+	user     string
+	vmid     int
+	port     int
+	term     bool
+	password string // VNC password (generate-password), else the ticket
 }
 
 // fakeStorageInfo is each storage's type and content types.
@@ -530,8 +531,14 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 	case (sub == "vncproxy" || sub == "termproxy") && r.Method == "POST":
 		ticket := fmt.Sprintf("PVEVNC:%d:%d", vmid, len(f.consoles))
 		port := 5900 + len(f.consoles)
-		f.consoles[ticket] = fakeConsole{user, vmid, port, sub == "termproxy"}
-		f.reply(w, 200, map[string]any{"port": strconv.Itoa(port), "ticket": ticket, "user": user, "upid": upid}, "")
+		out := map[string]any{"port": strconv.Itoa(port), "ticket": ticket, "user": user, "upid": upid}
+		c := fakeConsole{user, vmid, port, sub == "termproxy", ticket}
+		if r.Form.Get("generate-password") == "1" {
+			c.password = fmt.Sprintf("pw%06d", len(f.consoles))
+			out["password"] = c.password
+		}
+		f.consoles[ticket] = c
+		f.reply(w, 200, out, "")
 	case sub == "firewall/options" && r.Method == "GET":
 		f.reply(w, 200, map[string]any{"enable": 0, "policy_in": "DROP"}, "")
 	case sub == "firewall/options" && r.Method == "PUT":
@@ -624,7 +631,26 @@ func (f *fakePVE) consoleWS(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = conn.Write(ctx, websocket.MessageBinary, []byte("OK"))
 	} else {
+		// RFB 3.8 with VNC authentication against the console's password.
+		challenge := []byte("0123456789abcdef")
 		_ = conn.Write(ctx, websocket.MessageBinary, []byte("RFB 003.008\n"))
+		_, v, err := conn.Read(ctx)
+		if err != nil || string(v) != "RFB 003.008\n" {
+			return
+		}
+		_ = conn.Write(ctx, websocket.MessageBinary, []byte{1, 2})
+		if _, pick, err := conn.Read(ctx); err != nil || len(pick) != 1 || pick[0] != 2 {
+			return
+		}
+		_ = conn.Write(ctx, websocket.MessageBinary, challenge)
+		_, resp, err := conn.Read(ctx)
+		want, _ := vncAuthResponse(c.password, challenge)
+		if err != nil || string(resp) != string(want) {
+			_ = conn.Write(ctx, websocket.MessageBinary, append([]byte{0, 0, 0, 1, 0, 0, 0, 14}, "bad password!!"...))
+			return
+		}
+		_ = conn.Write(ctx, websocket.MessageBinary, []byte{0, 0, 0, 0})
+		_ = conn.Write(ctx, websocket.MessageBinary, []byte("display-ready"))
 	}
 	for {
 		typ, data, err := conn.Read(ctx)

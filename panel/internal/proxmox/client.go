@@ -344,17 +344,21 @@ func IfaceIPs(ifs []GuestIface) []string {
 type ConsoleProxy struct {
 	Port   int
 	Ticket string
-	User   string // termproxy: the user the ticket was issued to
-	Base   string // API path the console belongs to: a guest or /nodes/<node>
+	// Password is the display's own one-time VNC password, when Proxmox
+	// generated one (generate-password); otherwise the ticket is used.
+	Password string
+	User     string // termproxy: the user the ticket was issued to
+	Base     string // API path the console belongs to: a guest or /nodes/<node>
 }
 
 // OpenConsole starts vncproxy (serial == "") or termproxy on serial
 // ("serial0"…; empty for a container's console when term is true).
 func (c *Client) OpenConsole(ctx context.Context, node, typ string, vmid int, term bool, serial string) (*ConsoleProxy, error) {
 	var res struct {
-		Port   json.Number `json:"port"`
-		Ticket string      `json:"ticket"`
-		User   string      `json:"user"`
+		Port     json.Number `json:"port"`
+		Ticket   string      `json:"ticket"`
+		Password string      `json:"password"`
+		User     string      `json:"user"`
 	}
 	form := url.Values{}
 	sub := "/vncproxy"
@@ -365,8 +369,18 @@ func (c *Client) OpenConsole(ctx context.Context, node, typ string, vmid int, te
 		}
 	} else {
 		form.Set("websocket", "1")
+		if typ == "qemu" {
+			// A random 8-character VNC password instead of the ticket,
+			// whose first 8 characters (all VNC auth uses) barely change.
+			form.Set("generate-password", "1")
+		}
 	}
-	if err := c.Do(ctx, http.MethodPost, GuestPath(node, typ, vmid)+sub, form, &res); err != nil {
+	err := c.Do(ctx, http.MethodPost, GuestPath(node, typ, vmid)+sub, form, &res)
+	if err != nil && form.Has("generate-password") && strings.Contains(err.Error(), "generate-password") {
+		form.Del("generate-password") // an older Proxmox
+		err = c.Do(ctx, http.MethodPost, GuestPath(node, typ, vmid)+sub, form, &res)
+	}
+	if err != nil {
 		return nil, err
 	}
 	port, err := res.Port.Int64()
@@ -376,7 +390,7 @@ func (c *Client) OpenConsole(ctx context.Context, node, typ string, vmid int, te
 	if res.User == "" {
 		res.User, _, _ = strings.Cut(c.TokenID, "!")
 	}
-	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, User: res.User, Base: GuestPath(node, typ, vmid)}, nil
+	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, Password: res.Password, User: res.User, Base: GuestPath(node, typ, vmid)}, nil
 }
 
 // OpenNodeShell starts termproxy for a node's own shell. cmd is "" for a
@@ -485,7 +499,9 @@ func (c *Client) DialConsole(ctx context.Context, node, typ string, vmid int, p 
 		if resp != nil {
 			return nil, fmt.Errorf("proxmox console: %s", resp.Status)
 		}
-		return nil, fmt.Errorf("proxmox console: %w", err)
+		// Errors can quote the URL; keep the ticket out of them.
+		msg := strings.ReplaceAll(err.Error(), url.QueryEscape(p.Ticket), "(ticket)")
+		return nil, errors.New("proxmox console: " + strings.ReplaceAll(msg, p.Ticket, "(ticket)"))
 	}
 	conn.SetReadLimit(4 << 20)
 	return conn, nil

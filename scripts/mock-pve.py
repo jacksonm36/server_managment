@@ -169,7 +169,7 @@ class H(BaseHTTPRequestHandler):
                 c = CONSOLES.pop(q.get("vncticket", ""), None)
             if not m or not c or c[0] != self.user or c[1] != int(m.group(2) or 0) or str(c[2]) != q.get("port"):
                 return self.send(401, err="invalid ticket")
-            return ws_console(self, GUESTS[c[1]]["name"] if c[1] else m.group(1), q["vncticket"], c[0], c[3])
+            return ws_console(self, GUESTS[c[1]]["name"] if c[1] else m.group(1), q["vncticket"], c[0], c[3], c[4])
         n = int(self.headers.get("Content-Length") or 0)
         ctype = self.headers.get("Content-Type", "")
         if ctype.startswith("multipart/form-data"):
@@ -454,8 +454,11 @@ class H(BaseHTTPRequestHandler):
             if g["status"] != "running":
                 return self.send(500, err="VM is not running")
             port, ticket = 5900 + len(CONSOLES), "PVEVNC:" + secrets.token_hex(12)
-            CONSOLES[ticket] = (user, vmid, port, rest == "/termproxy")
-            return self.send(200, {"port": str(port), "ticket": ticket, "user": user, "upid": task(node, "vncproxy", vmid)})
+            out = {"port": str(port), "ticket": ticket, "user": user, "upid": task(node, "vncproxy", vmid)}
+            if form.get("generate-password") == "1":
+                out["password"] = secrets.token_urlsafe(6)[:8]
+            CONSOLES[ticket] = (user, vmid, port, rest == "/termproxy", out.get("password", ticket))
+            return self.send(200, out)
         if rest.startswith("/firewall/"):
             fw = FIREWALL.setdefault(vmid, {"options": {"enable": 0, "policy_in": "DROP", "policy_out": "ACCEPT"}, "rules": []})
             if rest == "/firewall/options":
@@ -639,7 +642,7 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, task(node, rest[1:], 0)) or True
             if rest == "/termproxy" and method == "POST":
                 port, ticket = 5900 + len(CONSOLES), "PVEVNC:" + secrets.token_hex(12)
-                CONSOLES[ticket] = (self.user, 0, port, True)
+                CONSOLES[ticket] = (self.user, 0, port, True, ticket)
                 return self.send(200, {"port": str(port), "ticket": ticket, "user": self.user}) or True
             if rest == "/network":
                 if method == "GET":
@@ -846,7 +849,7 @@ class WS:
         self.w.flush()
 
 
-def ws_console(h, name, ticket, user, term):
+def ws_console(h, name, ticket, user, term, password):
     key = h.headers.get("Sec-WebSocket-Key", "")
     acc = base64.b64encode(hashlib.sha1((key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
     h.send_response(101)
@@ -858,7 +861,7 @@ def ws_console(h, name, ticket, user, term):
         if term:
             serial_console(ws, name, ticket, user)
         else:
-            vnc_console(ws, name)
+            vnc_console(ws, name, password)
     except (EOFError, OSError, ValueError):
         pass
     h.close_connection = True
@@ -876,14 +879,29 @@ def serial_console(ws, name, ticket, user):
             ws.send(data.replace("\r", "\r\n").encode())
 
 
-def vnc_console(ws, name):
-    """RFB 3.8 without authentication: one full frame of a dark screen
-    with a lighter window, then input is read and ignored."""
+def vnc_des(password, challenge):
+    """VNC authentication's response: DES with the bit-reversed password."""
+    from cryptography.hazmat.decrepit.ciphers.algorithms import TripleDES
+    from cryptography.hazmat.primitives.ciphers import Cipher, modes
+    key = bytes(int(f"{b:08b}"[::-1], 2) for b in password.encode()[:8].ljust(8, b"\0"))
+    enc = Cipher(TripleDES(key * 3), modes.ECB()).encryptor()
+    return enc.update(challenge) + enc.finalize()
+
+
+def vnc_console(ws, name, password):
+    """RFB 3.8 with VNC authentication, like QEMU's display: one full frame
+    of a dark screen with a lighter window, then input is read and ignored."""
     W, H = 800, 600
     ws.send(b"RFB 003.008\n")
     ws.read(12)
-    ws.send(bytes([1, 1]))  # one security type: None
+    ws.send(bytes([1, 2]))  # one security type: VNC authentication
     ws.read(1)
+    challenge = secrets.token_bytes(16)
+    ws.send(challenge)
+    if ws.read(16) != vnc_des(password, challenge):
+        reason = b"Authentication failed"
+        ws.send(struct.pack(">II", 1, len(reason)) + reason)
+        return
     ws.send(struct.pack(">I", 0))
     ws.read(1)  # ClientInit
     title = f"{name} (mock display)".encode()

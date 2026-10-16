@@ -826,7 +826,7 @@ export const api = {
   pveGuestRRD: (id: string, g: PVEGuestRef, tf: PVETimeframe) => request<PVERRDPoint[]>("GET", `${pveGuestURL(id, g)}/rrd?timeframe=${tf}`),
   pveGuestTasks: (id: string, g: PVEGuestRef) => request<PVETask[]>("GET", `${pveGuestURL(id, g)}/tasks`),
   pveConsole: (id: string, g: PVEGuestRef, mode: "auto" | "vga" | "serial") =>
-    request<{ sid: string; mode: "vga" | "term"; password?: string; serial?: string }>("POST", `${pveGuestURL(id, g)}/console`, { mode }),
+    request<{ sid: string; mode: "vga" | "term"; serial?: string }>("POST", `${pveGuestURL(id, g)}/console`, { mode }),
   pveBackups: (id: string, g: PVEGuestRef) => request<{ storages: string[]; backups: PVEBackup[]; problems?: { storage: string; error: string }[] }>("GET", `${pveGuestURL(id, g)}/backups`),
   pveBackup: (id: string, g: PVEGuestRef, b: { storage: string; mode: string; notes: string }) =>
     request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/backups`, b),

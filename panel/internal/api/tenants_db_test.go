@@ -241,9 +241,14 @@ func TestTenantIsolation(t *testing.T) {
 	expect("serial console without a serial port", first(call(al, "POST", vm100+"/console", map[string]any{"mode": "serial"})), 400)
 	code, con, _ := call(al, "POST", vm100+"/console", map[string]any{})
 	expect("alice opens a console", code, 200)
-	if con["mode"] != "vga" || con["password"] == nil {
-		t.Errorf("console = %v", con)
+	if con["mode"] != "vga" || con["password"] != nil || len(con["sid"].(string)) != 64 {
+		t.Errorf("console = %v (no credential may reach the browser)", con)
 	}
+	// Another login session of the same user can't take it.
+	al2, _ := login("alice", "alice-password-1")
+	_, other2, _ := call(al, "POST", vm100+"/console", map[string]any{})
+	_, code = wsDial(al2, other2["sid"].(string))
+	expect("alice's console from her other login session", code, 404)
 	_, other, _ := call(al, "POST", vm100+"/console", map[string]any{})
 	_, code = wsDial(bo, other["sid"].(string))
 	expect("bob uses alice's console session", code, 404)
@@ -258,13 +263,21 @@ func TestTenantIsolation(t *testing.T) {
 	expect("alice connects to her console", code, 101)
 	if ws != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		if _, d, err := ws.Read(ctx); err != nil || string(d) != "RFB 003.008\n" {
-			t.Errorf("vnc greeting %q %v", d, err)
+		// The panel logged in to the display; the browser is offered no
+		// authentication at all.
+		step := func(want string) {
+			if _, d, err := ws.Read(ctx); err != nil || string(d) != want {
+				t.Errorf("vnc handshake: got %q %v, want %q", d, err, want)
+			}
 		}
+		step("RFB 003.008\n")
+		_ = ws.Write(ctx, websocket.MessageBinary, []byte("RFB 003.008\n"))
+		step("\x01\x01")
+		_ = ws.Write(ctx, websocket.MessageBinary, []byte{1})
+		step("\x00\x00\x00\x00")
+		step("display-ready")
 		_ = ws.Write(ctx, websocket.MessageText, []byte("hello"))
-		if _, d, err := ws.Read(ctx); err != nil || string(d) != "hello" {
-			t.Errorf("vnc relay %q %v", d, err)
-		}
+		step("hello")
 		cancel()
 		ws.CloseNow()
 	}
@@ -284,6 +297,25 @@ func TestTenantIsolation(t *testing.T) {
 		_ = ws.Write(ctx, websocket.MessageText, []byte(`{"type":"input","data":"ls\r"}`))
 		if _, d, err := ws.Read(ctx); err != nil || string(d) != "echo 0:3:ls\r" {
 			t.Errorf("serial relay %q %v", d, err)
+		}
+		cancel()
+		ws.CloseNow()
+	}
+	// Signing out closes an open console.
+	consoleRecheck = 200 * time.Millisecond
+	_, con, _ = call(al2, "POST", vm100+"/console", map[string]any{})
+	ws, code = wsDial(al2, con["sid"].(string))
+	expect("alice's second session opens a console", code, 101)
+	if ws != nil {
+		expect("alice signs out there", first(call(al2, "POST", "/api/v1/auth/logout", nil)), 204)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		for {
+			if _, _, err := ws.Read(ctx); err != nil {
+				if websocket.CloseStatus(err) != websocket.StatusPolicyViolation {
+					t.Errorf("console after sign-out: %v", err)
+				}
+				break
+			}
 		}
 		cancel()
 		ws.CloseNow()
