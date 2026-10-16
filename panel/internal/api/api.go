@@ -147,6 +147,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/resources", need("proxmox.view", a.handlePVEResources))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guest-os", need("proxmox.view", a.handlePVEGuestOS))
 	authed.HandleFunc("GET /api/v1/proxmox-images", need("proxmox.view", a.handlePVEImages))
+	authed.HandleFunc("GET /api/v1/proxmox-isos", need("proxmox.manage", a.handlePVEISOs))
 	authed.HandleFunc("GET /api/v1/proxmox-flavors", need("proxmox.view", a.handleListFlavors))
 	authed.HandleFunc("POST /api/v1/proxmox-flavors", need("proxmox.manage", a.handleSaveFlavor))
 	authed.HandleFunc("PUT /api/v1/proxmox-flavors/{fid}", need("proxmox.manage", a.handleSaveFlavor))

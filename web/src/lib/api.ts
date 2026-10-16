@@ -362,6 +362,19 @@ export type PVEResource = {
 export type PVEGuest = PVEResource & { server_id?: string; server_name?: string; tenant?: string };
 export type PVETenantInfo = { name: string; pool: string; storages: string[]; bridges: string[]; usage: TenantUsage; quota: TenantUsage };
 // What the panel knows a guest runs: OS and detected software, and how it found them.
+// An ISO from the built-in library, resolved to the vendor's newest file.
+export type PVEISO = {
+  id: string;
+  name: string;
+  vendor: string;
+  category: "linux" | "hypervisor" | "tools";
+  icon: string;
+  url?: string;
+  file?: string;
+  checksum?: string;
+  checksum_algorithm?: string;
+  error?: string;
+};
 export type PVEGuestOS = { os: string; pretty?: string; os_via?: string; app?: string; app_via?: string; hints?: string };
 export type PVEResources = {
   cluster: PVECluster;
@@ -820,6 +833,7 @@ export const api = {
   pveResources: (id: string) => request<PVEResources>("GET", `/api/v1/proxmox/${id}/resources`),
   pveGuestOS: (id: string) => request<Record<string, PVEGuestOS>>("GET", `/api/v1/proxmox/${id}/guest-os`),
   pveImages: () => request<PVEImage[]>("GET", "/api/v1/proxmox-images"),
+  pveISOs: (refresh = false) => request<PVEISO[]>("GET", `/api/v1/proxmox-isos${refresh ? "?refresh=1" : ""}`),
   pveTemplateTargets: (id: string, node: string) =>
     request<PVETemplateTargets>("GET", `/api/v1/proxmox/${id}/template-targets?node=${encodeURIComponent(node)}`),
   pveTemplateCreate: (id: string, b: PVETemplateReq) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/templates`, b),

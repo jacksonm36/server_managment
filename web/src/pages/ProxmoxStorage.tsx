@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Activity, Database, Download, Eraser, FolderOpen, HardDrive, Layers, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Activity, Database, Disc3, Download, Eraser, FolderOpen, HardDrive, Layers, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import {
   api,
   type PVECluster,
   type PVEDisk,
+  type PVEISO,
   type PVENodeStorage,
   type PVESMART,
   type PVEStorageConfig,
@@ -23,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Select } from "@/components/ui/select";
 import { useAction } from "@/pages/ProxmoxGuestTabs";
 import { UploadDialog } from "@/pages/ProxmoxAdmin";
+import { ISOLibrary } from "@/components/ISOLibrary";
 
 // Cluster storage (platform admins): storage definitions and their usage,
 // what is on each storage, the node's physical disks with SMART health,
@@ -452,6 +454,7 @@ function ContentBrowser({ cluster, node, storage, onClose }: { cluster: string; 
   const canDownload = types.includes("iso") || types.includes("vztmpl");
   const canUpload = canDownload || types.includes("import");
   const [uploading, setUploading] = useState(false);
+  const [library, setLibrary] = useState(false);
   const [upNote, setUpNote] = useState("");
 
   const load = useCallback(() => {
@@ -464,6 +467,26 @@ function ContentBrowser({ cluster, node, storage, onClose }: { cluster: string; 
 
   const shown = (vols ?? []).filter((v) => !filter || v.content === filter);
   const kinds = [...new Set((vols ?? []).map((v) => v.content))];
+
+  const isoFiles = new Set((vols ?? []).filter((v) => v.content === "iso").map((v) => v.volid.slice(v.volid.lastIndexOf("/") + 1)));
+  const fromLibrary = (x: PVEISO) => {
+    setLibrary(false);
+    void run(
+      `Downloading ${x.file}`,
+      async () => {
+        const { upid } = await api.pveDownloadURL(cluster, node, storage.storage, {
+          url: x.url!,
+          content: "iso",
+          filename: x.file,
+          checksum: x.checksum,
+          checksum_algorithm: x.checksum_algorithm,
+        });
+        const fail = await waitTask(cluster, node, upid);
+        if (fail) throw new Error(fail);
+      },
+      `${x.file} downloaded${x.checksum ? " and its checksum matched" : ""}.`,
+    ).then((ok) => ok && load());
+  };
 
   const download = (e: FormEvent) => {
     e.preventDefault();
@@ -503,6 +526,11 @@ function ContentBrowser({ cluster, node, storage, onClose }: { cluster: string; 
               ))}
             </Select>
           )}
+          {types.includes("iso") && (
+            <Button size="sm" variant="secondary" onClick={() => setLibrary(true)} disabled={!!busy}>
+              <Disc3 /> ISO library
+            </Button>
+          )}
           {canUpload && (
             <Button size="sm" variant="secondary" onClick={() => setUploading(true)}>
               <Upload /> Upload
@@ -517,6 +545,7 @@ function ContentBrowser({ cluster, node, storage, onClose }: { cluster: string; 
         {err && <p className="text-sm text-destructive">{err}</p>}
         {note}
         {upNote && <p className="text-sm text-success">{upNote}</p>}
+        {library && <ISOLibrary storage={storage.storage} have={isoFiles} onPick={fromLibrary} onClose={() => setLibrary(false)} />}
         {uploading && (
           <UploadDialog
             cluster={cluster}
