@@ -401,6 +401,9 @@ func (a *API) handlePVEDownloadURL(w http.ResponseWriter, r *http.Request) {
 		Filename string `json:"filename"`
 		Checksum string `json:"checksum"`
 		Algo     string `json:"checksum_algorithm"`
+		// Compression has Proxmox unpack the download (ISOs only); the
+		// checksum is then the compressed file's.
+		Compression string `json:"compression"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -443,6 +446,13 @@ func (a *API) handlePVEDownloadURL(w http.ResponseWriter, r *http.Request) {
 		}
 		form.Set("checksum", req.Checksum)
 		form.Set("checksum-algorithm", req.Algo)
+	}
+	if req.Compression != "" {
+		if req.Content != "iso" || !slices.Contains([]string{"gz", "lzo", "zst", "bz2"}, req.Compression) {
+			bad("compression: gz, lzo, zst or bz2, for ISOs only")
+			return
+		}
+		form.Set("compression", req.Compression)
 	}
 	target := s.C.Name + "/" + node + "/" + id + ":" + req.Filename
 	var upid string

@@ -480,6 +480,7 @@ function ContentBrowser({ cluster, node, storage, onClose }: { cluster: string; 
           filename: x.file,
           checksum: x.checksum,
           checksum_algorithm: x.checksum_algorithm,
+          compression: x.compression,
         });
         const fail = await waitTask(cluster, node, upid);
         if (fail) throw new Error(fail);

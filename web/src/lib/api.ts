@@ -367,12 +367,13 @@ export type PVEISO = {
   id: string;
   name: string;
   vendor: string;
-  category: "linux" | "hypervisor" | "tools";
+  category: "linux" | "bsd" | "hypervisor" | "tools";
   icon: string;
   url?: string;
   file?: string;
   checksum?: string;
   checksum_algorithm?: string;
+  compression?: string; // Proxmox unpacks the download
   error?: string;
 };
 export type PVEGuestOS = { os: string; pretty?: string; os_via?: string; app?: string; app_via?: string; hints?: string };
@@ -871,7 +872,7 @@ export const api = {
       "DELETE",
       `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/content?volume=${encodeURIComponent(volume)}&confirm=${encodeURIComponent(confirm)}`,
     ),
-  pveDownloadURL: (id: string, node: string, storage: string, b: { url: string; content: "iso" | "vztmpl"; filename?: string; checksum?: string; checksum_algorithm?: string }) =>
+  pveDownloadURL: (id: string, node: string, storage: string, b: { url: string; content: "iso" | "vztmpl"; filename?: string; checksum?: string; checksum_algorithm?: string; compression?: string }) =>
     request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/download`, b),
   pveNodeTask: (id: string, node: string, upid: string) =>
     request<{ status: string; exitstatus: string; log: string[] }>("GET", `${pveNodeURL(id, node)}/task?upid=${encodeURIComponent(upid)}`),

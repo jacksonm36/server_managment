@@ -9,7 +9,11 @@
 # the file's own url + checksum_suffix. Entries without either say so in
 # the UI.
 #
-# category: linux, hypervisor, tools
+# subdir picks the newest release folder in dir; checksums_match picks a
+# checksum file whose name changes per release from that folder; with
+# compression Proxmox unpacks the download (the hash is the packed file's).
+#
+# category: linux, bsd, hypervisor, tools
 # icon: a logo hint for the UI (distro or vendor name)
 
 - id: debian-netinst
@@ -134,6 +138,37 @@
   dir: https://cdimage.kali.org/current/
   match: ^kali-linux-\d{4}\.\d+[a-z]?-installer-netinst-amd64\.iso$
   checksums: SHA256SUMS
+- id: freebsd
+  name: FreeBSD (newest release)
+  vendor: FreeBSD
+  category: bsd
+  icon: freebsd
+  dir: https://download.freebsd.org/releases/amd64/amd64/ISO-IMAGES/
+  subdir: ^\d+\.\d+$
+  match: ^FreeBSD-\d+\.\d+-RELEASE-amd64-disc1\.iso$
+  checksums_match: ^CHECKSUM\.SHA256-FreeBSD-\d+\.\d+-RELEASE-amd64$
+  list: dir
+- id: freebsd-14
+  name: FreeBSD 14
+  vendor: FreeBSD
+  category: bsd
+  icon: freebsd
+  dir: https://download.freebsd.org/releases/amd64/amd64/ISO-IMAGES/
+  subdir: ^14\.\d+$
+  match: ^FreeBSD-14\.\d+-RELEASE-amd64-disc1\.iso$
+  checksums_match: ^CHECKSUM\.SHA256-FreeBSD-14\.\d+-RELEASE-amd64$
+  list: dir
+- id: opnsense
+  name: OPNsense (DVD installer)
+  vendor: OPNsense
+  category: bsd
+  icon: opnsense
+  dir: https://pkg.opnsense.org/releases/
+  subdir: ^\d+\.\d+$
+  match: ^OPNsense-\d+\.\d+-dvd-amd64\.iso\.bz2$
+  checksums_match: ^OPNsense-\d+\.\d+-checksums-amd64\.sha256$
+  list: dir
+  compression: bz2
 - id: proxmox-ve
   name: Proxmox VE
   vendor: Proxmox

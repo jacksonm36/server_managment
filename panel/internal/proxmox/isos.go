@@ -30,15 +30,24 @@ type ISO struct {
 	Checksums      string `yaml:"checksums" json:"-"`
 	List           string `yaml:"list" json:"-"`
 	ChecksumSuffix string `yaml:"checksum_suffix" json:"-"`
-	match          *regexp.Regexp
+	// Subdir picks the newest folder in dir whose name matches it (for
+	// vendors with one folder per release); ChecksumsMatch picks the
+	// checksum file from that folder's listing when its name changes.
+	Subdir         string `yaml:"subdir" json:"-"`
+	ChecksumsMatch string `yaml:"checksums_match" json:"-"`
+	// Compression: the vendor ships the ISO compressed (gz, zst, bz2…);
+	// Proxmox unpacks it and stores it without that extension.
+	Compression string `yaml:"compression" json:"-"`
+	match       *regexp.Regexp
 }
 
 // ResolvedISO is an ISO's current download: the newest file and its hash.
 type ResolvedISO struct {
-	URL      string `json:"url"`
-	File     string `json:"file"`
-	Algo     string `json:"checksum_algorithm,omitempty"`
-	Checksum string `json:"checksum,omitempty"`
+	URL         string `json:"url"`
+	File        string `json:"file"` // the name it is stored under
+	Compression string `json:"compression,omitempty"`
+	Algo        string `json:"checksum_algorithm,omitempty"`
+	Checksum    string `json:"checksum,omitempty"`
 }
 
 //go:embed isos.yaml
@@ -53,7 +62,7 @@ var ISOs = func() []ISO {
 	seen := map[string]bool{}
 	for i := range list {
 		x := &list[i]
-		if seen[x.ID] || (x.URL == "") == (x.Dir == "") {
+		if seen[x.ID] || (x.URL == "") == (x.Dir == "") || (x.Compression != "" && x.URL != "") {
 			panic("proxmox/isos.yaml: bad or duplicate entry " + x.ID)
 		}
 		seen[x.ID] = true
@@ -64,6 +73,14 @@ var ISOs = func() []ISO {
 		}
 		if x.Dir != "" {
 			x.match = mustRe(x.Match)
+			if !strings.HasSuffix(x.Dir, "/") {
+				panic("proxmox/isos.yaml: " + x.ID + ": dir must end in /")
+			}
+		}
+		for _, re := range []string{x.Subdir, x.ChecksumsMatch} {
+			if re != "" {
+				mustRe(re)
+			}
 		}
 	}
 	return list
@@ -134,7 +151,30 @@ func parseSums(r io.Reader) []sumLine {
 	return out
 }
 
-var hrefRe = regexp.MustCompile(`href="([^"?#/]+)"`)
+var (
+	hrefRe    = regexp.MustCompile(`href="([^"?#/]+)"`)
+	subdirRe  = regexp.MustCompile(`href="([^"?#/]+)/"`)
+	listedRes = func(re *regexp.Regexp, page []byte) []string {
+		var out []string
+		for _, m := range re.FindAllSubmatch(page, -1) {
+			if n, err := url.PathUnescape(string(m[1])); err == nil {
+				out = append(out, n)
+			}
+		}
+		return out
+	}
+)
+
+// newest is the naturally greatest name matching re.
+func newest(names []string, re *regexp.Regexp) string {
+	best := ""
+	for _, n := range names {
+		if re.MatchString(n) && (best == "" || naturalLess(best, n)) {
+			best = n
+		}
+	}
+	return best
+}
 
 // Resolve finds the ISO's newest file and its checksum on the vendor's
 // server.
@@ -143,10 +183,36 @@ func (x *ISO) Resolve(ctx context.Context) (*ResolvedISO, error) {
 		r := &ResolvedISO{URL: x.URL, File: path.Base(x.URL)}
 		return r, x.addSum(ctx, r, nil)
 	}
+	dir := x.Dir
+	if x.Subdir != "" {
+		page, err := isoGet(ctx, dir, 2<<20)
+		if err != nil {
+			return nil, err
+		}
+		sub := newest(listedRes(subdirRe, page), mustRe(x.Subdir))
+		if sub == "" {
+			return nil, fmt.Errorf("no release folder matching %s at %s", x.Subdir, dir)
+		}
+		dir += url.PathEscape(sub) + "/"
+	}
+	var listing []string
+	if x.List == "dir" || x.ChecksumsMatch != "" {
+		page, err := isoGet(ctx, dir, 2<<20)
+		if err != nil {
+			return nil, err
+		}
+		listing = listedRes(hrefRe, page)
+	}
+	sumFile := x.Checksums
+	if x.ChecksumsMatch != "" {
+		if sumFile = newest(listing, mustRe(x.ChecksumsMatch)); sumFile == "" {
+			return nil, fmt.Errorf("no checksum file matching %s at %s", x.ChecksumsMatch, dir)
+		}
+	}
 	var sums []sumLine
 	var names []string
-	if x.Checksums != "" {
-		b, err := isoGet(ctx, x.Dir+x.Checksums, 4<<20)
+	if sumFile != "" {
+		b, err := isoGet(ctx, dir+url.PathEscape(sumFile), 4<<20)
 		if err != nil {
 			return nil, err
 		}
@@ -158,27 +224,18 @@ func (x *ISO) Resolve(ctx context.Context) (*ResolvedISO, error) {
 		}
 	}
 	if x.List == "dir" {
-		b, err := isoGet(ctx, x.Dir, 2<<20)
-		if err != nil {
-			return nil, err
-		}
-		for _, m := range hrefRe.FindAllStringSubmatch(string(b), -1) {
-			if n, err := url.PathUnescape(m[1]); err == nil {
-				names = append(names, n)
-			}
-		}
+		names = listing
 	}
-	best := ""
-	for _, n := range names {
-		if x.match.MatchString(n) && (best == "" || naturalLess(best, n)) {
-			best = n
-		}
-	}
+	best := newest(names, x.match)
 	if best == "" {
-		return nil, fmt.Errorf("no file matching %s at %s", x.Match, x.Dir)
+		return nil, fmt.Errorf("no file matching %s at %s", x.Match, dir)
 	}
-	r := &ResolvedISO{URL: x.Dir + url.PathEscape(best), File: best}
-	return r, x.addSum(ctx, r, sums)
+	r := &ResolvedISO{URL: dir + url.PathEscape(best), File: best}
+	err := x.addSum(ctx, r, sums)
+	if x.Compression != "" {
+		r.Compression, r.File = x.Compression, strings.TrimSuffix(best, "."+x.Compression)
+	}
+	return r, err
 }
 
 func (x *ISO) addSum(ctx context.Context, r *ResolvedISO, sums []sumLine) error {
@@ -189,7 +246,7 @@ func (x *ISO) addSum(ctx context.Context, r *ResolvedISO, sums []sumLine) error 
 		}
 		sums = parseSums(strings.NewReader(string(b)))
 	}
-	if x.Checksums == "" && x.ChecksumSuffix == "" {
+	if x.Checksums == "" && x.ChecksumsMatch == "" && x.ChecksumSuffix == "" {
 		return nil // the vendor publishes none
 	}
 	for _, s := range sums {

@@ -81,3 +81,41 @@ func TestResolveISO(t *testing.T) {
 		t.Fatalf("fixed: %+v %v", r, err)
 	}
 }
+
+func TestResolveISOFolders(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/f/":
+			w.Write([]byte(`<a href="13.5/">13.5/</a> <a href="14.3/">14.3/</a> <a href="14.10/">x</a> <a href="README.TXT">r</a>`))
+		case "/f/14.10/":
+			w.Write([]byte(`<a href="CHECKSUM.SHA256-FreeBSD-14.10-RELEASE-amd64">c</a> <a href="FreeBSD-14.10-RELEASE-amd64-disc1.iso">i</a>`))
+		case "/f/14.10/CHECKSUM.SHA256-FreeBSD-14.10-RELEASE-amd64":
+			w.Write([]byte("SHA256 (FreeBSD-14.10-RELEASE-amd64-disc1.iso) = " + strings.Repeat("f", 64) + "\n"))
+		case "/o/":
+			w.Write([]byte(`<a href="26.1/">x</a> <a href="26.7/">x</a>`))
+		case "/o/26.7/":
+			w.Write([]byte(`<a href="OPNsense-26.7-checksums-amd64.sha256">c</a> <a href="OPNsense-26.7-dvd-amd64.iso.bz2">i</a>`))
+		case "/o/26.7/OPNsense-26.7-checksums-amd64.sha256":
+			w.Write([]byte("SHA256 (OPNsense-26.7-dvd-amd64.iso.bz2) = " + strings.Repeat("0", 64) + "\n"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	old := isoHTTP.Transport
+	isoHTTP.Transport = srv.Client().Transport
+	defer func() { isoHTTP.Transport = old }()
+
+	fb := ISO{Dir: srv.URL + "/f/", Subdir: `^\d+\.\d+$`, Match: `^FreeBSD-\d+\.\d+-RELEASE-amd64-disc1\.iso$`,
+		ChecksumsMatch: `^CHECKSUM\.SHA256-FreeBSD-\d+\.\d+-RELEASE-amd64$`, List: "dir", match: mustRe(`^FreeBSD-\d+\.\d+-RELEASE-amd64-disc1\.iso$`)}
+	r, err := fb.Resolve(context.Background())
+	if err != nil || r.URL != srv.URL+"/f/14.10/FreeBSD-14.10-RELEASE-amd64-disc1.iso" || r.Checksum != strings.Repeat("f", 64) {
+		t.Fatalf("freebsd: %+v %v", r, err)
+	}
+	op := ISO{Dir: srv.URL + "/o/", Subdir: `^\d+\.\d+$`, Match: `^OPNsense-\d+\.\d+-dvd-amd64\.iso\.bz2$`,
+		ChecksumsMatch: `^OPNsense-\d+\.\d+-checksums-amd64\.sha256$`, List: "dir", Compression: "bz2", match: mustRe(`^OPNsense-\d+\.\d+-dvd-amd64\.iso\.bz2$`)}
+	r, err = op.Resolve(context.Background())
+	if err != nil || r.File != "OPNsense-26.7-dvd-amd64.iso" || r.Compression != "bz2" || !strings.HasSuffix(r.URL, "/o/26.7/OPNsense-26.7-dvd-amd64.iso.bz2") || r.Checksum != strings.Repeat("0", 64) {
+		t.Fatalf("opnsense: %+v %v", r, err)
+	}
+}

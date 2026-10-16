@@ -14,6 +14,7 @@ import { LogoMark, appIcon, osIcon } from "@/components/DistroIcon";
 const cats: [string, string][] = [
   ["", "All"],
   ["linux", "Linux"],
+  ["bsd", "BSD & firewalls"],
   ["hypervisor", "Proxmox"],
   ["tools", "Tools"],
 ];
