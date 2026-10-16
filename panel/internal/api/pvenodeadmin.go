@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path"
@@ -455,10 +454,15 @@ func (a *API) handlePVEStorageUpload(w http.ResponseWriter, r *http.Request) {
 		}
 		fields["checksum"], fields["checksum-algorithm"] = c, alg
 	}
+	// Proxmox needs the length up front, so the browser must send one.
+	if r.ContentLength < 0 || r.ContentLength > 64<<30 {
+		writeErr(w, http.StatusLengthRequired, "the upload needs a Content-Length of at most 64 GiB")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Hour)
 	defer cancel()
 	target := fmt.Sprintf("%s/%s:%s/%s", s.C.Name, r.PathValue("storage"), content, name)
-	upid, err := s.Cl.Upload(ctx, sp+"/upload", fields, name, io.LimitReader(r.Body, 64<<30))
+	upid, err := s.Cl.Upload(ctx, sp+"/upload", fields, name, r.Body, r.ContentLength)
 	if err != nil {
 		a.audit(r, "", "proxmox.upload", target, map[string]string{"error": err.Error()}, false)
 		writeErr(w, http.StatusBadGateway, err.Error())

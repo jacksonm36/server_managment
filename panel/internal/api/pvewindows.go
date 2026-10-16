@@ -421,7 +421,7 @@ func (a *API) winBuild(ctx context.Context, cl *proxmox.Client, ed *winEdition, 
 	file := fmt.Sprintf("servermgr-answer-%s-%d.iso", name, time.Now().Unix())
 	answer := req.answerTarget + ":iso/" + file
 	logf("uploading the answer CD (%d KB) to %s", len(iso)>>10, req.answerTarget)
-	upid, err := cl.Upload(ctx, nodePath+"/storage/"+url.PathEscape(req.answerTarget)+"/upload", map[string]string{"content": "iso"}, file, bytes.NewReader(iso))
+	upid, err := cl.Upload(ctx, nodePath+"/storage/"+url.PathEscape(req.answerTarget)+"/upload", map[string]string{"content": "iso"}, file, bytes.NewReader(iso), int64(len(iso)))
 	if err != nil {
 		return 0, fmt.Errorf("upload: %w", err)
 	}
@@ -661,7 +661,7 @@ func (a *API) handlePVEWindowsPrep(w http.ResponseWriter, r *http.Request) {
 			_ = s.Cl.WaitTask(ctx, node, upid)
 		}
 	}
-	upid, err := s.Cl.Upload(ctx, np+"/upload", map[string]string{"content": "iso"}, file, bytes.NewReader(iso))
+	upid, err := s.Cl.Upload(ctx, np+"/upload", map[string]string{"content": "iso"}, file, bytes.NewReader(iso), int64(len(iso)))
 	if err == nil {
 		err = s.Cl.WaitTask(ctx, node, upid)
 	}

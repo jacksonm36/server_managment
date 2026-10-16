@@ -4,6 +4,7 @@
 package proxmox
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -419,40 +420,41 @@ func (c *Client) OpenNodeShell(ctx context.Context, node, cmd string) (*ConsoleP
 	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, User: res.User, Base: base}, nil
 }
 
-// Upload streams a file to path (a storage's /upload) as multipart form
-// data, without holding it in memory, and returns the task's UPID.
-func (c *Client) Upload(ctx context.Context, path string, fields map[string]string, filename string, file io.Reader) (string, error) {
-	pr, pw := io.Pipe()
-	mw := multipart.NewWriter(pw)
-	go func() {
-		var err error
-		defer func() { pw.CloseWithError(err) }()
-		for k, v := range fields {
-			if err = mw.WriteField(k, v); err != nil {
-				return
-			}
+// Upload streams a file of size bytes to path (a storage's /upload) as
+// multipart form data, without holding it in memory, and returns the
+// task's UPID. Proxmox's API server refuses chunked request bodies, so the
+// form is sent with its exact length.
+func (c *Client) Upload(ctx context.Context, path string, fields map[string]string, filename string, file io.Reader, size int64) (string, error) {
+	if size < 0 {
+		return "", errors.New("upload: the file size must be known")
+	}
+	var form bytes.Buffer
+	mw := multipart.NewWriter(&form)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			return "", err
 		}
-		var part io.Writer
-		if part, err = mw.CreateFormFile("filename", filename); err != nil {
-			return
-		}
-		if _, err = io.Copy(part, file); err != nil {
-			return
-		}
-		err = mw.Close()
-	}()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api2/json"+path, pr)
-	if err != nil {
-		pr.Close()
+	}
+	if _, err := mw.CreateFormFile("filename", filename); err != nil {
 		return "", err
 	}
+	headLen := form.Len()
+	if err := mw.Close(); err != nil {
+		return "", err
+	}
+	head, tail := form.Bytes()[:headLen], form.Bytes()[headLen:]
+	body := io.MultiReader(bytes.NewReader(head), &exactReader{r: file, n: size}, bytes.NewReader(tail))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api2/json"+path, body)
+	if err != nil {
+		return "", err
+	}
+	req.ContentLength = int64(len(head)) + size + int64(len(tail))
 	req.Header.Set("Authorization", "PVEAPIToken="+c.TokenID+"="+c.Secret)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	hc := *c.http
 	hc.Timeout = 0 // the context bounds an upload, which can take a while
 	resp, err := hc.Do(req)
 	if err != nil {
-		pr.Close()
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -523,4 +525,29 @@ func (c *Client) Forwarder() http.Handler {
 			pr.Out.Header.Del("CSRFPreventionToken")
 		},
 	}
+}
+
+// exactReader yields exactly n bytes of r, failing if r ends early, so a
+// short file cannot leave the declared Content-Length unmet.
+type exactReader struct {
+	r io.Reader
+	n int64
+}
+
+func (e *exactReader) Read(p []byte) (int, error) {
+	if e.n <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > e.n {
+		p = p[:e.n]
+	}
+	n, err := e.r.Read(p)
+	e.n -= int64(n)
+	if err == io.EOF && e.n > 0 {
+		return n, io.ErrUnexpectedEOF
+	}
+	if e.n == 0 {
+		return n, io.EOF
+	}
+	return n, err
 }

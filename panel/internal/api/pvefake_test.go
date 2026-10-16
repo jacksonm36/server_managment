@@ -169,6 +169,11 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	user := tok.user
 	if strings.HasSuffix(r.URL.Path, "/upload") {
+		// pveproxy refuses chunked bodies.
+		if r.ContentLength < 0 || len(r.TransferEncoding) > 0 {
+			f.reply(w, 501, nil, "chunked transfer encoding not supported")
+			return
+		}
 		_ = r.ParseMultipartForm(32 << 20)
 	}
 	_ = r.ParseForm()

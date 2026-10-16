@@ -207,7 +207,9 @@ class H(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length") or 0)
         ctype = self.headers.get("Content-Type", "")
         if ctype.startswith("multipart/form-data"):
-            body = self.rfile.read(n) if n else self.read_chunked()
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                return self.send(501, err="chunked transfer encoding not supported")  # like pveproxy
+            body = self.rfile.read(n)
             form = multipart_fields(body, ctype)
         else:
             form = {k: v[0] for k, v in urllib.parse.parse_qs(self.rfile.read(n).decode() if n else "").items()}
