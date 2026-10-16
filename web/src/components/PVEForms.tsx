@@ -101,9 +101,9 @@ export function useChoices(cluster: string, node: string, reload = 0) {
   return { c, err };
 }
 
-const storagesFor = (c: PVEChoices | null, content: string) => (c?.storages ?? []).filter((s) => s.content.split(",").includes(content));
+export const storagesFor = (c: PVEChoices | null, content: string) => (c?.storages ?? []).filter((s) => s.content.split(",").includes(content));
 
-function StorageSelect({ c, content, value, onChange }: { c: PVEChoices | null; content: string; value: string; onChange: (v: string) => void }) {
+export function StorageSelect({ c, content, value, onChange }: { c: PVEChoices | null; content: string; value: string; onChange: (v: string) => void }) {
   const list = storagesFor(c, content);
   return (
     <Select value={value} onChange={(e) => onChange(e.target.value)} required>
@@ -146,6 +146,21 @@ export type GuestPreset = {
 // published by the Fedora project; Windows Setup needs them to see a
 // VirtIO disk.
 export const VIRTIO_WIN_URL = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso";
+
+// downloadVirtio has the node download virtio-win.iso into storage and
+// waits for Proxmox to finish.
+export async function downloadVirtio(cluster: string, node: string, storage: string) {
+  const r = await api.pveDownloadURL(cluster, node, storage, { url: VIRTIO_WIN_URL, content: "iso" });
+  for (let i = 0; i < 300; i++) {
+    await new Promise((res) => setTimeout(res, 3000));
+    const t = await api.pveNodeTask(cluster, node, r.upid);
+    if (t.status === "stopped") {
+      if (t.exitstatus !== "OK") throw new Error(`Download failed: ${t.exitstatus}`);
+      return;
+    }
+  }
+  throw new Error("The download is still running; reload in a while.");
+}
 
 export function CreateGuestDialog({
   cluster,
@@ -210,19 +225,12 @@ export function CreateGuestDialog({
   const fetchDrivers = async () => {
     setDl("Downloading virtio-win.iso…");
     try {
-      const r = await api.pveDownloadURL(cluster, node, isoStorage, { url: VIRTIO_WIN_URL, content: "iso" });
-      for (let i = 0; i < 300; i++) {
-        await new Promise((res) => setTimeout(res, 3000));
-        const t = await api.pveNodeTask(cluster, node, r.upid);
-        if (t.status === "stopped") {
-          setDl(t.exitstatus === "OK" ? "" : `Download failed: ${t.exitstatus}`);
-          setReload((n) => n + 1);
-          return;
-        }
-      }
+      await downloadVirtio(cluster, node, isoStorage);
+      setDl("");
     } catch (e) {
       setDl(errText(e));
     }
+    setReload((n) => n + 1);
   };
   const diskContent = qemu ? "images" : "rootdir";
   const nodeList = useMemo(() => (nodes.length ? nodes : [node]), [nodes, node]);

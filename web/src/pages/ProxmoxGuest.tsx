@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Camera, Copy, ExternalLink, LayoutTemplate, Loader2, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square, Trash2 } from "lucide-react";
+import { AppWindow, ArrowLeft, Camera, Copy, ExternalLink, LayoutTemplate, Loader2, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square, Trash2 } from "lucide-react";
 import { api, type PVEGuestDetail, type PVEGuestRef, type PVERRDPoint, type PVETask, type PVETimeframe } from "@/lib/api";
 import { useAccess } from "@/lib/access";
 import { setPending, usePending } from "@/lib/pending";
@@ -18,6 +18,7 @@ import { DeleteDialog, SnapshotsDialog } from "@/pages/Proxmox";
 import { BackupsTab, CloudInitTab, FirewallTab } from "@/pages/ProxmoxGuestTabs";
 import { GuestMoveDialog, HardwareTab } from "@/pages/ProxmoxGuestHardware";
 import { ConfigTab } from "@/pages/ProxmoxGuestConfig";
+import { WindowsTemplateDialog } from "@/components/WindowsTemplates";
 
 type Tab = "overview" | "hardware" | "config" | "backups" | "cloudinit" | "firewall" | "tasks";
 
@@ -80,6 +81,7 @@ export function ProxmoxGuest({
   const [console_, setConsole] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
   const [move, setMove] = useState<"clone" | "migrate" | null>(null);
+  const [winTpl, setWinTpl] = useState(false);
 
   const load = useCallback(
     () =>
@@ -303,6 +305,11 @@ export function ProxmoxGuest({
                 }}
               >
                 <LayoutTemplate /> Make template
+              </Button>
+            )}
+            {ac.can("proxmox.manage") && g.type === "qemu" && String(g.config.ostype ?? "").startsWith("w") && !g.config.template && (
+              <Button size="sm" variant="ghost" onClick={() => setWinTpl(true)}>
+                <AppWindow /> Windows template
               </Button>
             )}
             {ac.can("proxmox.guests") && st.status === "stopped" && (
@@ -554,6 +561,20 @@ export function ProxmoxGuest({
         </>
       )}
 
+      {winTpl && (
+        <WindowsTemplateDialog
+          cluster={cluster}
+          node={node}
+          vmid={g.vmid}
+          name={name}
+          stopped={st.status === "stopped"}
+          onClose={() => setWinTpl(false)}
+          onDone={() => {
+            setMsg({ ok: true, text: "Made a Windows cloud-init template; deploy it from the Deploy page." });
+            void load();
+          }}
+        />
+      )}
       {snaps && <SnapshotsDialog cluster={{ id: cluster, name: "" }} guest={{ ...ref, name }} ac={ac} onClose={() => setSnaps(false)} />}
       {move && (
         <GuestMoveDialog

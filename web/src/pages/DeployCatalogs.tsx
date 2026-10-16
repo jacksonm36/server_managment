@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Box, Download, ExternalLink, Loader2, Plus, Search } from "lucide-react";
+import { Box, Copy as CloneIcon, Download, ExternalLink, Hammer, Loader2, Lock, LockOpen, Plus, Search } from "lucide-react";
 import { api, type PVEResources } from "@/lib/api";
 import { useAccess } from "@/lib/access";
 import { pve, type PVEAppliance } from "@/lib/pveapi";
@@ -10,24 +10,57 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CreateGuestDialog, useChoices, type GuestPreset } from "@/components/PVEForms";
 import { DistroIcon, iconKey } from "@/components/DistroIcon";
+import { WindowsBuildDialog, type WinEditionCard } from "@/components/WindowsTemplates";
 
 // The Deploy page's Windows and container catalogs. Windows has no
-// downloadable cloud image, so a Windows "template" is a VM set up the way
-// each edition wants it (UEFI, TPM 2.0, VirtIO with the driver ISO), booting
-// the user's own installer ISO. Containers come from Proxmox's template
-// catalog: plain OS templates and TurnKey Linux appliances.
+// downloadable cloud image: servermgr builds cloud-init templates (Standard
+// and Hardened) from the admin's installer ISO, or sets up a VM the way each
+// edition wants it (UEFI, TPM 2.0, VirtIO with the driver ISO) for a manual
+// install. Containers come from Proxmox's template catalog: plain OS
+// templates and TurnKey Linux appliances.
 
 const EVAL_CENTER = "https://www.microsoft.com/en-us/evalcenter";
 
-const editions: { id: string; name: string; sub: string; preset: GuestPreset }[] = [
-  { id: "win11", name: "Windows 11", sub: "Desktop · UEFI, Secure Boot, TPM 2.0", preset: { ostype: "win11", iso: /win(dows)?[ _-]?11|win11/i, memory: "4096", size: "64" } },
-  { id: "win10", name: "Windows 10", sub: "Desktop · UEFI, TPM 2.0", preset: { ostype: "win10", iso: /win(dows)?[ _-]?10|win10/i, memory: "4096", size: "64" } },
-  { id: "ws2025", name: "Windows Server 2025", sub: "Server · UEFI, Secure Boot, TPM 2.0", preset: { ostype: "win11", iso: /2025/, memory: "4096", size: "64" } },
-  { id: "ws2022", name: "Windows Server 2022", sub: "Server · UEFI, Secure Boot, TPM 2.0", preset: { ostype: "win11", iso: /2022/, memory: "4096", size: "64" } },
-  { id: "ws2019", name: "Windows Server 2019", sub: "Server · UEFI", preset: { ostype: "win10", iso: /2019/, memory: "4096", size: "48" } },
-];
+const editions: { id: string; name: string; sub: string; preset: GuestPreset; build: WinEditionCard }[] = [
+  ["win11", "Windows 11", "Desktop · UEFI, Secure Boot, TPM 2.0", "win11", /win(dows)?[ _-]?11|win11/i, 64, 1, true],
+  ["win10", "Windows 10", "Desktop · UEFI, TPM 2.0", "win10", /win(dows)?[ _-]?10|win10/i, 64, 1, true],
+  ["ws2025", "Windows Server 2025", "Server · UEFI, Secure Boot, TPM 2.0", "win11", /2025/, 64, 2, false],
+  ["ws2022", "Windows Server 2022", "Server · UEFI, Secure Boot, TPM 2.0", "win11", /2022/, 64, 2, false],
+  ["ws2019", "Windows Server 2019", "Server · UEFI", "win10", /2019/, 48, 2, false],
+].map(([id, name, sub, ostype, iso, disk, index, client]) => ({
+  id: id as string,
+  name: name as string,
+  sub: sub as string,
+  preset: { ostype: ostype as string, iso: iso as RegExp, memory: "4096", size: String(disk) },
+  build: { id: id as string, name: name as string, iso: iso as RegExp, disk: disk as number, index: index as number, client: client as boolean },
+}));
 
-export function WindowsCatalog({ cluster, res }: { cluster: string; res: PVEResources | null }) {
+export function WindowsCatalog({
+  cluster,
+  res,
+  onStarted,
+  onDeploy,
+}: {
+  cluster: string;
+  res: PVEResources | null;
+  onStarted: () => void;
+  onDeploy: (vmid: number) => void;
+}) {
+  const ac = useAccess();
+  const admin = ac.can("proxmox.manage") && !res?.tenant;
+  const [build, setBuild] = useState<WinEditionCard | null>(null);
+  // Templates servermgr built, by edition and profile.
+  const built = useMemo(() => {
+    const m: Record<string, { vmid: number; name: string; profile: string }[]> = {};
+    for (const g of res?.guests ?? []) {
+      const tags = (g.tags ?? "").split(/[;, ]/);
+      if (!g.template || !tags.includes("windows")) continue;
+      const ed = tags.find((t) => editions.some((e) => e.id === t)) ?? "other";
+      const profile = tags.find((t) => t.startsWith("win-"))?.slice(4) ?? "";
+      (m[ed] ??= []).push({ vmid: g.vmid, name: g.name, profile });
+    }
+    return m;
+  }, [res]);
   const nodes = useMemo(() => (res?.nodes ?? []).filter((n) => n.status === "online").map((n) => n.node), [res]);
   const [node, setNode] = useState("");
   useEffect(() => setNode((x) => x || nodes[0] || ""), [nodes]);
@@ -45,7 +78,8 @@ export function WindowsCatalog({ cluster, res }: { cluster: string; res: PVEReso
             <a href={EVAL_CENTER} target="_blank" rel="noreferrer" className="text-brand hover:underline">
               Microsoft's Evaluation Center <ExternalLink className="inline size-3" />
             </a>
-            . The VM gets the drivers ISO too; install in the console.
+            . <b>Build templates</b> installs Windows unattended and makes a Standard and a Hardened cloud-init template; new VMs from them get their
+            Administrator password, hostname and IP from cloud-init. <b>Set up VM</b> is for installing by hand.
           </p>
           <p className="text-xs text-muted-foreground">
             Drivers on {node || "this node"}: {drivers ? <span className="font-mono">{base(drivers)}</span> : "not downloaded yet (the setup dialog can fetch it)"}
@@ -74,6 +108,7 @@ export function WindowsCatalog({ cluster, res }: { cluster: string; res: PVEReso
               <div className="flex flex-wrap gap-1">
                 <Badge variant="outline">{e.preset.ostype}</Badge>
                 <Badge variant="outline">VirtIO</Badge>
+                <Badge variant="outline">cloud-init</Badge>
                 {iso ? (
                   <Badge variant="success" title={base(iso)}>
                     ISO found
@@ -82,9 +117,34 @@ export function WindowsCatalog({ cluster, res }: { cluster: string; res: PVEReso
                   <Badge variant="outline">no ISO yet</Badge>
                 )}
               </div>
-              <Button size="sm" variant="brand" className="mt-auto" onClick={() => setOpen(e)} disabled={!node}>
-                <Plus /> Set up VM
-              </Button>
+              {(built[e.id] ?? []).length > 0 && (
+                <ul className="grid gap-1 text-sm">
+                  {built[e.id].map((t) => (
+                    <li key={t.vmid} className="flex items-center justify-between gap-2 rounded-md border px-2 py-1">
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        {t.profile === "hardened" ? <Lock className="size-3.5 text-brand" /> : <LockOpen className="size-3.5 text-muted-foreground" />}
+                        <span className="truncate">{t.name}</span>
+                        <span className="font-mono text-xs text-muted-foreground">{t.vmid}</span>
+                      </span>
+                      {ac.can("proxmox.guests") && (
+                        <Button size="sm" variant="ghost" className="h-7" onClick={() => onDeploy(t.vmid)}>
+                          <CloneIcon /> New VM
+                        </Button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-auto flex flex-wrap gap-2">
+                {admin && (
+                  <Button size="sm" variant="brand" onClick={() => setBuild(e.build)} disabled={!node}>
+                    <Hammer /> Build templates
+                  </Button>
+                )}
+                <Button size="sm" variant={admin ? "secondary" : "brand"} onClick={() => setOpen(e)} disabled={!node}>
+                  <Plus /> Set up VM
+                </Button>
+              </div>
             </Card>
           );
         })}
@@ -103,6 +163,19 @@ export function WindowsCatalog({ cluster, res }: { cluster: string; res: PVEReso
             description: "UEFI with Secure Boot keys, TPM 2.0, VirtIO disk and network. Attach the installer and drivers ISOs, then install in the console.",
           }}
           onClose={() => setOpen(null)}
+        />
+      )}
+      {build && (
+        <WindowsBuildDialog
+          cluster={cluster}
+          edition={build}
+          nodes={nodes}
+          node={node}
+          onClose={() => setBuild(null)}
+          onStarted={() => {
+            setBuild(null);
+            onStarted();
+          }}
         />
       )}
     </div>

@@ -36,6 +36,26 @@ export type PVEAppliance = {
 };
 export type PVETaskRow = { upid: string; type: string; user: string; status?: string; starttime: number; endtime?: number; id?: string; node?: string };
 export type PVEVolumeRow = { volid: string; format?: string; size: number; ctime?: number; content: string; vmid?: number | string; notes?: string };
+export type WinEdition = { id: string; name: string; ostype: string; virtio: string; index: number; client: boolean };
+export type WinProfile = "standard" | "hardened";
+export type WinBuildReq = {
+  edition: string;
+  node: string;
+  iso: string;
+  drivers_iso: string;
+  disk_storage: string;
+  bridge: string;
+  cores: number;
+  memory_mb: number;
+  disk_gb: number;
+  image_index: number;
+  product_key: string;
+  locale: string;
+  keyboard: string;
+  timezone: string;
+  profiles: WinProfile[];
+  name_prefix: string;
+};
 export type Params = Record<string, string | number | boolean>;
 export type Row = Record<string, unknown>;
 
@@ -51,6 +71,13 @@ export const pve = {
   appliances: (id: string, node: string) => request<PVEAppliance[]>("GET", `${np(id, node)}/appliances`),
   applianceDownload: (id: string, node: string, storage: string, template: string) =>
     request<PVERun>("POST", `${np(id, node)}/appliances`, { storage, template }),
+
+  // Windows templates (Cloudbase-Init)
+  windowsBuild: (id: string, req: WinBuildReq) => request<{ id: string; name: string }[]>("POST", `/api/v1/proxmox/${id}/windows-templates`, req),
+  windowsPrep: (id: string, node: string, vmid: number, storage: string) =>
+    request<{ volid: string; slot: string; pending: boolean }>("POST", `/api/v1/proxmox/${id}/guests/${enc(node)}/qemu/${vmid}/windows-prep`, { storage }),
+  windowsTemplate: (id: string, node: string, vmid: number, confirm: string, profile: WinProfile | "") =>
+    request<{ log: string[] }>("POST", `/api/v1/proxmox/${id}/guests/${enc(node)}/qemu/${vmid}/windows-template`, { confirm, profile }),
 
   // nodes
   nodeView: <T = unknown>(id: string, node: string, what: string, query = "") => request<T>("GET", `${np(id, node)}/view/${what}${query}`),

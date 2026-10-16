@@ -86,7 +86,7 @@ export function Deploy() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Deploy</h1>
           <p className="text-sm text-muted-foreground">
-            Linux VMs from cloud images with cloud-init, Windows VMs ready for your installer, and containers from OS templates or TurnKey appliances.
+            Linux VMs from cloud images with cloud-init, Windows cloud-init templates (Standard or Hardened), and containers from OS templates or TurnKey appliances.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -136,7 +136,7 @@ export function Deploy() {
           </nav>
 
           {tab === "catalog" && admin && <Catalog res={res} onDeploy={(id) => setDeploying(id)} />}
-          {tab === "windows" && <WindowsCatalog cluster={cluster.id} res={res} />}
+          {tab === "windows" && <WindowsCatalog cluster={cluster.id} res={res} onStarted={() => started()} onDeploy={setNewVM} />}
           {tab === "containers" && <ContainerCatalog cluster={cluster.id} res={res} />}
           {tab === "templates" && (
             <Card className="p-4">

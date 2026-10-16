@@ -48,7 +48,16 @@ IMPORTS = {}  # volid -> download-url form
 STORAGE_INFO = {"local": ("dir", "iso,vztmpl,backup,import"), "local-lvm": ("lvmthin", "images,rootdir")}
 STORAGE_CFG = {"local": {"type": "dir", "path": "/var/lib/vz", "content": "iso,vztmpl,backup,import"},
                "local-lvm": {"type": "lvmthin", "vgname": "pve", "thinpool": "data", "content": "images,rootdir"}}
-ISOS = {"debian-13.1.0-amd64-netinst.iso", "ubuntu-24.04.3-live-server-amd64.iso"}
+ISOS = {"debian-13.1.0-amd64-netinst.iso", "ubuntu-24.04.3-live-server-amd64.iso", "SERVER_EVAL_x64FRE_en-us_2022.iso"}
+
+# What a Windows template build's prepare script logs, one line every few
+# seconds after the VM starts; Sysprep then shuts the VM down.
+WINLOG = ["servermgr prepare: Microsoft Windows Server 2022 Standard Evaluation 10.0.20348, profile {profile}",
+          "installing VirtIO drivers and the QEMU guest agent from E:\\", "VirtIO guest tools: exit code 0", "tuning Windows for a Proxmox VM",
+          "enabling Remote Desktop with Network Level Authentication", "hardening: firewall", "hardening: TLS (1.2 and 1.3 only, no RC4 or 3DES)",
+          "downloading Cloudbase-Init from https://cloudbase.it/downloads/CloudbaseInitSetup_Stable_x64.msi",
+          "signature OK: CN=Cloudbase Solutions SRL", "configuring Cloudbase-Init for Proxmox (config drive)",
+          "cleaning up the component store (this can take a while)", "SERVERMGR-SYSPREP running Sysprep; the VM shuts down when it is done"]
 DISKS = {n: [{"devpath": "/dev/nvme0n1", "model": "Samsung SSD 990 PRO 1TB", "serial": f"S7KX{i}0001", "size": 1000 << 30, "type": "nvme", "health": "PASSED", "wearout": 97, "used": "LVM", "gpt": 1, "rpm": 0},
              {"devpath": "/dev/sda", "model": "WDC WD40EFRX", "serial": f"WD-{i}A1", "size": 4000 << 30, "type": "hdd", "health": "PASSED", "wearout": "N/A", "used": "", "gpt": 0, "rpm": 5400},
              {"devpath": "/dev/sdb", "model": "WDC WD40EFRX", "serial": f"WD-{i}A2", "size": 4000 << 30, "type": "hdd", "health": "PASSED", "wearout": "N/A", "used": "partitions", "gpt": 1, "rpm": 5400},
@@ -506,6 +515,19 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, task(node, "qmtemplate", vmid, lambda: g.__setitem__("template", 1)))
         if rest == "/resize" and method == "PUT":
             return self.send(200, None)
+        if rest == "/sendkey" and method == "PUT":
+            return self.send(200, None)
+        if rest == "/agent/file-read" and method == "GET":
+            if g["status"] != "running" or "servermgr-answer" not in (g["config"].get("ide3") or ""):
+                return self.send(500, err="QEMU guest agent is not running")
+            n = int((now() - g["started"]) / 3) - 3  # Windows Setup first
+            if n <= 0:
+                return self.send(500, err="QEMU guest agent is not running")
+            profile = "Hardened" if "hardened" in (g["config"].get("tags") or "") else "Standard"
+            lines = [time.strftime("%H:%M:%S ") + x.format(profile=profile) for x in WINLOG[:n]]
+            if n >= len(WINLOG):
+                g["status"] = "stopped"
+            return self.send(200, {"content": "\ufeff" + "\r\n".join(lines) + "\r\n", "truncated": False})
         if rest == "/agent/network-get-interfaces" and method == "GET":
             if g["status"] != "running" or not args.guest_ip or str(g["config"].get("agent", "")).split(",")[0] not in ("1", "enabled=1"):
                 return self.send(500, err="QEMU guest agent is not running")

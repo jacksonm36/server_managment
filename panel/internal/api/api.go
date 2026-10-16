@@ -59,6 +59,7 @@ type API struct {
 	// pveReserved holds the quota of tenant VMs being created, which do
 	// not show up in their pool yet.
 	pveMu       sync.Mutex
+	pveCreateMu sync.Mutex // nextid + create, so parallel builds get distinct VMIDs
 	pveReserved map[int64]tenantUsage
 	// pveConsoles are console sessions waiting for their WebSocket.
 	pveConsoles map[string]*pveConsole
@@ -164,6 +165,11 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/zfs/{pool}/destroy", need("proxmox.manage", a.handlePVEZFSDestroy))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/template-targets", need("proxmox.manage", a.handlePVETemplateTargets))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/templates", need("proxmox.manage", a.handlePVETemplateCreate))
+	authed.HandleFunc("GET /api/v1/windows/editions", need("proxmox.view", a.handleWindowsEditions))
+	authed.HandleFunc("GET /api/v1/windows/prepare.ps1", need("proxmox.manage", a.handleWindowsScript))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/windows-templates", need("proxmox.manage", a.handlePVEWindowsBuild))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows-prep", need("proxmox.manage", a.handlePVEWindowsPrep))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows-template", need("proxmox.manage", a.handlePVEWindowsTemplate))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/provision", need("proxmox.guests", a.handlePVEProvision))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/power", need("proxmox.operate", a.handlePVEPower))
 	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.guests", a.handlePVEDeleteGuest))

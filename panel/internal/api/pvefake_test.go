@@ -44,6 +44,8 @@ type fakePVE struct {
 	// storageCfg is extra storage added through POST /storage.
 	storageCfg map[string]url.Values
 	wiped      []string
+	uploads    map[string][]byte // volid -> uploaded file
+	sendkeys   int
 	zfs        map[string]url.Values // pool -> create request
 }
 
@@ -90,6 +92,7 @@ func newFakePVE(t *testing.T) *fakePVE {
 		consoles: map[string]fakeConsole{},
 		backups:  map[string]int{},
 		imports:  map[string]url.Values{},
+		uploads:  map[string][]byte{},
 		firewall: map[int][]map[string]string{},
 		storage:  []string{"local", "local-lvm", "ceph", "nas"},
 		bridges:  []string{"vmbr0", "vmbr1"},
@@ -165,6 +168,9 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user := tok.user
+	if strings.HasSuffix(r.URL.Path, "/upload") {
+		_ = r.ParseMultipartForm(32 << 20)
+	}
 	_ = r.ParseForm()
 	p := strings.TrimPrefix(r.URL.Path, "/api2/json")
 	if user != "root@pam" {
@@ -339,6 +345,14 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			if strings.Contains(fakeStorageInfo[parts[3]][1], "iso") {
 				out = append(out, map[string]any{"volid": parts[3] + ":iso/debian-13.iso"})
 			}
+			if parts[3] == "local" {
+				out = append(out, map[string]any{"volid": "local:iso/win-server-2022.iso"}, map[string]any{"volid": "local:iso/virtio-win.iso"})
+			}
+			for volid := range f.uploads {
+				if strings.HasPrefix(volid, parts[3]+":") {
+					out = append(out, map[string]any{"volid": volid})
+				}
+			}
 			f.reply(w, 200, out, "")
 			return
 		}
@@ -359,6 +373,11 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 		f.reply(w, 200, out, "")
 	case len(parts) >= 6 && parts[0] == "nodes" && parts[2] == "storage" && parts[4] == "content" && r.Method == "DELETE":
 		volid := strings.Join(parts[5:], "/")
+		if _, ok := f.uploads[volid]; ok && root {
+			delete(f.uploads, volid)
+			f.reply(w, 200, nil, "")
+			return
+		}
 		if _, ok := f.imports[volid]; ok && root {
 			delete(f.imports, volid)
 			f.reply(w, 200, nil, "")
@@ -397,11 +416,21 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.imports[parts[3]+":"+r.Form.Get("content")+"/"+r.Form.Get("filename")] = r.Form
 		f.reply(w, 200, fmt.Sprintf("UPID:%s:0:0:0:download:0:%s:", parts[1], user), "")
+	case len(parts) == 5 && parts[0] == "nodes" && parts[2] == "storage" && parts[4] == "upload" && r.Method == "POST":
+		file, hdr, err := r.FormFile("filename")
+		if !root || err != nil || r.FormValue("content") != "iso" {
+			f.reply(w, 400, nil, "bad upload")
+			return
+		}
+		data := make([]byte, hdr.Size)
+		_, _ = file.Read(data)
+		f.uploads[parts[3]+":iso/"+hdr.Filename] = data
+		f.reply(w, 200, fmt.Sprintf("UPID:%s:0:0:0:imgcopy:0:%s:", parts[1], user), "")
 	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "qemu" && r.Method == "POST" && r.Form.Get("force") == "":
 		vmid, _ := strconv.Atoi(r.Form.Get("vmid"))
-		_, from, _ := strings.Cut(r.Form.Get("scsi0"), "import-from=")
+		_, from, hasImport := strings.Cut(r.Form.Get("scsi0"), "import-from=")
 		from, _, _ = strings.Cut(from, ",")
-		if !root || f.guests[vmid] != nil || f.imports[from] == nil {
+		if !root || f.guests[vmid] != nil || (hasImport && f.imports[from] == nil) {
 			f.reply(w, 500, nil, "cannot create VM "+strconv.Itoa(vmid))
 			return
 		}
@@ -495,16 +524,37 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		ng := &fakeGuest{typ: g.typ, node: g.node, name: r.Form.Get("name") + r.Form.Get("hostname"), pool: pool, status: "stopped", cores: g.cores, memMB: g.memMB, diskGB: g.diskGB, config: map[string]string{}}
 		f.guests[newid] = ng
 		f.reply(w, 200, upid, "")
+	case sub == "config" && r.Method == "GET" && f.canGuest(user, vmid, false) && g.template == 1:
+		// VM.Audit, which PVETemplateUser holds on a template.
+		f.reply(w, 200, map[string]string{"name": g.name, "ostype": g.config["ostype"]}, "")
 	case !f.canGuest(user, vmid, true):
 		deny()
 	case strings.HasPrefix(sub, "status/") && r.Method == "POST":
 		switch rest[1] {
 		case "start", "resume", "reboot":
 			g.status = "running"
+			if strings.Contains(g.config["ide3"], "servermgr-answer") && g.config["_winlog"] == "" {
+				g.config["_winlog"] = "11:00:01 servermgr prepare: Microsoft Windows Server 2022, profile Hardened\r\n11:20:00 SERVERMGR-SYSPREP running Sysprep\r\n"
+			}
 		default:
 			g.status = "stopped"
 		}
 		f.reply(w, 200, upid, "")
+	case sub == "sendkey" && r.Method == "PUT":
+		f.sendkeys++
+		f.reply(w, 200, nil, "")
+	case sub == "agent/file-read" && r.Method == "GET":
+		// A Windows build: the prepare script has run and Sysprep shuts
+		// the VM down once its last line was read.
+		log := g.config["_winlog"]
+		if g.status != "running" || log == "" {
+			f.reply(w, 500, nil, "QEMU guest agent is not running")
+			return
+		}
+		if strings.Contains(log, "SERVERMGR-SYSPREP") {
+			g.status = "stopped"
+		}
+		f.reply(w, 200, map[string]any{"content": "\ufeff" + log}, "")
 	case sub == "status/current" && r.Method == "GET":
 		f.reply(w, 200, map[string]any{"status": g.status, "vmid": vmid, "name": g.name, "cpus": g.cores, "maxmem": g.memMB << 20}, "")
 	case sub == "rrddata" && r.Method == "GET":

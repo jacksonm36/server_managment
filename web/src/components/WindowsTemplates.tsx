@@ -1,0 +1,413 @@
+import { useEffect, useMemo, useState } from "react";
+import { Check as CheckIcon, Copy, Download, Loader2, Lock, LockOpen } from "lucide-react";
+import { pve, type WinProfile } from "@/lib/pveapi";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { Field, FormDialog, StorageSelect, downloadVirtio, storagesFor, useChoices } from "@/components/PVEForms";
+
+// Windows cloud-init templates. A build installs Windows unattended from
+// the admin's ISO and runs servermgr's prepare script, which tunes Windows
+// for Proxmox, applies a profile, installs Cloudbase-Init and runs Sysprep;
+// servermgr then makes the VM a template. An existing Windows VM can run
+// the same script from a CD and be made a template afterwards.
+
+export const winProfiles: { id: WinProfile; name: string; icon: typeof Lock; about: string }[] = [
+  {
+    id: "standard",
+    name: "Standard",
+    icon: LockOpen,
+    about: "Windows defaults with Proxmox tuning, Remote Desktop (NLA) and ping allowed.",
+  },
+  {
+    id: "hardened",
+    name: "Hardened",
+    icon: Lock,
+    about:
+      "Locked down: inbound firewall closed except Remote Desktop (NLA, TLS only), TLS 1.2+, SMB signing, NTLMv2 only, LSA protection, auditing, account lockout, Defender attack-surface rules, automatic updates, unused services off.",
+  },
+];
+
+export const winTuning =
+  "Both get the VirtIO drivers and guest agent, the High performance power plan, TRIM, no hibernation or device encryption, and Cloudbase-Init for the Administrator password, hostname and network.";
+
+export type WinEditionCard = { id: string; name: string; iso: RegExp; index: number; client: boolean; disk: number };
+
+export function WindowsBuildDialog({
+  cluster,
+  edition,
+  nodes,
+  node: node0,
+  onClose,
+  onStarted,
+}: {
+  cluster: string;
+  edition: WinEditionCard;
+  nodes: string[];
+  node: string;
+  onClose: () => void;
+  onStarted: () => void;
+}) {
+  const [node, setNode] = useState(node0);
+  const [reload, setReload] = useState(0);
+  const { c, err } = useChoices(cluster, node, reload);
+  const [dl, setDl] = useState("");
+  const base = (i: string) => i.split("/").pop() ?? i;
+  const [f, setF] = useState({
+    iso: "",
+    drivers: "",
+    storage: "",
+    bridge: "",
+    prefix: edition.id,
+    cores: 2,
+    memory: 4096,
+    disk: edition.disk,
+    index: edition.index,
+    key: "",
+    locale: "en-US",
+    keyboard: "en-US",
+    timezone: "UTC",
+  });
+  const [profiles, setProfiles] = useState<WinProfile[]>(["standard", "hardened"]);
+  const up = <K extends keyof typeof f>(k: K) => (v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
+  useEffect(() => {
+    if (!c) return;
+    setF((x) => ({
+      ...x,
+      iso: x.iso || c.isos.find((i) => edition.iso.test(base(i)) && !/virtio/i.test(i)) || "",
+      drivers: x.drivers || c.isos.find((i) => /virtio-win/i.test(i)) || "",
+      storage: x.storage || (storagesFor(c, "images")[0]?.storage ?? ""),
+      bridge: x.bridge || c.bridges[0] || "",
+    }));
+  }, [c, edition]);
+  const isoStorage = storagesFor(c, "iso")[0]?.storage ?? "";
+  const toggle = (p: WinProfile) => setProfiles((l) => (l.includes(p) ? l.filter((x) => x !== p) : [...l, p]));
+
+  return (
+    <FormDialog
+      wide
+      title={`Build ${edition.name} templates`}
+      description={
+        <>
+          servermgr installs Windows unattended in a new VM, runs its prepare script and turns the VM into a cloud-init template. Each build takes
+          30 to 60 minutes; follow it under Deployments or in the VM's console. The VM needs internet access to fetch Cloudbase-Init.
+        </>
+      }
+      submit={profiles.length === 2 ? "Build both templates" : "Build template"}
+      onClose={onClose}
+      onSubmit={async () => {
+        if (!profiles.length) throw new Error("Pick Standard, Hardened or both.");
+        await pve.windowsBuild(cluster, {
+          edition: edition.id,
+          node,
+          iso: f.iso,
+          drivers_iso: f.drivers,
+          disk_storage: f.storage,
+          bridge: f.bridge,
+          cores: f.cores,
+          memory_mb: f.memory,
+          disk_gb: f.disk,
+          image_index: f.index,
+          product_key: f.key.trim(),
+          locale: f.locale.trim(),
+          keyboard: f.keyboard.trim(),
+          timezone: f.timezone.trim(),
+          profiles,
+          name_prefix: f.prefix.trim(),
+        });
+        onStarted();
+      }}
+    >
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {winProfiles.map((p) => {
+          const on = profiles.includes(p.id);
+          return (
+            <button
+              type="button"
+              key={p.id}
+              onClick={() => toggle(p.id)}
+              aria-pressed={on}
+              className={`flex gap-3 rounded-lg border p-3 text-left text-sm transition ${on ? "border-brand bg-brand/5" : "opacity-70 hover:opacity-100"}`}
+            >
+              <span className={`mt-0.5 flex size-5 shrink-0 items-center justify-center rounded border ${on ? "border-brand bg-brand text-white" : ""}`}>
+                {on && <CheckIcon className="size-3.5" />}
+              </span>
+              <span className="grid gap-1">
+                <span className="flex items-center gap-1.5 font-medium">
+                  <p.icon className="size-4" /> {p.name}
+                  <span className="font-mono text-xs font-normal text-muted-foreground">
+                    {f.prefix || edition.id}-{p.id}
+                  </span>
+                </span>
+                <span className="text-xs text-muted-foreground">{p.about}</span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-xs text-muted-foreground">{winTuning}</p>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label="Node">
+          <Select value={node} onChange={(e) => setNode(e.target.value)}>
+            {(nodes.length ? nodes : [node]).map((n) => (
+              <option key={n}>{n}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Template name prefix">
+          <Input value={f.prefix} onChange={(e) => up("prefix")(e.target.value.toLowerCase())} pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" required />
+        </Field>
+        <Field label="Network bridge">
+          <Select value={f.bridge} onChange={(e) => up("bridge")(e.target.value)} required>
+            {(c?.bridges ?? []).map((b) => (
+              <option key={b}>{b}</option>
+            ))}
+          </Select>
+        </Field>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Windows installer ISO" hint={c && !c.isos.length ? "No ISOs on this node yet: upload one on the Storage page." : undefined}>
+          <Select value={f.iso} onChange={(e) => up("iso")(e.target.value)} required>
+            <option value="">Pick the ISO…</option>
+            {c?.isos
+              .filter((i) => !/virtio-win/i.test(i))
+              .map((i) => (
+                <option key={i} value={i}>
+                  {base(i)}
+                </option>
+              ))}
+          </Select>
+        </Field>
+        <Field label="Drivers ISO (virtio-win)" hint={dl || undefined}>
+          <div className="flex gap-2">
+            <Select value={f.drivers} onChange={(e) => up("drivers")(e.target.value)} required>
+              <option value="">Pick the drivers ISO…</option>
+              {c?.isos.map((i) => (
+                <option key={i} value={i}>
+                  {base(i)}
+                </option>
+              ))}
+            </Select>
+            {!f.drivers && isoStorage && (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                disabled={!!dl}
+                onClick={async () => {
+                  setDl("Downloading virtio-win.iso…");
+                  try {
+                    await downloadVirtio(cluster, node, isoStorage);
+                    setDl("");
+                  } catch (e) {
+                    setDl((e as Error).message);
+                  }
+                  setReload((n) => n + 1);
+                }}
+              >
+                {dl ? <Loader2 className="animate-spin" /> : <Download />} Download
+              </Button>
+            )}
+          </div>
+        </Field>
+      </div>
+      <Field label="Disk storage" hint="Holds the system disk, EFI vars, TPM state and the cloud-init drive.">
+        <StorageSelect c={c} content="images" value={f.storage} onChange={up("storage")} />
+      </Field>
+      <details className="rounded-lg border px-3 py-2">
+        <summary className="cursor-pointer text-sm font-medium select-none">Hardware, edition and language</summary>
+        <div className="mt-3 grid gap-3">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="vCPUs">
+              <Input type="number" min={1} max={64} value={f.cores} onChange={(e) => up("cores")(Number(e.target.value))} />
+            </Field>
+            <Field label="Memory (MB)">
+              <Input type="number" min={2048} step={512} value={f.memory} onChange={(e) => up("memory")(Number(e.target.value))} />
+            </Field>
+            <Field label="Disk (GB)" hint="Deploys can grow it; Windows extends itself.">
+              <Input type="number" min={32} value={f.disk} onChange={(e) => up("disk")(Number(e.target.value))} />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="Image index"
+              hint={
+                edition.client
+                  ? "1 for the Enterprise evaluation ISO. Multi-edition ISOs differ (Pro is often 6)."
+                  : "Evaluation ISOs: 1 Standard Core, 2 Standard (Desktop Experience), 3 Datacenter Core, 4 Datacenter."
+              }
+            >
+              <Input type="number" min={1} max={32} value={f.index} onChange={(e) => up("index")(Number(e.target.value))} />
+            </Field>
+            <Field label="Product key" hint="Leave empty for evaluation ISOs.">
+              <Input value={f.key} onChange={(e) => up("key")(e.target.value.toUpperCase())} placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" />
+            </Field>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Language" hint="Must be on the ISO.">
+              <Input value={f.locale} onChange={(e) => up("locale")(e.target.value)} placeholder="en-US" />
+            </Field>
+            <Field label="Keyboard">
+              <Input value={f.keyboard} onChange={(e) => up("keyboard")(e.target.value)} placeholder="hu-HU" />
+            </Field>
+            <Field label="Time zone">
+              <Input value={f.timezone} onChange={(e) => up("timezone")(e.target.value)} placeholder="Central Europe Standard Time" />
+            </Field>
+          </div>
+        </div>
+      </details>
+    </FormDialog>
+  );
+}
+
+// WindowsTemplateDialog turns an existing Windows VM into a template.
+export function WindowsTemplateDialog({
+  cluster,
+  node,
+  vmid,
+  name,
+  stopped,
+  onClose,
+  onDone,
+}: {
+  cluster: string;
+  node: string;
+  vmid: number;
+  name: string;
+  stopped: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { c } = useChoices(cluster, node);
+  const isoStores = useMemo(() => storagesFor(c, "iso"), [c]);
+  const [storage, setStorage] = useState("");
+  useEffect(() => setStorage((s) => s || isoStores[0]?.storage || ""), [isoStores]);
+  const [profile, setProfile] = useState<WinProfile>("hardened");
+  const [cd, setCd] = useState<{ slot: string; pending: boolean } | null>(null);
+  const [busy, setBusy] = useState("");
+  const [err, setErr] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [copied, setCopied] = useState(false);
+  const pname = profile === "hardened" ? "Hardened" : "Standard";
+  const cmd = `powershell -ExecutionPolicy Bypass -Command "& ((Get-Volume -FileSystemLabel SMPREP).DriveLetter + ':\\servermgr-prepare.ps1') -Profile ${pname}"`;
+  const run = async (what: string, f: () => Promise<void>) => {
+    setBusy(what);
+    setErr("");
+    try {
+      await f();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy("");
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Make {name} a Windows template</DialogTitle>
+          <DialogDescription>
+            Run servermgr's prepare script in the VM: it installs the drivers and guest agent, tunes Windows for Proxmox, applies the profile, installs
+            Cloudbase-Init (cloud-init for Windows) and runs Sysprep, which shuts the VM down. Then make it a template here.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 text-sm">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {winProfiles.map((p) => (
+              <label key={p.id} className={`flex cursor-pointer items-start gap-2 rounded-lg border p-3 ${profile === p.id ? "border-brand bg-brand/5" : ""}`}>
+                <input type="radio" name="winprofile" className="mt-1" checked={profile === p.id} onChange={() => setProfile(p.id)} />
+                <span className="grid gap-1">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    <p.icon className="size-4" /> {p.name}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{p.about}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          <section className="grid gap-2 rounded-lg border p-3">
+            <h3 className="font-medium">1. Put the script in the VM</h3>
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label="ISO storage">
+                <Select value={storage} onChange={(e) => setStorage(e.target.value)} className="w-48">
+                  {isoStores.map((s) => (
+                    <option key={s.storage}>{s.storage}</option>
+                  ))}
+                </Select>
+              </Field>
+              <Button
+                variant="secondary"
+                disabled={!!busy || !storage}
+                onClick={() =>
+                  run("cd", async () => {
+                    const r = await pve.windowsPrep(cluster, node, vmid, storage);
+                    setCd({ slot: r.slot, pending: r.pending });
+                  })
+                }
+              >
+                {busy === "cd" ? <Loader2 className="animate-spin" /> : <Download />} Insert script CD
+              </Button>
+              <a href="/api/v1/windows/prepare.ps1" className="pb-2 text-xs text-brand hover:underline">
+                or download the script
+              </a>
+            </div>
+            {cd && (
+              <p className="text-xs text-success">
+                The CD is in drive {cd.slot}
+                {cd.pending ? (stopped ? "; Windows sees it when the VM starts." : "; restart the VM so Windows sees the new drive.") : "."}
+              </p>
+            )}
+            <p className="text-xs text-muted-foreground">Then, in the VM, run this in an administrator PowerShell (the console's Type button can type it):</p>
+            <div className="flex items-start gap-2">
+              <code className="min-w-0 flex-1 rounded bg-muted px-2 py-1.5 font-mono text-xs break-all">{cmd}</code>
+              <Button
+                size="sm"
+                variant="ghost"
+                title="Copy"
+                onClick={() => {
+                  void navigator.clipboard?.writeText(cmd).then(() => {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  });
+                }}
+              >
+                {copied ? <CheckIcon /> : <Copy />}
+              </Button>
+            </div>
+          </section>
+          <section className="grid gap-2 rounded-lg border p-3">
+            <h3 className="flex items-center gap-2 font-medium">
+              2. Make the template {stopped ? <Badge variant="success">VM is stopped</Badge> : <Badge variant="outline">waiting for Sysprep to shut it down</Badge>}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Removes the CD drives, adds a cloud-init drive and converts VM {vmid}. This can't be undone; deploy new VMs from it on the Deploy page.
+            </p>
+            <div className="flex flex-wrap items-end gap-2">
+              <Field label={`Type ${vmid} to confirm`}>
+                <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} className="w-32" />
+              </Field>
+              <Button
+                variant="brand"
+                disabled={!!busy || !stopped || confirm !== String(vmid)}
+                onClick={() =>
+                  run("tpl", async () => {
+                    await pve.windowsTemplate(cluster, node, vmid, confirm, profile);
+                    onDone();
+                    onClose();
+                  })
+                }
+              >
+                {busy === "tpl" && <Loader2 className="animate-spin" />} Make Windows template
+              </Button>
+            </div>
+          </section>
+          {err && <p className="text-destructive">{err}</p>}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}

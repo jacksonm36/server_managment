@@ -552,6 +552,28 @@ type pveProvisionReq struct {
 	Storage      string `json:"storage"` // full clone target storage ("" = template's)
 	Bridge       string `json:"bridge"`  // network bridge for net0 ("" = template's)
 	pveCIOpts
+	windows bool // the template is Windows (Cloudbase-Init)
+}
+
+// windowsCheck applies Windows rules to a deploy from a Windows template:
+// a NetBIOS-length name, a strong Administrator password, no SSH keys and
+// no agent enrollment.
+func (r *pveProvisionReq) windowsCheck() string {
+	switch {
+	case !winHost.MatchString(r.Name):
+		return "Windows computer names have at most 15 characters (lowercase letters, digits, dashes)"
+	case r.Enroll:
+		return errWinEnroll.Error()
+	case len(r.keyLines) > 0:
+		return "SSH keys are not used on Windows; set the Administrator password"
+	case r.CIPassword == "":
+		return "set the Administrator password"
+	}
+	if msg := winPasswordProblem(r.CIPassword); msg != "" {
+		return msg
+	}
+	r.windows = true
+	return ""
 }
 
 // pveCIOpts are the cloud-init and guest options a new VM can get on top
@@ -717,6 +739,17 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 				a.releaseQuota(s.TC.TenantID, *reserved)
 			}
 		}()
+	}
+	tcfg, err := guestConfig(r.Context(), s, req.Node, "qemu", req.TemplateVMID)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if isWindowsConfig(tcfg) {
+		if msg := req.windowsCheck(); msg != "" {
+			bad(msg)
+			return
+		}
 	}
 	who := whoFrom(r)
 	p := &store.ProxmoxProvision{ID: store.NewUUID(), ClusterID: s.C.ID, Name: req.Name, Status: "running", CreatedBy: who.Actor, TenantID: who.Tenant}
@@ -894,10 +927,6 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 	}
 	cloned()
 
-	_, pub, err := a.ansibleKey()
-	if err != nil {
-		return err
-	}
 	ipcfg := "ip=dhcp"
 	if req.IP != "dhcp" {
 		ipcfg = "ip=" + req.IP
@@ -905,8 +934,21 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 			ipcfg += ",gw=" + req.Gateway
 		}
 	}
-	keys := append([]string{pub + " servermgr-ansible"}, req.keyLines...)
-	cfg := url.Values{"ciuser": {req.user()}, "sshkeys": {encodeURIComponent(strings.Join(keys, "\n"))}, "ipconfig0": {ipcfg}, "agent": {"1"}}
+	cfg := url.Values{"ipconfig0": {ipcfg}, "agent": {"1"}}
+	if req.windows {
+		// Cloudbase-Init reads Proxmox's config drive; Proxmox passes the
+		// password as is for a Windows OS type.
+		cfg.Set("citype", "configdrive2")
+		cfg.Set("ciuser", "Administrator")
+	} else {
+		_, pub, err := a.ansibleKey()
+		if err != nil {
+			return err
+		}
+		keys := append([]string{pub + " servermgr-ansible"}, req.keyLines...)
+		cfg.Set("ciuser", req.user())
+		cfg.Set("sshkeys", encodeURIComponent(strings.Join(keys, "\n")))
+	}
 	if req.CIPassword != "" {
 		cfg.Set("cipassword", req.CIPassword)
 	}
@@ -941,7 +983,11 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 	if req.CIPassword != "" {
 		extra += ", a password"
 	}
-	logf("cloud-init: user %s with the panel SSH key%s, %s; agent enabled", req.user(), extra, ipcfg)
+	if req.windows {
+		logf("cloud-init (Cloudbase-Init): Administrator with a password, hostname %s, %s", req.Name, ipcfg)
+	} else {
+		logf("cloud-init: user %s with the panel SSH key%s, %s; agent enabled", req.user(), extra, ipcfg)
+	}
 	if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/config", cfg, nil); err != nil {
 		return err
 	}

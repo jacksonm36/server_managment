@@ -679,7 +679,7 @@ export function ProvisionDialog({
     name: "",
     target: "",
     cores: 2,
-    memory_mb: 2048,
+    memory_mb: (template.tags ?? "").split(/[;, ]/).includes("windows") ? 4096 : 2048,
     disk_gb: 0,
     full_clone: true,
     ipMode: "dhcp",
@@ -695,14 +695,19 @@ export function ProvisionDialog({
   const [ci, setCI] = useState<CIForm>(emptyCI);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // Windows templates use Cloudbase-Init: Administrator password, hostname
+  // and network; no SSH keys or agent enrollment.
+  const win = (template.tags ?? "").split(/[;, ]/).includes("windows");
+  const [showPw, setShowPw] = useState(false);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New VM from {template.name}</DialogTitle>
           <DialogDescription>
-            Clones the template, sets cloud-init (the panel's SSH key, your user, keys and network), starts it and, if enrolled, installs the
-            servermgr agent over SSH. The template needs cloud-init and qemu-guest-agent (for DHCP).
+            {win
+              ? "Clones the Windows template and starts it. Cloudbase-Init sets the Administrator password, the computer name and the network on first boot, then Windows restarts once."
+              : "Clones the template, sets cloud-init (the panel's SSH key, your user, keys and network), starts it and, if enrolled, installs the servermgr agent over SSH. The template needs cloud-init and qemu-guest-agent (for DHCP)."}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -723,10 +728,10 @@ export function ProvisionDialog({
                 full_clone: f.full_clone,
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
-                enroll: f.enroll,
+                enroll: win ? false : f.enroll,
                 storage: f.storage,
                 bridge: f.bridge.trim(),
-                ...ciOpts(ci),
+                ...(win ? { cipassword: ci.cipassword, nameserver: ci.nameserver.trim(), tags: ciOpts(ci).tags } : ciOpts(ci)),
               });
               onStarted();
             } catch (e) {
@@ -738,8 +743,17 @@ export function ProvisionDialog({
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label htmlFor="pp-name">Hostname</Label>
-              <Input id="pp-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="web-03" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" required />
+              <Label htmlFor="pp-name">{win ? "Computer name" : "Hostname"}</Label>
+              <Input
+                id="pp-name"
+                value={f.name}
+                onChange={(e) => setF({ ...f, name: e.target.value })}
+                placeholder={win ? "app-win-01" : "web-03"}
+                pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
+                maxLength={win ? 15 : 63}
+                title={win ? "At most 15 characters: lowercase letters, digits, dashes" : undefined}
+                required
+              />
             </div>
             {!tenant && (
               <div className="grid gap-1.5">
@@ -829,19 +843,48 @@ export function ProvisionDialog({
               template)
             </label>
           )}
-          <details className="rounded-lg border px-3 py-2">
-            <summary className="cursor-pointer text-sm font-medium select-none">Cloud-init: user, SSH keys, DNS, tags</summary>
-            <div className="mt-3">
-              <CloudInitFields value={ci} onChange={setCI} idPrefix="pp-ci" />
+          {win ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="pp-winpw">Administrator password</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="pp-winpw"
+                    type={showPw ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={ci.cipassword}
+                    onChange={(e) => setCI({ ...ci, cipassword: e.target.value })}
+                    minLength={12}
+                    required
+                  />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowPw((x) => !x)}>
+                    {showPw ? "Hide" : "Show"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">At least 12 characters, with three of: lower case, upper case, digits, symbols.</p>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="pp-windns">DNS servers</Label>
+                <Input id="pp-windns" value={ci.nameserver} onChange={(e) => setCI({ ...ci, nameserver: e.target.value })} placeholder="From DHCP, or 1.1.1.1 9.9.9.9" />
+              </div>
             </div>
-          </details>
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1" checked={f.enroll} onChange={(e) => setF({ ...f, enroll: e.target.checked })} />
-            <span>
-              Enroll into servermgr
-              <span className="block text-xs text-muted-foreground">Installs the agent, links the VM to its server and prepares it for Ansible.</span>
-            </span>
-          </label>
+          ) : (
+            <>
+              <details className="rounded-lg border px-3 py-2">
+                <summary className="cursor-pointer text-sm font-medium select-none">Cloud-init: user, SSH keys, DNS, tags</summary>
+                <div className="mt-3">
+                  <CloudInitFields value={ci} onChange={setCI} idPrefix="pp-ci" />
+                </div>
+              </details>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={f.enroll} onChange={(e) => setF({ ...f, enroll: e.target.checked })} />
+                <span>
+                  Enroll into servermgr
+                  <span className="block text-xs text-muted-foreground">Installs the agent, links the VM to its server and prepares it for Ansible.</span>
+                </span>
+              </label>
+            </>
+          )}
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>
