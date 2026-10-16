@@ -528,6 +528,13 @@ class H(BaseHTTPRequestHandler):
             if n >= len(WINLOG):
                 g["status"] = "stopped"
             return self.send(200, {"content": "\ufeff" + "\r\n".join(lines) + "\r\n", "truncated": False})
+        if rest in ("/agent/get-osinfo", "/agent/get-host-name") and method == "GET":
+            # Running VMs with the agent say they are Debian 13.
+            if g["status"] != "running" or str(g["config"].get("agent", "1")).split(",")[0] not in ("1", "enabled=1"):
+                return self.send(500, err="QEMU guest agent is not running")
+            if rest == "/agent/get-host-name":
+                return self.send(200, {"result": {"host-name": g["name"]}})
+            return self.send(200, {"result": {"id": "debian", "name": "Debian GNU/Linux", "pretty-name": "Debian GNU/Linux 13 (trixie)", "version-id": "13"}})
         if rest == "/agent/network-get-interfaces" and method == "GET":
             if g["status"] != "running" or not args.guest_ip or str(g["config"].get("agent", "")).split(",")[0] not in ("1", "enabled=1"):
                 return self.send(500, err="QEMU guest agent is not running")

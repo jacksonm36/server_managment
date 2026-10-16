@@ -108,9 +108,12 @@ export function ComputeTree({
                     const Icon = g.template ? LayoutTemplate : g.type === "lxc" ? Box : Monitor;
                     const o = os[`${g.node}/${g.vmid}`];
                     const oi = o ? osIcon(o.os) : null;
-                    const app = appIcon(o?.app, g.name ?? "", g.tags ?? "");
+                    // Detected software, then the operator's name and tags, then
+                    // words from the notes, ISO name or hostname.
+                    const named = appIcon(o?.app, g.name ?? "", g.tags ?? "");
+                    const app = named ?? (o?.hints ? appIcon(undefined, o.hints) : null);
                     const osTitle = o ? `${o.pretty || o.os}${o.os_via ? ` (${o.os_via})` : ""}` : "";
-                    const appTitle = app ? `${app.label}${o?.app && o.app_via ? ` (detected on ${o.app_via})` : o?.app ? "" : " (from the name or tags)"}` : "";
+                    const appTitle = app ? `${app.label}${o?.app && o.app_via ? ` (detected on ${o.app_via})` : o?.app ? "" : named ? " (from the name or tags)" : " (from the notes, ISO or hostname)"}` : "";
                     return (
                       <li key={g.id}>
                         <button

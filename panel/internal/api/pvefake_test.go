@@ -559,6 +559,18 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		f.reply(w, 200, map[string]any{"status": g.status, "vmid": vmid, "name": g.name, "cpus": g.cores, "maxmem": g.memMB << 20}, "")
 	case sub == "rrddata" && r.Method == "GET":
 		f.reply(w, 200, []map[string]any{{"time": 60, "cpu": 0.5, "maxcpu": 2, "secret": "x"}, {"time": 120, "cpu": 0.25}}, "")
+	case (sub == "agent/get-osinfo" || sub == "agent/get-host-name") && r.Method == "GET":
+		// What a guest's agent claims; tests put it in _osinfo / _hostname.
+		if g.status != "running" || g.config["_osinfo"] == "" {
+			f.reply(w, 500, nil, "QEMU guest agent is not running")
+			return
+		}
+		if sub == "agent/get-host-name" {
+			f.reply(w, 200, map[string]any{"result": map[string]string{"host-name": g.config["_hostname"]}}, "")
+			return
+		}
+		id, pretty, _ := strings.Cut(g.config["_osinfo"], "|")
+		f.reply(w, 200, map[string]any{"result": map[string]string{"id": id, "pretty-name": pretty}}, "")
 	case (sub == "agent/network-get-interfaces" || sub == "interfaces") && r.Method == "GET":
 		f.reply(w, 200, map[string]any{"result": []map[string]any{{"ip-addresses": []map[string]string{{"ip-address": "127.0.0.1"}, {"ip-address": "10.0.0.5"}, {"ip-address": "fe80::1"}}}}}, "")
 	case sub == "config" && r.Method == "GET":

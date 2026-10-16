@@ -362,7 +362,7 @@ export type PVEResource = {
 export type PVEGuest = PVEResource & { server_id?: string; server_name?: string; tenant?: string };
 export type PVETenantInfo = { name: string; pool: string; storages: string[]; bridges: string[]; usage: TenantUsage; quota: TenantUsage };
 // What the panel knows a guest runs: OS and detected software, and how it found them.
-export type PVEGuestOS = { os: string; pretty?: string; os_via?: string; app?: string; app_via?: string };
+export type PVEGuestOS = { os: string; pretty?: string; os_via?: string; app?: string; app_via?: string; hints?: string };
 export type PVEResources = {
   cluster: PVECluster;
   version?: string;

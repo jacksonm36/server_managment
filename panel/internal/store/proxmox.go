@@ -233,3 +233,40 @@ func (s *Store) DeleteFlavor(ctx context.Context, id int64) error {
 	}
 	return err
 }
+
+// GuestFact is what a guest's QEMU agent last said about its OS.
+type GuestFact struct {
+	VMID     int
+	VMUUID   string
+	OS       string
+	Pretty   string
+	Hostname string
+	SeenAt   time.Time
+}
+
+// GuestFacts returns the stored facts for a cluster, by VMID.
+func (s *Store) GuestFacts(ctx context.Context, clusterID string) (map[int]GuestFact, error) {
+	rows, err := s.db.Query(ctx, `SELECT vmid, vm_uuid, os, pretty, hostname, seen_at FROM proxmox_guest_facts WHERE cluster_id = $1`, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int]GuestFact{}
+	for rows.Next() {
+		var f GuestFact
+		if err := rows.Scan(&f.VMID, &f.VMUUID, &f.OS, &f.Pretty, &f.Hostname, &f.SeenAt); err != nil {
+			return nil, err
+		}
+		out[f.VMID] = f
+	}
+	return out, rows.Err()
+}
+
+// SaveGuestFact records what a guest's agent reported just now.
+func (s *Store) SaveGuestFact(ctx context.Context, clusterID string, f GuestFact) error {
+	_, err := s.db.Exec(ctx, `INSERT INTO proxmox_guest_facts (cluster_id, vmid, vm_uuid, os, pretty, hostname, seen_at)
+		VALUES ($1, $2, $3, $4, $5, $6, now())
+		ON CONFLICT (cluster_id, vmid) DO UPDATE SET vm_uuid = $3, os = $4, pretty = $5, hostname = $6, seen_at = now()`,
+		clusterID, f.VMID, f.VMUUID, f.OS, f.Pretty, f.Hostname)
+	return err
+}

@@ -107,6 +107,8 @@ import {
   siRoundcube,
   siDovecot,
   type SimpleIcon,
+  siRedhat,
+  siTalos,
 } from "simple-icons";
 import { Archive, Container, Globe, HardDrive, Mail, Network, Router, ServerCog, Shield, Terminal, Users, type LucideIcon } from "lucide-react";
 
@@ -187,6 +189,9 @@ const osKeys: Record<string, SimpleIcon> = {
   gentoo: siGentoo,
   nixos: siNixos,
   openwrt: siOpenwrt,
+  rhel: siRedhat,
+  talos: siTalos,
+  sles: siOpensuse,
   linux: siLinux,
 };
 
