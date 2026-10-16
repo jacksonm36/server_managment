@@ -816,6 +816,7 @@ export const api = {
       : request<{ cluster: PVECluster; version: string }>("POST", "/api/v1/proxmox", c),
   deletePVE: (id: string) => request<void>("DELETE", `/api/v1/proxmox/${id}`),
   pveResources: (id: string) => request<PVEResources>("GET", `/api/v1/proxmox/${id}/resources`),
+  pveGuestOS: (id: string) => request<Record<string, { os: string; pretty?: string }>>("GET", `/api/v1/proxmox/${id}/guest-os`),
   pveImages: () => request<PVEImage[]>("GET", "/api/v1/proxmox-images"),
   pveTemplateTargets: (id: string, node: string) =>
     request<PVETemplateTargets>("GET", `/api/v1/proxmox/${id}/template-targets?node=${encodeURIComponent(node)}`),

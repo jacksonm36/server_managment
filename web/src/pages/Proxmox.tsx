@@ -240,6 +240,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
           <div className="relative lg:sticky lg:top-20">
             <Card className="max-h-[60vh] overflow-y-auto p-3 lg:max-h-[calc(100vh-6rem)]">
               <ComputeTree
+                cluster={cluster.id}
                 name={cluster.name}
                 res={res}
                 selected={node}

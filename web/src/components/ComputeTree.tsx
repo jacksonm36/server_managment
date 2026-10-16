@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Box, ChevronDown, ChevronRight, LayoutTemplate, Monitor, Network, Server } from "lucide-react";
-import type { PVEGuest, PVEResources } from "@/lib/api";
+import { api, type PVEGuest, type PVEResources } from "@/lib/api";
+import { LogoMark, appIcon, osIcon } from "@/components/DistroIcon";
 import { usePending } from "@/lib/pending";
 
 // ComputeTree is the cluster as a tree: the cluster, its nodes, and each
@@ -11,6 +12,7 @@ import { usePending } from "@/lib/pending";
 const dot = (s: string) => (s === "running" || s === "online" ? "bg-success" : s === "stopped" ? "bg-muted-foreground/50" : s === "paused" ? "bg-warning" : "bg-destructive");
 
 export function ComputeTree({
+  cluster,
   name,
   res,
   selected,
@@ -18,6 +20,7 @@ export function ComputeTree({
   guest,
   onGuest,
 }: {
+  cluster: string;
   name: string;
   res: PVEResources;
   selected: string; // "" = the cluster, else a node name
@@ -27,6 +30,18 @@ export function ComputeTree({
 }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const [q, setQ] = useState("");
+  // OS per guest ("node/vmid"); looked up in the background, cached by the panel.
+  const [os, setOS] = useState<Record<string, { os: string; pretty?: string }>>({});
+  useEffect(() => {
+    const get = () =>
+      api
+        .pveGuestOS(cluster)
+        .then(setOS)
+        .catch(() => {});
+    void get();
+    const t = setInterval(get, 5 * 60_000);
+    return () => clearInterval(t);
+  }, [cluster]);
   const nodes = res.nodes ?? [];
   const byNode = useMemo(() => {
     const m = new Map<string, PVEGuest[]>();
@@ -91,16 +106,25 @@ export function ComputeTree({
                 <ul className="ml-3.5 grid gap-0.5 border-l pl-2">
                   {guests.map((g) => {
                     const Icon = g.template ? LayoutTemplate : g.type === "lxc" ? Box : Monitor;
+                    const o = os[`${g.node}/${g.vmid}`];
+                    const oi = o ? osIcon(o.os) : null;
+                    const app = appIcon(g.name ?? "", g.tags ?? "");
+                    const osTitle = o ? o.pretty || o.os : "";
                     return (
                       <li key={g.id}>
                         <button
                           className={row(guest === g.id)}
                           onClick={() => onGuest(g)}
                           aria-current={guest === g.id ? "true" : undefined}
-                          title={`${g.type === "lxc" ? "CT" : "VM"} ${g.vmid}${g.template ? " (template)" : ""}`}
+                          title={`${g.type === "lxc" ? "CT" : "VM"} ${g.vmid}${g.template ? " (template)" : ""}${osTitle ? ` · ${osTitle}` : ""}${app ? ` · ${app.label}` : ""}`}
                         >
-                          <Icon className="size-3.5 shrink-0" />
+                          {oi && (oi.icon || oi.windows) ? (
+                            <LogoMark icon={oi.icon} windows={oi.windows} title={osTitle} />
+                          ) : (
+                            <Icon className="size-3.5 shrink-0" />
+                          )}
                           <span className="truncate">{g.name || `${g.vmid}`}</span>
+                          {app && <LogoMark icon={app.icon} title={app.label} className="size-3" />}
                           {!g.template && <GuestDot node={g.node} vmid={g.vmid} status={g.status} />}
                           <span className="ml-auto font-mono text-[11px] text-muted-foreground/70">{g.vmid}</span>
                         </button>
