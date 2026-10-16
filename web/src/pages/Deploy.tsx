@@ -249,7 +249,7 @@ function Catalog({ res, onDeploy }: { res: PVEResources | null; onDeploy: (image
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">No image matches.</p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1800px]:grid-cols-5 min-[2300px]:grid-cols-6">
           {shown.map((i) => {
             const on = built.get(i.id) ?? [];
             return (

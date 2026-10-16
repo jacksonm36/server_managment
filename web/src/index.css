@@ -174,3 +174,37 @@
     animation-duration: 3s;
   }
 }
+
+/* Scale the whole UI up on large screens (everything is in rem), and keep
+   phones from zooming into form fields. */
+@media (min-width: 2200px) {
+  html {
+    font-size: 17px;
+  }
+}
+@media (min-width: 2800px) {
+  html {
+    font-size: 19px;
+  }
+}
+@media (min-width: 3600px) {
+  html {
+    font-size: 22px;
+  }
+}
+/* iOS zooms into fields with text under 16px. */
+@media (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Grid items default to min-width: auto, so one wide child (a tab strip, a
+   long name) widens the whole page on phones. Let them shrink. */
+@layer base {
+  .grid > * {
+    min-width: 0;
+  }
+}

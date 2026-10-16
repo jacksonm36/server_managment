@@ -72,60 +72,62 @@ export function HardwareTab({ cluster, guest, detail, onChanged }: TabProps) {
           <CardDescription>Disks can only grow. Detaching keeps the data as an unused disk; deleting destroys it.</CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3">
-          <table className="w-full text-sm">
-            <tbody className="divide-y">
-              {disks.map((k) => {
-                const v = str(cfg[k]);
-                const unused = unusedKey.test(k);
-                return (
-                  <tr key={k}>
-                    <td className="py-2 pr-3 font-mono text-xs">{k}</td>
-                    <td className="py-2 pr-3 font-mono text-xs break-all text-muted-foreground">{v.split(",")[0]}</td>
-                    <td className="py-2 pr-3 whitespace-nowrap">{unused ? <Badge variant="outline">unused</Badge> : sizeOf(v)}</td>
-                    <td className="py-2 text-right whitespace-nowrap">
-                      {edit && !unused && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={!!busy}
-                          onClick={() => {
-                            const n = Number(prompt(`Grow ${k} by how many GB?`, "10"));
-                            if (n > 0) void save(`Growing ${k}`, () => api.pveDiskResize(cluster, guest, k, n), `${k} grown by ${n} GB.`);
-                          }}
-                        >
-                          <Plus /> Grow
-                        </Button>
-                      )}
-                      {edit && !unused && k !== "rootfs" && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          disabled={!!busy}
-                          onClick={() => confirm(`Detach ${k}? Its data is kept as an unused disk.`) && void save(`Detaching ${k}`, () => api.pveDiskRemove(cluster, guest, k, false), `${k} detached.`)}
-                        >
-                          <Unplug /> Detach
-                        </Button>
-                      )}
-                      {edit && k !== "rootfs" && (vm || unused) && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive"
-                          disabled={!!busy}
-                          onClick={() => {
-                            const c = prompt(`This deletes ${k} and all its data. Type ${k} to confirm.`);
-                            if (c) void save(`Deleting ${k}`, () => api.pveDiskRemove(cluster, guest, k, true, c), `${k} deleted.`);
-                          }}
-                        >
-                          <Trash2 /> Delete
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <tbody className="divide-y">
+                {disks.map((k) => {
+                  const v = str(cfg[k]);
+                  const unused = unusedKey.test(k);
+                  return (
+                    <tr key={k}>
+                      <td className="py-2 pr-3 font-mono text-xs">{k}</td>
+                      <td className="py-2 pr-3 font-mono text-xs break-all text-muted-foreground">{v.split(",")[0]}</td>
+                      <td className="py-2 pr-3 whitespace-nowrap">{unused ? <Badge variant="outline">unused</Badge> : sizeOf(v)}</td>
+                      <td className="py-2 text-right whitespace-nowrap">
+                        {edit && !unused && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={!!busy}
+                            onClick={() => {
+                              const n = Number(prompt(`Grow ${k} by how many GB?`, "10"));
+                              if (n > 0) void save(`Growing ${k}`, () => api.pveDiskResize(cluster, guest, k, n), `${k} grown by ${n} GB.`);
+                            }}
+                          >
+                            <Plus /> Grow
+                          </Button>
+                        )}
+                        {edit && !unused && k !== "rootfs" && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={!!busy}
+                            onClick={() => confirm(`Detach ${k}? Its data is kept as an unused disk.`) && void save(`Detaching ${k}`, () => api.pveDiskRemove(cluster, guest, k, false), `${k} detached.`)}
+                          >
+                            <Unplug /> Detach
+                          </Button>
+                        )}
+                        {edit && k !== "rootfs" && (vm || unused) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive"
+                            disabled={!!busy}
+                            onClick={() => {
+                              const c = prompt(`This deletes ${k} and all its data. Type ${k} to confirm.`);
+                              if (c) void save(`Deleting ${k}`, () => api.pveDiskRemove(cluster, guest, k, true, c), `${k} deleted.`);
+                            }}
+                          >
+                            <Trash2 /> Delete
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           {edit && opts && <AddDisk vm={vm} storages={opts.storages} busy={!!busy} onAdd={(d) => save("Adding disk", () => api.pveDiskAdd(cluster, guest, d), "Disk added.")} />}
         </CardContent>
       </Card>

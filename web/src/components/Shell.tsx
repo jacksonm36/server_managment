@@ -183,7 +183,7 @@ export function Shell({ me, access, onLogout, children }: { me: Me; access: Acce
             </button>
           </div>
         </header>
-        <main className="mx-auto max-w-7xl px-4 pt-8 pb-24 sm:px-6">
+        <main className="mx-auto w-full max-w-[2400px] px-3 pt-5 pb-24 sm:px-6 sm:pt-8 xl:px-8 2xl:px-10">
           <ErrorBoundary key={loc}>{children}</ErrorBoundary>
         </main>
       </div>

@@ -93,7 +93,7 @@ export function WindowsCatalog({
           </Select>
         )}
       </Card>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1800px]:grid-cols-5 min-[2300px]:grid-cols-6">
         {editions.map((e) => {
           const iso = c?.isos.find((i) => e.preset.iso!.test(base(i)));
           return (
@@ -312,7 +312,7 @@ export function ContainerCatalog({ cluster, res }: { cluster: string; res: PVERe
       ) : shown.length === 0 ? (
         <p className="text-sm text-muted-foreground">{list.length ? "No template matches." : "This node offers no container templates (run pveam update on it)."}</p>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 min-[1800px]:grid-cols-5 min-[2300px]:grid-cols-6">
           {shown.map((a) => {
             const volid = have.get(a.template);
             const b = busy[a.template];
