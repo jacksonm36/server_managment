@@ -6,14 +6,29 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input, Label } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FlavorPicker, useFlavors } from "@/components/Flavors";
+import { CloudInitFields, ciOpts, emptyCI, type CIForm } from "@/components/CloudInitFields";
 
 // DeployDialog creates a VM from a catalog image in one step: servermgr
 // reuses the image's template on the node, or builds it first, then
 // clones it with cloud-init and (optionally) enrolls the VM.
-export function DeployDialog({ cluster, guests, onClose, onStarted }: { cluster: string; guests: PVEGuest[]; onClose: () => void; onStarted: () => void }) {
+export function DeployDialog({
+  cluster,
+  guests,
+  preset = "",
+  onClose,
+  onStarted,
+}: {
+  cluster: string;
+  guests: PVEGuest[];
+  preset?: string; // image picked beforehand
+  onClose: () => void;
+  onStarted: () => void;
+}) {
   const [images, setImages] = useState<PVEImage[]>([]);
   const flavors = useFlavors();
-  const [image, setImage] = useState("");
+  const [image, setImage] = useState(preset);
+  const [count, setCount] = useState(1);
+  const [ci, setCI] = useState<CIForm>(emptyCI);
   const [node, setNode] = useState("");
   const [t, setT] = useState<PVETemplateTargets | null>(null);
   // undefined until picked: then the second flavor (usually "medium").
@@ -52,12 +67,12 @@ export function DeployDialog({ cluster, guests, onClose, onStarted }: { cluster:
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Deploy a VM</DialogTitle>
           <DialogDescription>
             Pick an operating system and a size. servermgr reuses that image's template on the node, or downloads the image and builds the template first,
-            then creates and starts the VM with the panel's SSH key.
+            then creates and starts the VM with cloud-init: the panel's SSH key, your keys and settings.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -78,6 +93,8 @@ export function DeployDialog({ cluster, guests, onClose, onStarted }: { cluster:
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
                 enroll: f.enroll,
+                count,
+                ...ciOpts(ci),
               });
               onStarted();
             } catch (e) {
@@ -198,6 +215,17 @@ export function DeployDialog({ cluster, guests, onClose, onStarted }: { cluster:
               </div>
             )}
           </div>
+          <details className="group rounded-lg border px-3 py-2" open={!!preset}>
+            <summary className="cursor-pointer text-sm font-medium select-none">Cloud-init: user, SSH keys, DNS, tags</summary>
+            <div className="mt-3">
+              <CloudInitFields value={ci} onChange={setCI} defaultUser={images.find((i) => i.id === image)?.user} idPrefix="dp-ci" />
+            </div>
+          </details>
+          <div className="grid gap-1.5 sm:w-48">
+            <Label htmlFor="dp-count">How many</Label>
+            <Input id="dp-count" type="number" min={1} max={10} value={count} onChange={(e) => setCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
+            {count > 1 && <span className="text-xs text-muted-foreground">Named {f.name || "name"}-1 to -{count}; needs DHCP.</span>}
+          </div>
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-1 accent-brand" checked={f.enroll} onChange={(e) => setF({ ...f, enroll: e.target.checked })} />
             <span>
@@ -211,7 +239,7 @@ export function DeployDialog({ cluster, guests, onClose, onStarted }: { cluster:
               Cancel
             </Button>
             <Button type="submit" variant="brand" disabled={busy || !image || !f.disk_storage || (!existing && !f.image_storage)}>
-              <Rocket /> {busy ? "Starting…" : "Deploy"}
+              <Rocket /> {busy ? "Starting…" : count > 1 ? `Deploy ${count} VMs` : "Deploy"}
             </Button>
           </div>
         </form>

@@ -179,6 +179,7 @@ type Resource struct {
 	Tags     string  `json:"tags,omitempty"`
 	Pool     string  `json:"pool,omitempty"`
 	Storage  string  `json:"storage,omitempty"`
+	Shared   int     `json:"shared,omitempty"`
 }
 
 func (c *Client) Resources(ctx context.Context) ([]Resource, error) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Download, Pencil, Play, Plus, Power, RefreshCw, RotateCcw, RotateCw, Square, TerminalSquare, Trash2 } from "lucide-react";
-import { type PVECluster, type PVEGuestRef } from "@/lib/api";
+import { ArchiveRestore, Download, Network, Pencil, Play, Plus, Power, RefreshCw, RotateCcw, RotateCw, Settings2, Shield, Square, TerminalSquare, Trash2, UsersRound } from "lucide-react";
+import { type PVECluster, type PVEGuest, type PVEGuestRef, type PVEResources } from "@/lib/api";
 import { pve, ranMsg, type Params, type PVETaskRow, type Row } from "@/lib/pveapi";
 import { formatBytes } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Select, Textarea } from "@/components/ui/select";
 import { GuestConsole } from "@/components/GuestConsole";
+import { NodeGuests, NodeHeader, NodeRings, NodeSummary, useNodeStatus } from "@/components/PVENodeView";
 import { Meter } from "@/components/LiveChart";
 import { Check, Field, FormDialog } from "@/components/PVEForms";
 
@@ -124,20 +125,36 @@ function TaskLog({ cluster, node, upid, onClose }: { cluster: string; node: stri
 
 // ================= nodes =================
 
-type NodeTab = "summary" | "services" | "updates" | "network" | "disks" | "system" | "syslog" | "tasks";
+type NodeTab = "summary" | "guests" | "services" | "updates" | "network" | "disks" | "system" | "syslog" | "tasks";
 
-// NodeAdmin is a node's management for platform admins: power and bulk
-// actions, shell and package upgrade, and tabs for services, updates,
-// network, disks, DNS/time/hosts, the system log and tasks. summary is
-// what the Summary tab shows.
-export function NodeAdmin({ cluster, node, nodes, summary }: { cluster: string; node: string; nodes: string[]; summary: ReactNode }) {
+// NodeAdmin is a node's page for platform admins: the node's header with
+// power and bulk actions, shell and package upgrade, its usage, and tabs
+// for its guests, services, updates, network, disks, DNS/time/hosts, the
+// system log and tasks.
+export function NodeAdmin({
+  cluster,
+  node,
+  nodes,
+  guests,
+  onGuest,
+}: {
+  cluster: string;
+  node: string;
+  nodes: string[];
+  guests: PVEGuest[];
+  onGuest: (g: PVEGuest) => void;
+}) {
   const [tab, setTab] = useState<NodeTab>("summary");
+  const { st, err, tasks } = useNodeStatus(cluster, node, true);
   return (
     <div className="grid gap-4">
-      <NodeActions cluster={cluster} node={node} nodes={nodes} />
+      <NodeHeader node={node} st={st} online actions={<NodeActions cluster={cluster} node={node} nodes={nodes} />} />
+      {err && <p className="text-sm text-destructive">{err}</p>}
+      {st && <NodeRings st={st} />}
       <Tabs<NodeTab>
         tabs={[
           ["summary", "Summary"],
+          ["guests", `Guests (${guests.filter((g) => !g.template).length})`],
           ["services", "Services"],
           ["updates", "Updates"],
           ["network", "Network"],
@@ -150,7 +167,8 @@ export function NodeAdmin({ cluster, node, nodes, summary }: { cluster: string; 
         set={setTab}
       />
       <div key={`${node}-${tab}`}>
-        {tab === "summary" && summary}
+        {tab === "summary" && <NodeSummary cluster={cluster} node={node} guests={guests} onGuest={onGuest} tasks={tasks} />}
+        {tab === "guests" && <NodeGuests guests={guests} onGuest={onGuest} limit={0} />}
         {tab === "services" && <NodeServices cluster={cluster} node={node} />}
         {tab === "updates" && <NodeUpdates cluster={cluster} node={node} />}
         {tab === "network" && <NodeNetwork cluster={cluster} node={node} />}
@@ -185,8 +203,8 @@ function NodeActions({ cluster, node, nodes }: { cluster: string; node: string; 
   };
 
   return (
-    <div className="grid gap-4">
-      <div className="flex flex-wrap gap-2">
+    <div className="grid justify-items-start gap-2 sm:justify-items-end">
+      <div className="flex flex-wrap gap-2 sm:justify-end">
         <Button size="sm" variant="brand" onClick={() => setShell("")}>
           <TerminalSquare /> Shell
         </Button>
@@ -1453,23 +1471,105 @@ const sections: Section[] = [
   },
 ];
 
-export function DatacenterView({ cluster }: { cluster: PVECluster }) {
+// The Datacenter sections, grouped the way the menu shows them.
+const groups: { title: string; icon: ReactNode; colls: string[] }[] = [
+  { title: "Cluster", icon: <Settings2 />, colls: ["status", "tasks", "log", "options", "storage", "metrics"] },
+  { title: "Backup & HA", icon: <ArchiveRestore />, colls: ["backup", "replication", "ha-resources", "ha-groups", "ha-rules"] },
+  { title: "Access", icon: <UsersRound />, colls: ["users", "groups", "roles", "acl", "realms", "pools"] },
+  { title: "Firewall", icon: <Shield />, colls: ["fw-options", "fw-rules", "fw-groups", "fw-aliases", "fw-ipsets"] },
+  { title: "SDN", icon: <Network />, colls: ["sdn-zones", "sdn-vnets"] },
+];
+
+// DatacenterView is cluster-wide settings: a summary of the cluster and a
+// grouped menu of its configuration sections.
+export function DatacenterView({ cluster, res }: { cluster: PVECluster; res: PVEResources }) {
   const [cur, setCur] = useState(sections[0].coll);
   const sec = sections.find((s) => s.coll === cur)!;
+  const title = (c: string) => sections.find((s) => s.coll === c)?.title ?? c;
   return (
-    <div className="grid gap-4 lg:grid-cols-[13rem_1fr]">
-      <nav className="flex gap-1 overflow-x-auto lg:flex-col" aria-label="Datacenter sections">
-        {sections.map((s) => (
-          <button
-            key={s.coll}
-            onClick={() => setCur(s.coll)}
-            className={`cursor-pointer rounded-md px-3 py-1.5 text-left text-sm whitespace-nowrap ${cur === s.coll ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-          >
-            {s.title}
-          </button>
-        ))}
-      </nav>
-      <div className="min-w-0">{sec.singleton ? <SingletonSection key={sec.coll} cluster={cluster.id} sec={sec} /> : <CollectionSection key={sec.coll} cluster={cluster.id} sec={sec} />}</div>
+    <div className="grid gap-4">
+      <DatacenterSummary res={res} />
+      <div className="grid gap-4 lg:grid-cols-[14rem_minmax(0,1fr)] lg:items-start">
+        <Select className="lg:hidden" value={cur} onChange={(e) => setCur(e.target.value)} aria-label="Datacenter section">
+          {groups.map((g) => (
+            <optgroup key={g.title} label={g.title}>
+              {g.colls.map((c) => (
+                <option key={c} value={c}>
+                  {title(c)}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </Select>
+        <Card className="hidden p-2 lg:sticky lg:top-20 lg:block">
+          <nav className="grid gap-3" aria-label="Datacenter sections">
+            {groups.map((g) => (
+              <div key={g.title}>
+                <div className="flex items-center gap-2 px-2 pt-1 pb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase [&_svg]:size-3.5">
+                  {g.icon} {g.title}
+                </div>
+                <ul className="grid gap-0.5">
+                  {g.colls.map((c) => (
+                    <li key={c}>
+                      <button
+                        onClick={() => setCur(c)}
+                        aria-current={cur === c ? "page" : undefined}
+                        className={`w-full cursor-pointer rounded-md px-2.5 py-1.5 text-left text-sm ${cur === c ? "bg-brand/15 font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}
+                      >
+                        {title(c)}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </nav>
+        </Card>
+        <div className="min-w-0">{sec.singleton ? <SingletonSection key={sec.coll} cluster={cluster.id} sec={sec} /> : <CollectionSection key={sec.coll} cluster={cluster.id} sec={sec} />}</div>
+      </div>
+    </div>
+  );
+}
+
+// DatacenterSummary is the cluster at a glance: nodes, guests, CPU, memory
+// and storage across all online nodes.
+function DatacenterSummary({ res }: { res: PVEResources }) {
+  const nodes = res.nodes ?? [];
+  const on = nodes.filter((n) => n.status === "online");
+  const guests = (res.guests ?? []).filter((g) => !g.template);
+  const running = guests.filter((g) => g.status === "running").length;
+  const cores = on.reduce((a, n) => a + n.maxcpu, 0);
+  const cpu = cores ? (100 * on.reduce((a, n) => a + n.cpu * n.maxcpu, 0)) / cores : 0;
+  const mem = on.reduce((a, n) => a + n.mem, 0);
+  const maxmem = on.reduce((a, n) => a + n.maxmem, 0);
+  // Shared storage is listed once per node; count it once.
+  const seen = new Set<string>();
+  let disk = 0,
+    maxdisk = 0;
+  for (const st of res.storage ?? []) {
+    const k = st.shared ? (st.storage ?? st.id) : st.id;
+    if (seen.has(k) || st.status !== "available") continue;
+    seen.add(k);
+    disk += st.disk;
+    maxdisk += st.maxdisk;
+  }
+  const tiles = [
+    { label: "Nodes", value: `${on.length}/${nodes.length}`, sub: on.length === nodes.length ? "all online" : `${nodes.length - on.length} offline`, v: null },
+    { label: "Guests", value: `${running}`, sub: `running of ${guests.length}`, v: null },
+    { label: "CPU", value: `${Math.round(cpu)}%`, sub: `${cores} cores online`, v: cpu },
+    { label: "Memory", value: `${Math.round(maxmem ? (100 * mem) / maxmem : 0)}%`, sub: `${formatBytes(mem)} of ${formatBytes(maxmem)}`, v: maxmem ? (100 * mem) / maxmem : 0 },
+    { label: "Storage", value: `${Math.round(maxdisk ? (100 * disk) / maxdisk : 0)}%`, sub: `${formatBytes(disk)} of ${formatBytes(maxdisk)}`, v: maxdisk ? (100 * disk) / maxdisk : 0 },
+  ];
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
+      {tiles.map((t) => (
+        <Card key={t.label} className="p-4">
+          <div className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t.label}</div>
+          <div className="tabular mt-1 text-2xl font-bold">{t.value}</div>
+          {t.v !== null && <Meter value={t.v} className="mt-2" />}
+          <div className="mt-1 truncate text-xs text-muted-foreground">{t.sub}</div>
+        </Card>
+      ))}
     </div>
   );
 }

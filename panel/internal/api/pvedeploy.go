@@ -104,6 +104,8 @@ type pveDeployReq struct {
 	IP           string `json:"ip"`
 	Gateway      string `json:"gateway"`
 	Enroll       bool   `json:"enroll"`
+	Count        int    `json:"count"` // VMs to create: name, or name-1..name-N
+	pveCIOpts
 }
 
 // catalogTemplate finds the newest template servermgr built from the
@@ -155,6 +157,25 @@ func (a *API) handlePVEDeploy(w http.ResponseWriter, r *http.Request) {
 	if req.IP == "" {
 		req.IP = "dhcp"
 	}
+	if req.Count == 0 {
+		req.Count = 1
+	}
+	if req.Count < 1 || req.Count > 10 {
+		bad("deploy 1 to 10 VMs at a time")
+		return
+	}
+	if req.Count > 1 && req.IP != "dhcp" {
+		bad("several VMs need DHCP; a static address fits one VM")
+		return
+	}
+	if req.Count > 1 && len(req.Name) > 60 {
+		bad("name too long for numbered VMs")
+		return
+	}
+	if msg := a.checkCIOpts(r.Context(), accessFrom(r.Context()), &req.pveCIOpts); msg != "" {
+		bad(msg)
+		return
+	}
 	if req.IP != "dhcp" {
 		if _, _, err := net.ParseCIDR(req.IP); err != nil {
 			bad("IP must be dhcp or a CIDR like 10.0.0.50/24")
@@ -198,20 +219,38 @@ func (a *API) handlePVEDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	who := whoFrom(r)
-	p := &store.ProxmoxProvision{ID: store.NewUUID(), ClusterID: s.C.ID, Name: req.Name, Status: "running", CreatedBy: who.Actor}
-	if err := a.Store.CreateProvision(r.Context(), p); err != nil {
-		a.internal(w, err)
-		return
+	var ps []*store.ProxmoxProvision
+	for i := 1; i <= req.Count; i++ {
+		name := req.Name
+		if req.Count > 1 {
+			name = fmt.Sprintf("%s-%d", req.Name, i)
+		}
+		p := &store.ProxmoxProvision{ID: store.NewUUID(), ClusterID: s.C.ID, Name: name, Status: "running", CreatedBy: who.Actor}
+		if err := a.Store.CreateProvision(r.Context(), p); err != nil {
+			a.internal(w, err)
+			return
+		}
+		ps = append(ps, p)
 	}
-	a.audit(r, "", "proxmox.deploy", s.C.Name+"/"+req.Name, req, true)
-	go a.runDeploy(who, s, p, img, req, tpl)
-	writeJSON(w, http.StatusAccepted, p)
+	audit := req
+	if audit.CIPassword != "" {
+		audit.CIPassword = "(set)"
+	}
+	a.audit(r, "", "proxmox.deploy", s.C.Name+"/"+req.Name, audit, true)
+	go a.runDeploy(who, s, ps, img, req, tpl)
+	writeJSON(w, http.StatusAccepted, ps[0])
 }
 
-func (a *API) runDeploy(who Who, s *pveScope, p *store.ProxmoxProvision, img *proxmox.Image, req pveDeployReq, tpl int) {
+// runDeploy builds the template once if needed, then creates the VMs one
+// after another (each clone needs the template unlocked).
+func (a *API) runDeploy(who Who, s *pveScope, ps []*store.ProxmoxProvision, img *proxmox.Image, req pveDeployReq, tpl int) {
 	ctx, cancel := context.WithTimeout(a.baseCtx(), 90*time.Minute)
 	defer cancel()
+	p := ps[0]
 	logf := a.provisionLog(p)
+	for _, q := range ps[1:] {
+		a.provisionLog(q)("queued: starts after %s", p.Name)
+	}
 	err := func() error {
 		if tpl != 0 {
 			logf("using template %d, built earlier from %s", tpl, img.Name)
@@ -227,10 +266,25 @@ func (a *API) runDeploy(who Who, s *pveScope, p *store.ProxmoxProvision, img *pr
 			}
 			logf("template %d is ready; it is reused by the next deploy of %s", tpl, img.Name)
 		}
-		return a.provisionVM(ctx, who, s, p, pveProvisionReq{
-			TemplateVMID: tpl, Node: req.Node, Name: req.Name, Cores: req.Cores, MemoryMB: req.MemoryMB, DiskGB: req.DiskGB,
-			Disk: "scsi0", FullClone: true, Storage: req.DiskStorage, Bridge: req.Bridge, IP: req.IP, Gateway: req.Gateway, Enroll: req.Enroll,
-		}, func() {}, logf)
+		return nil
 	}()
-	a.finishProvision(p, err, logf)
+	for i, q := range ps {
+		ql := logf
+		if i > 0 {
+			ql = a.provisionLog(q)
+		}
+		if err == nil {
+			err2 := a.provisionVM(ctx, who, s, q, pveProvisionReq{
+				TemplateVMID: tpl, Node: req.Node, Name: q.Name, Cores: req.Cores, MemoryMB: req.MemoryMB, DiskGB: req.DiskGB,
+				Disk: "scsi0", FullClone: true, Storage: req.DiskStorage, Bridge: req.Bridge, IP: req.IP, Gateway: req.Gateway, Enroll: req.Enroll,
+				pveCIOpts: req.pveCIOpts,
+			}, func() {}, ql)
+			a.finishProvision(q, err2, ql)
+			continue
+		}
+		if i > 0 {
+			ql("not started: the template could not be built")
+		}
+		a.finishProvision(q, err, ql)
+	}
 }

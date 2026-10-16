@@ -1,12 +1,11 @@
 import { useMemo, useState } from "react";
-import { Link } from "wouter";
 import { Box, ChevronDown, ChevronRight, LayoutTemplate, Monitor, Network, Server } from "lucide-react";
 import type { PVEGuest, PVEResources } from "@/lib/api";
 
 // ComputeTree is the cluster as a tree: the cluster, its nodes, and each
-// node's guests. Picking the cluster or a node changes what the page
-// shows; a guest opens its page. Tenants see no nodes, so their guests
-// are grouped under plain node headings.
+// node's guests. Picking the cluster, a node or a guest changes what the
+// page shows next to it. Tenants see no nodes, so their guests are grouped
+// under plain node headings.
 
 const dot = (s: string) => (s === "running" || s === "online" ? "bg-success" : s === "stopped" ? "bg-muted-foreground/50" : s === "paused" ? "bg-warning" : "bg-destructive");
 
@@ -15,13 +14,15 @@ export function ComputeTree({
   res,
   selected,
   onSelect,
-  guestHref,
+  guest,
+  onGuest,
 }: {
   name: string;
   res: PVEResources;
   selected: string; // "" = the cluster, else a node name
   onSelect: (node: string) => void;
-  guestHref: (g: PVEGuest) => string;
+  guest: string; // the picked guest's id, or ""
+  onGuest: (g: PVEGuest) => void;
 }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const [q, setQ] = useState("");
@@ -51,7 +52,7 @@ export function ComputeTree({
         aria-label="Filter guests"
         className="mb-1 h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-sm outline-none placeholder:text-muted-foreground focus-visible:border-ring dark:bg-input/30"
       />
-      <button className={row(selected === "")} onClick={() => onSelect("")} aria-current={selected === "" ? "true" : undefined}>
+      <button className={row(selected === "" && !guest)} onClick={() => onSelect("")} aria-current={selected === "" && !guest ? "true" : undefined}>
         <Network className="size-4 shrink-0" />
         <span className="truncate font-medium">{name}</span>
         <span className="ml-auto text-xs tabular-nums">{(res.guests ?? []).filter((g) => !g.template).length}</span>
@@ -73,7 +74,7 @@ export function ComputeTree({
                   {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
                 </button>
                 {node ? (
-                  <button className={row(selected === n)} onClick={() => onSelect(n)} aria-current={selected === n ? "true" : undefined}>
+                  <button className={row(selected === n && !guest)} onClick={() => onSelect(n)} aria-current={selected === n && !guest ? "true" : undefined}>
                     <Server className="size-4 shrink-0" />
                     <span className="truncate">{n}</span>
                     <span className={`size-1.5 shrink-0 rounded-full ${dot(node.status)}`} title={node.status} />
@@ -91,12 +92,17 @@ export function ComputeTree({
                     const Icon = g.template ? LayoutTemplate : g.type === "lxc" ? Box : Monitor;
                     return (
                       <li key={g.id}>
-                        <Link href={guestHref(g)} className={row(false)} title={`${g.type === "lxc" ? "CT" : "VM"} ${g.vmid}${g.template ? " (template)" : ""}`}>
+                        <button
+                          className={row(guest === g.id)}
+                          onClick={() => onGuest(g)}
+                          aria-current={guest === g.id ? "true" : undefined}
+                          title={`${g.type === "lxc" ? "CT" : "VM"} ${g.vmid}${g.template ? " (template)" : ""}`}
+                        >
                           <Icon className="size-3.5 shrink-0" />
                           <span className="truncate">{g.name || `${g.vmid}`}</span>
                           {!g.template && <span className={`size-1.5 shrink-0 rounded-full ${dot(g.status)}`} />}
                           <span className="ml-auto font-mono text-[11px] text-muted-foreground/70">{g.vmid}</span>
-                        </Link>
+                        </button>
                       </li>
                     );
                   })}

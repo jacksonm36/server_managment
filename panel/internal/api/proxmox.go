@@ -551,6 +551,101 @@ type pveProvisionReq struct {
 	Enroll       bool   `json:"enroll"`
 	Storage      string `json:"storage"` // full clone target storage ("" = template's)
 	Bridge       string `json:"bridge"`  // network bridge for net0 ("" = template's)
+	pveCIOpts
+}
+
+// pveCIOpts are the cloud-init and guest options a new VM can get on top
+// of the panel's own SSH key.
+type pveCIOpts struct {
+	CIUser       string   `json:"ciuser"` // "" = root
+	CIPassword   string   `json:"cipassword"`
+	SSHKeys      string   `json:"sshkeys"`     // extra keys, one per line
+	SSHKeyIDs    []int64  `json:"ssh_key_ids"` // keys from the key library
+	Nameserver   string   `json:"nameserver"`
+	Searchdomain string   `json:"searchdomain"`
+	Tags         []string `json:"tags"`
+	OnBoot       bool     `json:"onboot"`
+	Description  string   `json:"description"`
+	keyLines     []string // resolved by check
+}
+
+// checkCIOpts validates the options and resolves library keys. ac decides
+// whether library keys may be used.
+func (a *API) checkCIOpts(ctx context.Context, ac *Access, o *pveCIOpts) string {
+	o.CIUser = strings.TrimSpace(o.CIUser)
+	if o.CIUser != "" && !pveCIUser.MatchString(o.CIUser) {
+		return "user: lower-case letters, digits, - and _"
+	}
+	if o.CIPassword != "" && (len(o.CIPassword) < 8 || len(o.CIPassword) > 128) {
+		return "password: 8 to 128 characters"
+	}
+	o.keyLines = nil
+	for _, k := range strings.Split(strings.ReplaceAll(o.SSHKeys, "\r", ""), "\n") {
+		if k = strings.TrimSpace(k); k == "" {
+			continue
+		}
+		if !pveSSHKey.MatchString(k) {
+			return "SSH keys: one OpenSSH public key per line"
+		}
+		o.keyLines = append(o.keyLines, k)
+	}
+	if len(o.SSHKeyIDs) > 0 && !ac.Can("keys.manage") {
+		return "using keys from the key library needs the keys.manage permission"
+	}
+	for _, id := range o.SSHKeyIDs {
+		k, err := a.Store.GetSSHKey(ctx, id)
+		if err != nil {
+			return fmt.Sprintf("key %d is not in the key library", id)
+		}
+		line, err := a.openSecret(k.Sealed)
+		if err != nil {
+			return "unlock the vault to use keys from the key library"
+		}
+		o.keyLines = append(o.keyLines, strings.TrimSpace(string(line)))
+	}
+	if len(o.keyLines) > 20 {
+		return "SSH keys: at most 20"
+	}
+	var ns []string
+	for _, n := range strings.Fields(o.Nameserver) {
+		if net.ParseIP(n) == nil || len(ns) == 3 {
+			return "DNS servers: up to 3 IP addresses"
+		}
+		ns = append(ns, n)
+	}
+	o.Nameserver = strings.Join(ns, " ")
+	o.Searchdomain = strings.TrimSpace(o.Searchdomain)
+	if o.Searchdomain != "" && (len(o.Searchdomain) > 512 || !pveSearch.MatchString(o.Searchdomain)) {
+		return "search domain: domain names separated by spaces"
+	}
+	if len(o.Tags) > 10 {
+		return "at most 10 tags"
+	}
+	for _, t := range o.Tags {
+		if !pveTag.MatchString(t) {
+			return "tags: lower-case letters, digits, - _ . +"
+		}
+	}
+	if len(o.Description) > 2000 {
+		return "notes: at most 2000 characters"
+	}
+	return ""
+}
+
+// redacted is the request as the audit log keeps it.
+func (r pveProvisionReq) redacted() pveProvisionReq {
+	if r.CIPassword != "" {
+		r.CIPassword = "(set)"
+	}
+	return r
+}
+
+// user is the cloud-init user the VM gets.
+func (o *pveCIOpts) user() string {
+	if o.CIUser == "" {
+		return "root"
+	}
+	return o.CIUser
 }
 
 var (
@@ -599,6 +694,10 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 		bad("invalid storage or bridge")
 		return
 	}
+	if msg := a.checkCIOpts(r.Context(), accessFrom(r.Context()), &req.pveCIOpts); msg != "" {
+		bad(msg)
+		return
+	}
 	s, err := a.pveScope(r)
 	if err != nil {
 		scopeErr(w, err)
@@ -625,7 +724,7 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
-	a.audit(r, "", "proxmox.provision", s.C.Name+"/"+req.Name, req, true)
+	a.audit(r, "", "proxmox.provision", s.C.Name+"/"+req.Name, req.redacted(), true)
 	// The reservation ends once the clone is in the pool (or it failed).
 	release := func() {}
 	if reserved != nil {
@@ -806,7 +905,26 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 			ipcfg += ",gw=" + req.Gateway
 		}
 	}
-	cfg := url.Values{"ciuser": {"root"}, "sshkeys": {encodeURIComponent(pub + " servermgr-ansible")}, "ipconfig0": {ipcfg}, "agent": {"1"}}
+	keys := append([]string{pub + " servermgr-ansible"}, req.keyLines...)
+	cfg := url.Values{"ciuser": {req.user()}, "sshkeys": {encodeURIComponent(strings.Join(keys, "\n"))}, "ipconfig0": {ipcfg}, "agent": {"1"}}
+	if req.CIPassword != "" {
+		cfg.Set("cipassword", req.CIPassword)
+	}
+	if req.Nameserver != "" {
+		cfg.Set("nameserver", req.Nameserver)
+	}
+	if req.Searchdomain != "" {
+		cfg.Set("searchdomain", req.Searchdomain)
+	}
+	if len(req.Tags) > 0 {
+		cfg.Set("tags", strings.Join(req.Tags, ";"))
+	}
+	if req.OnBoot {
+		cfg.Set("onboot", "1")
+	}
+	if req.Description != "" {
+		cfg.Set("description", req.Description)
+	}
 	if req.Cores > 0 {
 		cfg.Set("cores", strconv.Itoa(req.Cores))
 	}
@@ -816,7 +934,14 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 	if req.Bridge != "" {
 		cfg.Set("net0", "virtio,bridge="+req.Bridge)
 	}
-	logf("cloud-init: root with the panel SSH key, %s; agent enabled", ipcfg)
+	extra := ""
+	if n := len(req.keyLines); n > 0 {
+		extra = fmt.Sprintf(" and %d more key(s)", n)
+	}
+	if req.CIPassword != "" {
+		extra += ", a password"
+	}
+	logf("cloud-init: user %s with the panel SSH key%s, %s; agent enabled", req.user(), extra, ipcfg)
 	if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/config", cfg, nil); err != nil {
 		return err
 	}
@@ -871,7 +996,7 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 		}
 	}
 	logf("VM address %s; enrolling the agent over SSH", addr)
-	serverID, err := a.enrollOverSSH(ctx, addr, req.Name, logf)
+	serverID, err := a.enrollOverSSH(ctx, addr, req.user(), req.Name, logf)
 	if err != nil {
 		return err
 	}
@@ -900,7 +1025,7 @@ func (s *flexString) UnmarshalJSON(b []byte) error {
 
 // enrollOverSSH logs in with the panel key (installed by cloud-init), runs
 // the agent installer with a fresh join token and waits for the agent.
-func (a *API) enrollOverSSH(ctx context.Context, addr, name string, logf func(string, ...any)) (string, error) {
+func (a *API) enrollOverSSH(ctx context.Context, addr, user, name string, logf func(string, ...any)) (string, error) {
 	keyPath, _, err := a.ansibleKey()
 	if err != nil {
 		return "", err
@@ -917,7 +1042,7 @@ func (a *API) enrollOverSSH(ctx context.Context, addr, name string, logf func(st
 	// pinned properly by ansible.prepare over the agent afterwards).
 	var seen string
 	cfg := &ssh.ClientConfig{
-		User: "root", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, Timeout: 15 * time.Second,
+		User: user, Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, Timeout: 15 * time.Second,
 		HostKeyCallback: func(_ string, _ net.Addr, k ssh.PublicKey) error { seen = ssh.FingerprintSHA256(k); return nil },
 	}
 	var conn *ssh.Client
@@ -941,7 +1066,12 @@ func (a *API) enrollOverSSH(ctx context.Context, addr, name string, logf func(st
 	if err := a.Store.CreateJoinToken(ctx, hash, name, time.Now().Add(joinTokenTTL), nil); err != nil {
 		return "", err
 	}
-	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | sh -s -- --token %s --ca-sha256 %s", a.Cfg.PublicURL, raw, a.CA.Fingerprint())
+	// Cloud images give their default user passwordless sudo.
+	sh := "sh"
+	if user != "root" {
+		sh = "sudo -n sh"
+	}
+	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | %s -s -- --token %s --ca-sha256 %s", a.Cfg.PublicURL, sh, raw, a.CA.Fingerprint())
 	sess, err := conn.NewSession()
 	if err != nil {
 		return "", err

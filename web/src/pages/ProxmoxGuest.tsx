@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "wouter";
-import { ArrowLeft, Camera, Copy, LayoutTemplate, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { ArrowLeft, Camera, Copy, ExternalLink, LayoutTemplate, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square, Trash2 } from "lucide-react";
 import { api, type PVEGuestDetail, type PVEGuestRef, type PVERRDPoint, type PVETask, type PVETimeframe } from "@/lib/api";
 import { useAccess } from "@/lib/access";
 import { formatBytes, formatUptime } from "@/lib/utils";
@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HistoryChart } from "@/components/HistoryChart";
-import { GuestConsole } from "@/components/GuestConsole";
+import { ConsolePreview, GuestConsole } from "@/components/GuestConsole";
 import { Meter } from "@/components/LiveChart";
-import { SnapshotsDialog } from "@/pages/Proxmox";
+import { DeleteDialog, SnapshotsDialog } from "@/pages/Proxmox";
 import { BackupsTab, CloudInitTab, FirewallTab } from "@/pages/ProxmoxGuestTabs";
 import { GuestMoveDialog, HardwareTab } from "@/pages/ProxmoxGuestHardware";
 
@@ -43,7 +43,25 @@ function shown(k: string, v: string | number) {
   }
 }
 
-export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; node: string; type: string; vmid: string }) {
+// ProxmoxGuest is a guest's page. embedded is the same view inside the
+// cluster page's right pane: no back link, and a link to the full page.
+export function ProxmoxGuest({
+  cluster,
+  node,
+  type,
+  vmid,
+  embedded,
+  onGone,
+}: {
+  cluster: string;
+  node: string;
+  type: string;
+  vmid: string;
+  embedded?: boolean;
+  onGone?: () => void; // after a delete, instead of going back to /proxmox
+}) {
+  const [, navigate] = useLocation();
+  const [del, setDel] = useState(false);
   const ac = useAccess();
   const ref = useMemo<PVEGuestRef>(() => ({ node, type: type === "lxc" ? "lxc" : "qemu", vmid: Number(vmid) }), [node, type, vmid]);
   const [g, setG] = useState<PVEGuestDetail | null>(null);
@@ -130,7 +148,7 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
     };
   }, [rrd]);
 
-  const back = (
+  const back = embedded ? null : (
     <Link href="/proxmox" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft className="size-4" /> Proxmox
     </Link>
@@ -167,96 +185,115 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
   const desc = typeof g.config.description === "string" ? g.config.description.trim() : "";
 
   return (
-    <div className="grid gap-6">
+    <div className={embedded ? "grid gap-4" : "grid gap-6"}>
       {back}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold tracking-tight">{name}</h1>
-            <Badge variant="outline">
-              {g.type === "qemu" ? "VM" : "CT"} {g.vmid}
-            </Badge>
-            <Badge variant={running && !paused ? "success" : st.status === "stopped" ? "outline" : "warning"}>{paused ? "paused" : st.status}</Badge>
-            {st.lock && <Badge variant="warning">locked: {st.lock}</Badge>}
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            on {g.node}
-            {running && st.uptime ? ` · up ${formatUptime(st.uptime)}` : ""}
-            {g.ips?.length ? ` · ${g.ips.join(", ")}` : ""}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {ac.can("proxmox.console") && running && (
-            <Button size="sm" variant="brand" onClick={() => setConsole(true)}>
-              <MonitorPlay /> Console
-            </Button>
-          )}
-          {ac.can("proxmox.operate") && (
-            <>
-              {(!running || paused) && (
-                <Button size="sm" variant="brand" disabled={!!busy} onClick={() => power(paused ? "resume" : "start")}>
-                  <Play /> {paused ? "Resume" : "Start"}
-                </Button>
-              )}
-              {running && !paused && (
-                <>
-                  <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("shutdown")}>
-                    <Power /> Shut down
-                  </Button>
-                  <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("reboot")}>
-                    <RotateCw /> Reboot
-                  </Button>
-                  {g.type === "qemu" && (
-                    <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("suspend")}>
-                      <Pause /> Suspend
-                    </Button>
-                  )}
-                </>
-              )}
-              {running && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="text-destructive"
-                  disabled={!!busy}
-                  onClick={() => confirm(`Hard-stop ${name}? Unsaved data in the guest is lost.`) && power("stop")}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="grid content-start gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className={`${embedded ? "text-xl" : "text-2xl"} font-semibold tracking-tight`}>{name}</h1>
+              <Badge variant="outline">
+                {g.type === "qemu" ? "VM" : "CT"} {g.vmid}
+              </Badge>
+              <Badge variant={running && !paused ? "success" : st.status === "stopped" ? "outline" : "warning"}>{paused ? "paused" : st.status}</Badge>
+              {st.lock && <Badge variant="warning">locked: {st.lock}</Badge>}
+              {embedded && (
+                <Link
+                  href={`/proxmox/${cluster}/${encodeURIComponent(node)}/${type}/${vmid}`}
+                  className="ml-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                  title="Open on its own page"
                 >
-                  <Square /> Stop
-                </Button>
+                  <ExternalLink className="size-3.5" /> Full page
+                </Link>
               )}
-              <Button size="sm" variant="secondary" onClick={() => setSnaps(true)}>
-                <Camera /> Snapshots
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+              on {g.node}
+              {running && st.uptime ? ` · up ${formatUptime(st.uptime)}` : ""}
+              {g.ips?.length ? ` · ${g.ips.join(", ")}` : ""}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {ac.can("proxmox.console") && running && (
+              <Button size="sm" variant="brand" onClick={() => setConsole(true)}>
+                <MonitorPlay /> Console
               </Button>
-            </>
-          )}
-          {ac.can("proxmox.guests") && (
-            <Button size="sm" variant="secondary" onClick={() => setMove("clone")}>
-              <Copy /> Clone
-            </Button>
-          )}
-          {ac.can("proxmox.manage") && (
-            <Button size="sm" variant="secondary" onClick={() => setMove("migrate")}>
-              <MoveRight /> Migrate
-            </Button>
-          )}
-          {ac.can("proxmox.manage") && st.status === "stopped" && (
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                const c = prompt(`Converting ${name} to a template can't be undone; it can then only be cloned. Type ${g.vmid} to confirm.`);
-                if (c)
-                  void api
-                    .pveMakeTemplate(cluster, ref, c)
-                    .then(() => setMsg({ ok: true, text: "Converted to a template." }))
-                    .catch((e) => setMsg({ ok: false, text: (e as Error).message }))
-                    .finally(load);
-              }}
-            >
-              <LayoutTemplate /> Make template
-            </Button>
-          )}
+            )}
+            {ac.can("proxmox.operate") && (
+              <>
+                {(!running || paused) && (
+                  <Button size="sm" variant="brand" disabled={!!busy} onClick={() => power(paused ? "resume" : "start")}>
+                    <Play /> {paused ? "Resume" : "Start"}
+                  </Button>
+                )}
+                {running && !paused && (
+                  <>
+                    <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("shutdown")}>
+                      <Power /> Shut down
+                    </Button>
+                    <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("reboot")}>
+                      <RotateCw /> Reboot
+                    </Button>
+                    {g.type === "qemu" && (
+                      <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("suspend")}>
+                        <Pause /> Suspend
+                      </Button>
+                    )}
+                  </>
+                )}
+                {running && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-destructive"
+                    disabled={!!busy}
+                    onClick={() => confirm(`Hard-stop ${name}? Unsaved data in the guest is lost.`) && power("stop")}
+                  >
+                    <Square /> Stop
+                  </Button>
+                )}
+                <Button size="sm" variant="secondary" onClick={() => setSnaps(true)}>
+                  <Camera /> Snapshots
+                </Button>
+              </>
+            )}
+            {ac.can("proxmox.guests") && (
+              <Button size="sm" variant="secondary" onClick={() => setMove("clone")}>
+                <Copy /> Clone
+              </Button>
+            )}
+            {ac.can("proxmox.manage") && (
+              <Button size="sm" variant="secondary" onClick={() => setMove("migrate")}>
+                <MoveRight /> Migrate
+              </Button>
+            )}
+            {ac.can("proxmox.manage") && st.status === "stopped" && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  const c = prompt(`Converting ${name} to a template can't be undone; it can then only be cloned. Type ${g.vmid} to confirm.`);
+                  if (c)
+                    void api
+                      .pveMakeTemplate(cluster, ref, c)
+                      .then(() => setMsg({ ok: true, text: "Converted to a template." }))
+                      .catch((e) => setMsg({ ok: false, text: (e as Error).message }))
+                      .finally(load);
+                }}
+              >
+                <LayoutTemplate /> Make template
+              </Button>
+            )}
+            {ac.can("proxmox.guests") && st.status === "stopped" && (
+              <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDel(true)}>
+                <Trash2 /> Delete
+              </Button>
+            )}
+          </div>
         </div>
+        {ac.can("proxmox.console") && running && !console_ && (
+          <ConsolePreview key={`${node}/${vmid}`} cluster={cluster} guest={ref} onExpand={() => setConsole(true)} />
+        )}
       </div>
       {busy && <p className="text-sm text-muted-foreground">{busy}…</p>}
       {msg && <p className={`text-sm ${msg.ok ? "text-success" : "text-destructive"}`}>{msg.text}</p>}
@@ -493,6 +530,18 @@ export function ProxmoxGuest({ cluster, node, type, vmid }: { cluster: string; n
             setMove(null);
             setMsg({ ok: true, text });
             void loadTasks();
+          }}
+        />
+      )}
+      {del && (
+        <DeleteDialog
+          cluster={cluster}
+          guest={{ ...ref, name }}
+          onClose={() => setDel(false)}
+          onDone={() => {
+            setDel(false);
+            if (onGone) onGone();
+            else navigate("/proxmox");
           }}
         />
       )}

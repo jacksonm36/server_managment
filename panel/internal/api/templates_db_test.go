@@ -184,4 +184,58 @@ func TestDeployFromCatalog(t *testing.T) {
 	if templates != 1 || vms != 2 {
 		t.Errorf("templates = %d, vms = %d", templates, vms)
 	}
+	pve.mu.Unlock()
+
+	// Several VMs with cloud-init options.
+	dep := map[string]any{
+		"image": "debian-13", "node": "pve1", "name": "web", "flavor_id": fid, "image_storage": "local", "disk_storage": "local-lvm", "bridge": "vmbr0",
+		"count": 2, "ciuser": "debian", "cipassword": "secret-pass-1", "sshkeys": "ssh-ed25519 AAAAC3Nza alice@laptop", "nameserver": "1.1.1.1",
+		"tags": []string{"web", "prod"}, "onboot": true,
+	}
+	badDeploy := func(k string, v any, why string) {
+		b := map[string]any{}
+		for k, v := range dep {
+			b[k] = v
+		}
+		b[k] = v
+		expect(why, first(call(root, "POST", "/api/v1/proxmox/"+cid+"/deploy", b)), 400)
+	}
+	badDeploy("count", 11, "too many VMs")
+	badDeploy("ip", "10.0.0.5/24", "static IP with count")
+	badDeploy("sshkeys", "not a key", "bad key")
+	badDeploy("ciuser", "Root!", "bad user")
+	badDeploy("tags", []string{"Bad Tag"}, "bad tag")
+	badDeploy("ssh_key_ids", []int64{999}, "unknown library key")
+	expect("deploy two", first(call(root, "POST", "/api/v1/proxmox/"+cid+"/deploy", dep)), 202)
+	for i := 0; i < 200; i++ {
+		_, _, provs := call(root, "GET", "/api/v1/proxmox/provisions", nil)
+		done := 0
+		for _, x := range provs {
+			if m := x.(map[string]any); strings.HasPrefix(fmt.Sprint(m["name"]), "web-") && m["status"] != "running" {
+				if m["status"] != "succeeded" {
+					t.Fatalf("%s: %s\n%s", m["name"], m["status"], m["log"])
+				}
+				done++
+			}
+		}
+		if done == 2 {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	pve.mu.Lock()
+	n := 0
+	for _, g := range pve.guests {
+		if g.name == "web-1" || g.name == "web-2" {
+			n++
+			c := g.config
+			if c["ciuser"] != "debian" || c["cipassword"] != "secret-pass-1" || !strings.Contains(c["sshkeys"], "alice%40laptop") || !strings.Contains(c["sshkeys"], "servermgr-ansible") ||
+				c["nameserver"] != "1.1.1.1" || c["tags"] != "web;prod" || c["onboot"] != "1" {
+				t.Errorf("%s config = %v", g.name, c)
+			}
+		}
+	}
+	if n != 2 {
+		t.Errorf("found %d of web-1, web-2", n)
+	}
 }

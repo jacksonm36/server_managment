@@ -1,5 +1,4 @@
 import { useMemo } from "react";
-import { Link } from "wouter";
 import type { PVEGuest, PVEResources } from "@/lib/api";
 import { formatBytes, formatUptime, pct } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -49,7 +48,7 @@ export function clusterHealth(res: PVEResources): Health {
   return { score, label, tone: tone as Health["tone"], reasons };
 }
 
-export function PVEOverview({ res, guestHref }: { res: PVEResources; guestHref: (g: PVEGuest) => string }) {
+export function PVEOverview({ res, onGuest }: { res: PVEResources; onGuest: (g: PVEGuest) => void }) {
   const health = useMemo(() => clusterHealth(res), [res]);
   const nodes = res.nodes ?? [];
   const all = res.guests ?? [];
@@ -136,9 +135,9 @@ export function PVEOverview({ res, guestHref }: { res: PVEResources; guestHref: 
                 {hottest.map((g) => (
                   <tr key={g.id}>
                     <td className="px-2 py-2">
-                      <Link href={guestHref(g)} className="hover:text-brand hover:underline">
+                      <button className="cursor-pointer hover:text-brand hover:underline" onClick={() => onGuest(g)}>
                         {g.name}
-                      </Link>
+                      </button>
                       <span className="text-muted-foreground"> · {g.vmid}</span>
                     </td>
                     <td className="px-2 py-2 text-muted-foreground">{g.node}</td>

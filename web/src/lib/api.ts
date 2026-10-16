@@ -357,6 +357,7 @@ export type PVEResource = {
   tags?: string;
   pool?: string;
   storage?: string;
+  shared?: number;
 };
 export type PVEGuest = PVEResource & { server_id?: string; server_name?: string; tenant?: string };
 export type PVETenantInfo = { name: string; pool: string; storages: string[]; bridges: string[]; usage: TenantUsage; quota: TenantUsage };
@@ -429,6 +430,19 @@ export type PVEDeployReq = {
   ip: string;
   gateway: string;
   enroll: boolean;
+  count?: number;
+} & PVECIOpts;
+// Cloud-init and guest options for a new VM, on top of the panel's key.
+export type PVECIOpts = {
+  ciuser?: string;
+  cipassword?: string;
+  sshkeys?: string;
+  ssh_key_ids?: number[];
+  nameserver?: string;
+  searchdomain?: string;
+  tags?: string[];
+  onboot?: boolean;
+  description?: string;
 };
 export type PVEImage = { id: string; name: string; vendor: string; user: string; url: string; checksums?: string };
 export type PVETemplateTargets = { nodes: string[]; image_storages: string[]; file_storages: string[]; disk_storages: string[]; bridges: string[] };
@@ -890,7 +904,7 @@ export const api = {
       enroll: boolean;
       storage?: string;
       bridge?: string;
-    },
+    } & PVECIOpts,
   ) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/provision`, b),
   pveFlavors: () => request<PVEFlavor[]>("GET", "/api/v1/proxmox-flavors"),
   pveFlavorSave: (f: Omit<PVEFlavor, "id"> & { id?: number }) =>

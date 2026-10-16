@@ -7,6 +7,7 @@ declare module "@novnc/novnc" {
       options?: { credentials?: { password?: string; username?: string }; wsProtocols?: string[]; shared?: boolean },
     );
     scaleViewport: boolean;
+    viewOnly: boolean;
     resizeSession: boolean;
     background: string;
     focusOnClick: boolean;
