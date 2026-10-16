@@ -73,6 +73,10 @@ export const pve = {
     request<PVERun>("POST", `${np(id, node)}/appliances`, { storage, template }),
 
   // Windows templates (Cloudbase-Init)
+  // windowsISO has the node download the retail Windows 10/11 ISO in a
+  // language straight from Microsoft.
+  windowsISO: (id: string, node: string, body: { edition: string; locale: string; storage: string }) =>
+    request<{ volid: string; file: string; index: number; upid?: string }>("POST", `/api/v1/proxmox/${id}/nodes/${enc(node)}/windows-iso`, body),
   windowsBuild: (id: string, req: WinBuildReq) => request<{ id: string; name: string }[]>("POST", `/api/v1/proxmox/${id}/windows-templates`, req),
   windowsPrep: (id: string, node: string, vmid: number, storage: string) =>
     request<{ volid: string; slot: string; pending: boolean }>("POST", `/api/v1/proxmox/${id}/guests/${enc(node)}/qemu/${vmid}/windows-prep`, { storage }),

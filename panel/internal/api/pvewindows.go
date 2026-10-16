@@ -206,6 +206,68 @@ func (a *API) handleWindowsEditions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"editions": winEditions, "profiles": winProfiles})
 }
 
+// POST /api/v1/proxmox/{id}/nodes/{node}/windows-iso has the node download
+// the retail Windows 10/11 ISO in a language from Microsoft into an ISO
+// storage (the evaluation ISOs come from the ISO library). The link is
+// looked up at Microsoft right now and never comes from the browser. It
+// answers the ISO's volume, the image index of Pro and, unless the ISO is
+// already there, the download task.
+func (a *API) handlePVEWindowsISO(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Edition string `json:"edition"`
+		Locale  string `json:"locale"`
+		Storage string `json:"storage"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	bad := func(m string) { writeErr(w, http.StatusBadRequest, m) }
+	switch {
+	case !proxmox.HasRetailISO(req.Edition):
+		bad("Microsoft offers a retail ISO of Windows 10 and 11 only")
+		return
+	case !winLocale.MatchString(req.Locale):
+		bad("language: like en-US")
+		return
+	case !pveStorage.MatchString(req.Storage):
+		bad("bad storage")
+		return
+	}
+	s, node, ok := a.pveAdminNode(w, r)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	iso, err := proxmox.RetailWindowsISO(ctx, req.Edition, req.Locale)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	volid := req.Storage + ":iso/" + iso.File
+	out := map[string]any{"volid": volid, "file": iso.File, "index": proxmox.WinRetailIndex}
+	have, err := isoOnStorage(ctx, s.Cl, node, volid)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if have {
+		writeJSON(w, http.StatusOK, out)
+		return
+	}
+	form := url.Values{"url": {iso.URL}, "content": {"iso"}, "filename": {iso.File}}
+	target := s.C.Name + "/" + node + "/" + volid
+	var upid string
+	if err := s.Cl.Do(ctx, http.MethodPost, storagePath(node, req.Storage)+"/download-url", form, &upid); err != nil {
+		a.audit(r, "", "proxmox.download_url", target, map[string]string{"source": "microsoft retail", "error": err.Error()}, false)
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	a.audit(r, "", "proxmox.download_url", target, map[string]string{"source": "microsoft retail"}, true)
+	out["upid"] = upid
+	writeJSON(w, http.StatusAccepted, out)
+}
+
 type pveWinBuildReq struct {
 	Edition      string   `json:"edition"`
 	Node         string   `json:"node"`

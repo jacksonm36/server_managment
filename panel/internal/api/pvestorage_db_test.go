@@ -72,6 +72,10 @@ func TestPVEStorageAdmin(t *testing.T) {
 	expect("download ftp", dl(map[string]any{"url": "ftp://x/a.iso", "content": "iso"}), 400)
 	expect("download bad name", dl(map[string]any{"url": "https://x/a.iso", "content": "iso", "filename": "../a.iso"}), 400)
 	expect("download unknown node", first(call(root, "POST", base+"/nodes/pve9/storage/local/download", map[string]any{"url": "https://x/a.iso", "content": "iso"})), 404)
+	winISO := func(b map[string]any) int { return first(call(root, "POST", base+"/nodes/pve1/windows-iso", b)) }
+	expect("windows iso: retail server", winISO(map[string]any{"edition": "ws2022", "locale": "en-US", "storage": "local"}), 400)
+	expect("windows iso: bad locale", winISO(map[string]any{"edition": "win11", "locale": "english", "storage": "local"}), 400)
+	expect("windows iso: bad storage", winISO(map[string]any{"edition": "win11", "locale": "en-US", "storage": "../x"}), 400)
 	code, d, _ := call(root, "POST", base+"/nodes/pve1/storage/local/download", map[string]any{"url": "https://cdimage.example/debian-13.iso", "content": "iso"})
 	expect("download iso", code, 202)
 	upid, _ := d["upid"].(string)

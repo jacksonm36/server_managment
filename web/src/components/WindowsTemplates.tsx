@@ -34,13 +34,21 @@ export const winProfiles: { id: WinProfile; name: string; icon: typeof Lock; abo
 export const winTuning =
   "Both get the VirtIO drivers and guest agent, the High performance power plan, TRIM, no hibernation or device encryption, and Cloudbase-Init for the Administrator password, hostname and network.";
 
+// Microsoft's generic Pro setup key: it installs Pro from the multi-edition
+// ISO without activating it. The admin's own key activates Windows.
+const GENERIC_PRO_KEY = "VK7JG-NPHTM-C97JM-9MPGT-3V66T";
+
 // downloadISO has Proxmox download an ISO into storage and waits for it
 // (up to two hours: Windows ISOs are large).
 async function downloadISO(cluster: string, node: string, storage: string, url: string, filename: string) {
   const r = await api.pveDownloadURL(cluster, node, storage, { url, content: "iso", filename });
+  await waitDownload(cluster, node, r.upid);
+}
+
+async function waitDownload(cluster: string, node: string, upid: string) {
   for (let i = 0; i < 2400; i++) {
     await new Promise((res) => setTimeout(res, 3000));
-    const t = await api.pveNodeTask(cluster, node, r.upid);
+    const t = await api.pveNodeTask(cluster, node, upid);
     if (t.status === "stopped") {
       if (t.exitstatus !== "OK") throw new Error(`Download failed: ${t.exitstatus}`);
       return;
@@ -71,6 +79,10 @@ export function WindowsBuildDialog({
   const { c, err } = useChoices(cluster, node, reload);
   const [dl, setDl] = useState("");
   const [winDl, setWinDl] = useState("");
+  const [winBusy, setWinBusy] = useState(false);
+  // Windows 10/11 come as Microsoft's retail ISO (Pro, any language) or
+  // the Enterprise evaluation; servers only as the evaluation.
+  const [winSrc, setWinSrc] = useState<"retail" | "eval">(edition.client ? "retail" : "eval");
   const base = (i: string) => i.split("/").pop() ?? i;
   const [f, setF] = useState({
     iso: "",
@@ -191,14 +203,16 @@ export function WindowsBuildDialog({
           hint={
             winDl ||
             (!f.iso && isoStorage
-              ? "No ISO yet? Download the evaluation ISO straight from Microsoft (Server: 180 days, desktop: 90 days; activate later with your own key)."
+              ? winSrc === "retail"
+                ? `No ISO yet? Download Microsoft's current ${edition.name} ISO in ${f.locale || "en-US"} (set under Hardware, edition and language). It installs Pro; activate with your key.`
+                : `No ISO yet? Download the English evaluation ISO straight from Microsoft (${edition.client ? "90" : "180"} days; activate later with your own key).`
               : c && !c.isos.length
                 ? "No ISOs on this node yet: upload one on the Storage page."
                 : undefined)
           }
         >
-          <div className="flex gap-2">
-            <Select value={f.iso} onChange={(e) => up("iso")(e.target.value)} required>
+          <div className="flex flex-wrap gap-2">
+            <Select className={!f.iso && isoStorage && edition.client ? "basis-full" : "flex-1"} value={f.iso} onChange={(e) => up("iso")(e.target.value)} required>
               <option value="">Pick the ISO…</option>
               {c?.isos
                 .filter((i) => !/virtio-win/i.test(i))
@@ -208,16 +222,35 @@ export function WindowsBuildDialog({
                   </option>
                 ))}
             </Select>
+            {!f.iso && isoStorage && edition.client && (
+              <Select className="w-auto flex-1" value={winSrc} onChange={(e) => setWinSrc(e.target.value as "retail" | "eval")} disabled={winBusy} aria-label="Which ISO">
+                <option value="retail">Pro, from Microsoft</option>
+                <option value="eval">Enterprise evaluation</option>
+              </Select>
+            )}
             {!f.iso && isoStorage && (
               <Button
                 type="button"
                 size="sm"
                 variant="secondary"
-                disabled={!!winDl}
-                title={`Download the ${edition.name} evaluation ISO from Microsoft into ${isoStorage}`}
+                disabled={winBusy}
+                title={`Download the ${edition.name} ${winSrc === "retail" ? "" : "evaluation "}ISO from Microsoft into ${isoStorage}`}
                 onClick={async () => {
                   setWinDl("Looking up Microsoft's download…");
+                  setWinBusy(true);
                   try {
+                    if (winSrc === "retail") {
+                      const r = await pve.windowsISO(cluster, node, { edition: edition.id, locale: f.locale.trim(), storage: isoStorage });
+                      if (r.upid) {
+                        setWinDl(`Downloading ${r.file} (about 5–7 GB)…`);
+                        await waitDownload(cluster, node, r.upid);
+                      }
+                      const generic = !f.key.trim();
+                      setF((x) => ({ ...x, iso: r.volid, index: r.index, key: generic ? GENERIC_PRO_KEY : x.key }));
+                      setWinDl(generic ? "Ready. It installs Pro with Microsoft's generic setup key; enter your own key under Hardware, edition and language to activate." : "");
+                      setReload((n) => n + 1);
+                      return;
+                    }
                     const e = (await api.pveISOs()).find((x) => x.windows === edition.id);
                     if (!e?.url || !e.file) throw new Error(e?.error || `No Microsoft download is known for ${edition.name}.`);
                     setWinDl(`Downloading ${e.file} (about 5–7 GB)…`);
@@ -226,10 +259,12 @@ export function WindowsBuildDialog({
                     setReload((n) => n + 1);
                   } catch (x) {
                     setWinDl((x as Error).message);
+                  } finally {
+                    setWinBusy(false);
                   }
                 }}
               >
-                {winDl ? <Loader2 className="animate-spin" /> : <Download />} Download
+                {winBusy ? <Loader2 className="animate-spin" /> : <Download />} Download
               </Button>
             )}
           </div>
