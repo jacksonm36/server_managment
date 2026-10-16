@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Box, ChevronDown, ChevronRight, LayoutTemplate, Monitor, Network, Server } from "lucide-react";
-import { api, type PVEGuest, type PVEResources } from "@/lib/api";
+import { api, type PVEGuest, type PVEGuestOS, type PVEResources } from "@/lib/api";
 import { LogoMark, appIcon, osIcon } from "@/components/DistroIcon";
 import { usePending } from "@/lib/pending";
 
@@ -31,7 +31,7 @@ export function ComputeTree({
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   const [q, setQ] = useState("");
   // OS per guest ("node/vmid"); looked up in the background, cached by the panel.
-  const [os, setOS] = useState<Record<string, { os: string; pretty?: string }>>({});
+  const [os, setOS] = useState<Record<string, PVEGuestOS>>({});
   useEffect(() => {
     const get = () =>
       api
@@ -108,15 +108,16 @@ export function ComputeTree({
                     const Icon = g.template ? LayoutTemplate : g.type === "lxc" ? Box : Monitor;
                     const o = os[`${g.node}/${g.vmid}`];
                     const oi = o ? osIcon(o.os) : null;
-                    const app = appIcon(g.name ?? "", g.tags ?? "");
-                    const osTitle = o ? o.pretty || o.os : "";
+                    const app = appIcon(o?.app, g.name ?? "", g.tags ?? "");
+                    const osTitle = o ? `${o.pretty || o.os}${o.os_via ? ` (${o.os_via})` : ""}` : "";
+                    const appTitle = app ? `${app.label}${o?.app && o.app_via ? ` (detected on ${o.app_via})` : o?.app ? "" : " (from the name or tags)"}` : "";
                     return (
                       <li key={g.id}>
                         <button
                           className={row(guest === g.id)}
                           onClick={() => onGuest(g)}
                           aria-current={guest === g.id ? "true" : undefined}
-                          title={`${g.type === "lxc" ? "CT" : "VM"} ${g.vmid}${g.template ? " (template)" : ""}${osTitle ? ` · ${osTitle}` : ""}${app ? ` · ${app.label}` : ""}`}
+                          title={`${g.type === "lxc" ? "CT" : "VM"} ${g.vmid}${g.template ? " (template)" : ""}${osTitle ? ` · ${osTitle}` : ""}${appTitle ? ` · ${appTitle}` : ""}`}
                         >
                           {oi && (oi.icon || oi.windows) ? (
                             <LogoMark icon={oi.icon} windows={oi.windows} title={osTitle} />
@@ -124,7 +125,7 @@ export function ComputeTree({
                             <Icon className="size-3.5 shrink-0" />
                           )}
                           <span className="truncate">{g.name || `${g.vmid}`}</span>
-                          {app && <LogoMark icon={app.icon} title={app.label} className="size-3" />}
+                          {app && <LogoMark icon={app.icon} Lucide={app.Lucide} title={appTitle} className="size-3" />}
                           {!g.template && <GuestDot node={g.node} vmid={g.vmid} status={g.status} />}
                           <span className="ml-auto font-mono text-[11px] text-muted-foreground/70">{g.vmid}</span>
                         </button>

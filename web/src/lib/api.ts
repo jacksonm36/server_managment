@@ -361,6 +361,8 @@ export type PVEResource = {
 };
 export type PVEGuest = PVEResource & { server_id?: string; server_name?: string; tenant?: string };
 export type PVETenantInfo = { name: string; pool: string; storages: string[]; bridges: string[]; usage: TenantUsage; quota: TenantUsage };
+// What the panel knows a guest runs: OS and detected software, and how it found them.
+export type PVEGuestOS = { os: string; pretty?: string; os_via?: string; app?: string; app_via?: string };
 export type PVEResources = {
   cluster: PVECluster;
   version?: string;
@@ -816,7 +818,7 @@ export const api = {
       : request<{ cluster: PVECluster; version: string }>("POST", "/api/v1/proxmox", c),
   deletePVE: (id: string) => request<void>("DELETE", `/api/v1/proxmox/${id}`),
   pveResources: (id: string) => request<PVEResources>("GET", `/api/v1/proxmox/${id}/resources`),
-  pveGuestOS: (id: string) => request<Record<string, { os: string; pretty?: string }>>("GET", `/api/v1/proxmox/${id}/guest-os`),
+  pveGuestOS: (id: string) => request<Record<string, PVEGuestOS>>("GET", `/api/v1/proxmox/${id}/guest-os`),
   pveImages: () => request<PVEImage[]>("GET", "/api/v1/proxmox-images"),
   pveTemplateTargets: (id: string, node: string) =>
     request<PVETemplateTargets>("GET", `/api/v1/proxmox/${id}/template-targets?node=${encodeURIComponent(node)}`),

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,9 @@ import (
 type guestOS struct {
 	OS     string `json:"os"`               // distribution id: debian, ubuntu, windows, linux…
 	Pretty string `json:"pretty,omitempty"` // e.g. "Debian GNU/Linux 13 (trixie)"
+	OSVia  string `json:"os_via,omitempty"` // how the OS was found
+	App    string `json:"app,omitempty"`    // detected software (a key of appPatterns)
+	AppVia string `json:"app_via,omitempty"`
 }
 
 type guestOSCache struct {
@@ -65,7 +69,7 @@ func (a *API) handlePVEGuestOS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	res, err := s.Cl.Resources(ctx)
 	if err != nil {
@@ -88,8 +92,8 @@ func (a *API) handlePVEGuestOS(w http.ResponseWriter, r *http.Request) {
 		go func(g proxmox.Resource) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			info := lookupGuestOS(ctx, s.Cl, g)
-			if info.OS == "" {
+			info := lookupGuestOS(ctx, s.Cl, g, s.TC == nil)
+			if info.OS == "" && info.App == "" {
 				return
 			}
 			mu.Lock()
@@ -104,20 +108,58 @@ func (a *API) handlePVEGuestOS(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, out)
 }
 
-func lookupGuestOS(ctx context.Context, cl *proxmox.Client, g proxmox.Resource) guestOS {
+// lookupGuestOS finds a guest's OS from Proxmox (config, guest agent) and,
+// for platform users, what it runs by looking at it from the outside
+// (pvedetect.go).
+func lookupGuestOS(ctx context.Context, cl *proxmox.Client, g proxmox.Resource, probe bool) guestOS {
+	info := guestOSFromProxmox(ctx, cl, g)
+	if !probe || g.Status != "running" || g.Template == 1 {
+		return info.guestOS
+	}
+	ictx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	ifs, _ := cl.GuestInterfaces(ictx, g.Node, g.Type, g.VMID)
+	cancel()
+	ips := proxmox.IfaceIPs(ifs)
+	if len(ips) == 0 {
+		ips = info.staticIPs
+	}
+	pr := probeGuest(ctx, fmt.Sprintf("%s/%d", g.Node, g.VMID), probeable(ips))
+	info.App, info.AppVia = pr.App, pr.AppVia
+	// The agent and the container config know the OS better than a banner.
+	if pr.OS != "" && (info.OS == "" || info.OS == "linux") {
+		info.OS, info.OSVia = pr.OS, pr.OSVia
+	}
+	return info.guestOS
+}
+
+type guestOSInfo struct {
+	guestOS
+	staticIPs []string // from cloud-init ipconfigN, for VMs without the agent
+}
+
+var ipconfigIP = regexp.MustCompile(`(?:^|,)ip=([0-9.]+)/`)
+
+func guestOSFromProxmox(ctx context.Context, cl *proxmox.Client, g proxmox.Resource) guestOSInfo {
 	path := proxmox.GuestPath(g.Node, g.Type, g.VMID)
 	var cfg map[string]any
 	if cl.Do(ctx, http.MethodGet, path+"/config", nil, &cfg) != nil {
-		return guestOS{}
+		return guestOSInfo{}
 	}
 	ostype, _ := cfg["ostype"].(string)
 	if g.Type == "lxc" {
 		if ostype == "unmanaged" {
 			ostype = "linux"
 		}
-		return guestOS{OS: ostype}
+		return guestOSInfo{guestOS: guestOS{OS: ostype, OSVia: "container config"}}
 	}
-	info := guestOS{OS: qemuOSType(ostype)}
+	info := guestOSInfo{guestOS: guestOS{OS: qemuOSType(ostype), OSVia: "VM OS type"}}
+	for i := 0; i < 32; i++ {
+		if v, ok := cfg[fmt.Sprintf("ipconfig%d", i)].(string); ok {
+			if m := ipconfigIP.FindStringSubmatch(v); m != nil {
+				info.staticIPs = append(info.staticIPs, m[1])
+			}
+		}
+	}
 	agent, _ := cfg["agent"].(string)
 	if g.Status != "running" || g.Template == 1 || !(strings.HasPrefix(agent, "1") || strings.Contains(agent, "enabled=1")) {
 		return info
@@ -139,7 +181,7 @@ func lookupGuestOS(ctx context.Context, cl *proxmox.Client, g proxmox.Resource) 
 		id = "windows"
 	}
 	if id != "" {
-		info.OS = id
+		info.OS, info.OSVia = id, "guest agent"
 	}
 	info.Pretty = osinfo.Result.PrettyName
 	if info.Pretty == "" {
