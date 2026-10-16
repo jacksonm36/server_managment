@@ -13,9 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -870,11 +868,7 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 			return err
 		}
 
-		port := "8090"
-		if u, err := url.Parse(a.Cfg.PublicURL); err == nil && u.Port() != "" {
-			port = u.Port()
-		}
-		stateURL := "http://" + net.JoinHostPort("127.0.0.1", port) + "/tofu/state/" + ws.ID
+		stateURL := a.Cfg.LocalURL + "/tofu/state/" + ws.ID
 		env := []string{
 			"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + filepath.Join(work, "home"), "LANG=C.UTF-8",
 			"TF_IN_AUTOMATION=1", "TF_INPUT=0",

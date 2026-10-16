@@ -8,10 +8,9 @@ import (
 	"strings"
 )
 
-// Plain HTTP stays open for agents (install script, enrollment, binaries,
-// the CA certificate) and for local callers such as the deploy health
-// check and OpenTofu's state backend; everything else moves to HTTPS.
-var httpAgentPaths = []string{"/install.sh", "/ca.crt", "/api/v1/enroll", "/download/", "/tofu/state/"}
+// Plain HTTP only answers callers on the panel host itself (the deploy
+// health check, OpenTofu's state backend); everyone else, agents included,
+// is sent to HTTPS.
 
 var redirectHost = regexp.MustCompile(`^([A-Za-z0-9]([A-Za-z0-9-]{0,62}\.)*[A-Za-z0-9-]{1,63}\.?|\[[0-9A-Fa-f:.]+\])$`)
 
@@ -43,11 +42,6 @@ func HTTPSRedirect(next http.Handler, httpsPort string) http.Handler {
 }
 
 func keepHTTP(r *http.Request) bool {
-	for _, p := range httpAgentPaths {
-		if r.URL.Path == p || (strings.HasSuffix(p, "/") && strings.HasPrefix(r.URL.Path, p)) {
-			return true
-		}
-	}
 	if ap, err := netip.ParseAddrPort(r.RemoteAddr); err == nil && ap.Addr().Unmap().IsLoopback() {
 		return true
 	}

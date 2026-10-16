@@ -1117,7 +1117,7 @@ func (a *API) enrollOverSSH(ctx context.Context, addr, user, name string, logf f
 	if user != "root" {
 		sh = "sudo -n sh"
 	}
-	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | %s -s -- --token %s --ca-sha256 %s", a.Cfg.PublicURL, sh, raw, a.CA.Fingerprint())
+	cmd := a.installCommand(sh, raw)
 	sess, err := conn.NewSession()
 	if err != nil {
 		return "", err

@@ -27,9 +27,15 @@ import (
 )
 
 type Config struct {
-	// PublicURL is the panel's HTTP base URL as reachable by agents,
-	// e.g. http://10.0.1.240:8090.
+	// PublicURL is the panel's base URL as reachable by agents, e.g.
+	// https://10.0.1.240:8443 (http:// only when HTTPS is turned off).
 	PublicURL string
+	// TLSPin is the HTTPS server key in curl's --pinnedpubkey form, so an
+	// install command trusts exactly this panel before it has the CA.
+	TLSPin string
+	// LocalURL is plain HTTP on the loopback interface, for the panel's
+	// own helpers (OpenTofu's state backend).
+	LocalURL string
 	// GRPCAddr is host:port agents dial for the mTLS stream.
 	GRPCAddr string
 	// AgentBinDir holds servermgr-agent-linux-<arch> binaries for download.
@@ -535,7 +541,7 @@ var opsByName = map[string]opSpec{
 	"compose.read":           {op: agentv1.Op_OP_COMPOSE_READ, params: []string{"name"}},
 	"compose.save":           {op: agentv1.Op_OP_COMPOSE_SAVE, params: []string{"name", "yaml", "deploy"}, maxParam: 256 << 10},
 	"compose.action":         {op: agentv1.Op_OP_COMPOSE_ACTION, params: []string{"name", "action"}},
-	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current"}},
+	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current", "panel_url"}},
 	"app.deploy":             {op: agentv1.Op_OP_APP_DEPLOY, params: []string{"domain", "app", "name", "version", "steps", "version_steps", "vars", "compose"}, maxParam: 64 << 10},
 	"crowdsec.status":        {op: agentv1.Op_OP_CROWDSEC_STATUS},
 	"ansible.prepare":        {op: agentv1.Op_OP_ANSIBLE_PREPARE, params: []string{"address"}}, // key + source address are added by Dispatch
@@ -706,8 +712,7 @@ func (a *API) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.audit(r, "", "server.join_token", req.Name, map[string]any{"expires_at": expires, "baseline": req.PlaybookID}, true)
-	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | sudo sh -s -- --token %s --ca-sha256 %s",
-		a.Cfg.PublicURL, raw, a.CA.Fingerprint())
+	cmd := a.installCommand("sudo sh", raw)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"token": raw, "expires_at": expires, "ca_sha256": a.CA.Fingerprint(), "install_command": cmd,
 	})
@@ -784,5 +789,17 @@ func (a *API) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/x-shellscript")
-	_, _ = io.WriteString(w, strings.Replace(installScript, "__PANEL_URL__", a.Cfg.PublicURL, 1))
+	s := strings.Replace(installScript, "__PANEL_URL__", a.Cfg.PublicURL, 1)
+	_, _ = io.WriteString(w, strings.Replace(s, "__PANEL_PIN__", a.Cfg.TLSPin, 1))
+}
+
+// installCommand is the one-liner that installs and enrolls an agent. Over
+// HTTPS curl pins the panel's server key, so the script comes from this
+// panel even though the machine does not trust the panel CA yet.
+func (a *API) installCommand(sh, token string) string {
+	fetch := "curl -fsSL"
+	if strings.HasPrefix(a.Cfg.PublicURL, "https://") && a.Cfg.TLSPin != "" {
+		fetch = "curl -fsSLk --pinnedpubkey '" + a.Cfg.TLSPin + "'"
+	}
+	return fmt.Sprintf("%s %s/install.sh | %s -s -- --token %s --ca-sha256 %s", fetch, a.Cfg.PublicURL, sh, token, a.CA.Fingerprint())
 }

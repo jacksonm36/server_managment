@@ -83,15 +83,19 @@ Restart=on-failure
 In the UI, click **Add server**. That gives a one-line command like:
 
 ```sh
-curl -fsSL http://10.0.1.240:8090/install.sh | sudo sh -s -- --token <one-time> --ca-sha256 <fingerprint>
+curl -fsSLk --pinnedpubkey 'sha256//<panel key pin>' https://10.0.1.240:8443/install.sh | sudo sh -s -- --token <one-time> --ca-sha256 <fingerprint>
 ```
 
 It downloads the agent, enrolls it and installs `servermgr-agent.service`.
+Everything goes over HTTPS: curl trusts only the panel's own key (the pin),
+the agent trusts only the panel CA named by `--ca-sha256`, and plain HTTP
+from other machines is redirected. The panel keeps its HTTPS key in
+`pki/server.key`, so the pin survives restarts.
 The same script is in the repo as [`scripts/install-agent.sh`](scripts/install-agent.sh):
 
 ```sh
-sudo sh scripts/install-agent.sh --panel http://10.0.1.240:8090 --token <one-time> --ca-sha256 <fingerprint>
-sudo sh scripts/install-agent.sh --panel http://10.0.1.240:8090   # update an installed agent
+sudo sh scripts/install-agent.sh --panel https://10.0.1.240:8443 --pin 'sha256//<pin>' --token <one-time> --ca-sha256 <fingerprint>
+sudo sh scripts/install-agent.sh --panel https://10.0.1.240:8443 --pin 'sha256//<pin>'   # update an installed agent
 sudo sh scripts/install-agent.sh --uninstall
 ```
 
@@ -265,8 +269,10 @@ The panel serves the UI from `SM_WEB_DIR` when set, so `npm run build` in
 ### HTTPS for the UI
 
 The panel also serves the UI on `https://<panel>:8443` with a certificate
-signed by its internal CA. Download the CA from `http://<panel>:8090/ca.crt`
-and import it as a trusted root to avoid browser warnings; over HTTPS the
-session cookie is marked `Secure`. Plain HTTP on :8090 stays available for
-agent installs (the install command pins the CA fingerprint).
+signed by its internal CA. Download the CA from `https://<panel>:8443/ca.crt`
+(accept the warning once) and import it as a trusted root to avoid browser
+warnings; over HTTPS the session cookie is marked `Secure`. Plain HTTP on
+:8090 redirects everyone to HTTPS, agents included; only callers on the panel
+host itself (health checks, OpenTofu's state backend) stay on HTTP.
+`SM_HTTPS_REDIRECT=off` turns the redirect off.
 `SM_HTTPS_ADDR=off` in `.env` disables the HTTPS listener.
