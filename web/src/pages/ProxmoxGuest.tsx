@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { ArrowLeft, Camera, Copy, ExternalLink, LayoutTemplate, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square, Trash2 } from "lucide-react";
+import { ArrowLeft, Camera, Copy, ExternalLink, LayoutTemplate, Loader2, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square, Trash2 } from "lucide-react";
 import { api, type PVEGuestDetail, type PVEGuestRef, type PVERRDPoint, type PVETask, type PVETimeframe } from "@/lib/api";
 import { useAccess } from "@/lib/access";
+import { setPending, usePending } from "@/lib/pending";
+import { actionWord, PowerBanner, type PowerState } from "@/components/PowerBanner";
 import { formatBytes, formatUptime } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,10 +12,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { HistoryChart } from "@/components/HistoryChart";
 import { ConsolePreview, GuestConsole } from "@/components/GuestConsole";
+import { NetSummary, NetworkCard } from "@/components/GuestNetworks";
 import { Meter } from "@/components/LiveChart";
 import { DeleteDialog, SnapshotsDialog } from "@/pages/Proxmox";
 import { BackupsTab, CloudInitTab, FirewallTab } from "@/pages/ProxmoxGuestTabs";
 import { GuestMoveDialog, HardwareTab } from "@/pages/ProxmoxGuestHardware";
+import { ConfigTab } from "@/pages/ProxmoxGuestConfig";
 
 type Tab = "overview" | "hardware" | "config" | "backups" | "cloudinit" | "firewall" | "tasks";
 
@@ -118,16 +122,24 @@ export function ProxmoxGuest({
     return () => clearInterval(t);
   }, [cluster, ref, tf]);
 
+  const pendingKey = `${node}/${vmid}`;
+  const pending = usePending(pendingKey);
+  const [pw, setPw] = useState<PowerState>(null);
+  const clearPw = useCallback(() => setPw(null), []);
   async function power(action: string) {
     setBusy(action);
     setMsg(null);
+    setPending(pendingKey, action);
+    setPw({ action, phase: "running", started: Date.now() });
     try {
+      // The panel waits for Proxmox's task, so this returns when it's done.
       await api.pvePower(cluster, ref, action);
-      setMsg({ ok: true, text: `${action} done.` });
+      setPw((p) => p && { ...p, phase: "done" });
     } catch (e) {
-      setMsg({ ok: false, text: (e as Error).message });
+      setPw((p) => p && { ...p, phase: "failed", error: (e as Error).message });
     } finally {
       setBusy("");
+      setPending(pendingKey, null);
       void load();
       void loadTasks();
     }
@@ -195,7 +207,16 @@ export function ProxmoxGuest({
               <Badge variant="outline">
                 {g.type === "qemu" ? "VM" : "CT"} {g.vmid}
               </Badge>
-              <Badge variant={running && !paused ? "success" : st.status === "stopped" ? "outline" : "warning"}>{paused ? "paused" : st.status}</Badge>
+              {pending ? (
+                <Badge variant="warning" className="gap-1.5">
+                  <span className="animate-ring size-1.5 rounded-full bg-current" />
+                  {actionWord(pending).toLowerCase()}…
+                </Badge>
+              ) : (
+                <Badge key={st.status} variant={running && !paused ? "success" : st.status === "stopped" ? "outline" : "warning"} className="animate-pop">
+                  {paused ? "paused" : st.status}
+                </Badge>
+              )}
               {st.lock && <Badge variant="warning">locked: {st.lock}</Badge>}
               {embedded && (
                 <Link
@@ -210,8 +231,8 @@ export function ProxmoxGuest({
             <p className="mt-1 text-sm text-muted-foreground">
               on {g.node}
               {running && st.uptime ? ` · up ${formatUptime(st.uptime)}` : ""}
-              {g.ips?.length ? ` · ${g.ips.join(", ")}` : ""}
             </p>
+            <NetSummary g={g} running={running} />
           </div>
           <div className="flex flex-wrap gap-2">
             {ac.can("proxmox.console") && running && (
@@ -223,20 +244,20 @@ export function ProxmoxGuest({
               <>
                 {(!running || paused) && (
                   <Button size="sm" variant="brand" disabled={!!busy} onClick={() => power(paused ? "resume" : "start")}>
-                    <Play /> {paused ? "Resume" : "Start"}
+                    {busy === "start" || busy === "resume" ? <Loader2 className="animate-spin" /> : <Play />} {paused ? "Resume" : "Start"}
                   </Button>
                 )}
                 {running && !paused && (
                   <>
                     <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("shutdown")}>
-                      <Power /> Shut down
+                      {busy === "shutdown" ? <Loader2 className="animate-spin" /> : <Power />} Shut down
                     </Button>
                     <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("reboot")}>
-                      <RotateCw /> Reboot
+                      {busy === "reboot" ? <Loader2 className="animate-spin" /> : <RotateCw />} Reboot
                     </Button>
                     {g.type === "qemu" && (
                       <Button size="sm" variant="secondary" disabled={!!busy} onClick={() => power("suspend")}>
-                        <Pause /> Suspend
+                        {busy === "suspend" ? <Loader2 className="animate-spin" /> : <Pause />} Suspend
                       </Button>
                     )}
                   </>
@@ -249,7 +270,7 @@ export function ProxmoxGuest({
                     disabled={!!busy}
                     onClick={() => confirm(`Hard-stop ${name}? Unsaved data in the guest is lost.`) && power("stop")}
                   >
-                    <Square /> Stop
+                    {busy === "stop" ? <Loader2 className="animate-spin" /> : <Square />} Stop
                   </Button>
                 )}
                 <Button size="sm" variant="secondary" onClick={() => setSnaps(true)}>
@@ -295,7 +316,12 @@ export function ProxmoxGuest({
           <ConsolePreview key={`${node}/${vmid}`} cluster={cluster} guest={ref} onExpand={() => setConsole(true)} />
         )}
       </div>
-      {busy && <p className="text-sm text-muted-foreground">{busy}…</p>}
+      <PowerBanner
+        state={pw}
+        name={name}
+        hint={pw?.action === "shutdown" ? "(waits for the guest OS; Stop forces it)" : undefined}
+        onDismiss={clearPw}
+      />
       {msg && <p className={`text-sm ${msg.ok ? "text-success" : "text-destructive"}`}>{msg.text}</p>}
       {err && <p className="text-sm text-destructive">Refresh failed: {err}</p>}
 
@@ -335,6 +361,8 @@ export function ProxmoxGuest({
             />
             <Stat label="Network" value={`↓ ${formatBytes(st.netin ?? 0)}`} sub={`↑ ${formatBytes(st.netout ?? 0)} since start`} />
           </div>
+
+          <NetworkCard g={g} running={running} />
 
           <div className="grid gap-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -415,10 +443,19 @@ export function ProxmoxGuest({
       )}
       {tab === "config" && (
         <>
-          <div className="grid gap-4 lg:grid-cols-2">
-            <ConfigCard title="Hardware" rows={hw} />
-            <ConfigCard title="Options" rows={opts} />
-          </div>
+          <ConfigTab
+            cluster={cluster}
+            guest={ref}
+            detail={g}
+            hardware={hw}
+            other={opts}
+            shown={shown}
+            onHardware={() => setTab("hardware")}
+            onChanged={() => {
+              void load();
+              void loadTasks();
+            }}
+          />
           {desc && (
             <Card>
               <CardHeader>
@@ -545,7 +582,7 @@ export function ProxmoxGuest({
           }}
         />
       )}
-      {console_ && <GuestConsole cluster={cluster} guest={ref} name={name} onClose={() => setConsole(false)} />}
+      {console_ && <GuestConsole cluster={cluster} guest={ref} name={name} sharedClip={/clipboard=vnc/.test(String(g.config.vga ?? ""))} onClose={() => setConsole(false)} />}
       {log && <TaskLogDialog cluster={cluster} guest={ref} task={log} onClose={() => setLog(null)} />}
     </div>
   );
@@ -558,30 +595,6 @@ function Stat({ label, value, sub, meter }: { label: string; value: string; sub:
       <div className="tabular mt-1 text-xl font-semibold">{value}</div>
       <div className="text-xs text-muted-foreground">{sub}</div>
       {meter !== undefined && <Meter value={meter} className="mt-2" />}
-    </Card>
-  );
-}
-
-function ConfigCard({ title, rows }: { title: string; rows: [string, string | number][] }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing set.</p>
-        ) : (
-          <dl className="divide-y text-sm">
-            {rows.map(([k, v]) => (
-              <div key={k} className="grid grid-cols-[8rem_1fr] gap-3 py-1.5">
-                <dt className="text-muted-foreground">{k}</dt>
-                <dd className="min-w-0 font-mono text-xs break-all whitespace-pre-wrap">{shown(k, v)}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
-      </CardContent>
     </Card>
   );
 }

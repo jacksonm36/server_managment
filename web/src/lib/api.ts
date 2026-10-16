@@ -377,7 +377,10 @@ export type PVEGuestDetail = {
   status: Record<string, unknown> & { status: string; name?: string; cpu?: number; cpus?: number; mem?: number; maxmem?: number; disk?: number; maxdisk?: number; uptime?: number; netin?: number; netout?: number; qmpstatus?: string; lock?: string };
   config: Record<string, string | number>;
   ips: string[] | null;
+  interfaces?: PVEGuestIface[] | null; // from the guest agent or the container
 };
+export type PVEOption = { key: string; kind: "bool" | "enum" | "text"; values?: string[]; about: string; hint?: string; admin?: boolean; default?: string };
+export type PVEGuestIface = { name: string; mac?: string; addrs: string[] };
 export type PVEHardwareOptions = { storages: string[]; bridges: string[]; isos: string[] };
 export type PVEHardwareReq = Partial<{
   cores: number;
@@ -824,7 +827,7 @@ export const api = {
   pveGuestTasks: (id: string, g: PVEGuestRef) => request<PVETask[]>("GET", `${pveGuestURL(id, g)}/tasks`),
   pveConsole: (id: string, g: PVEGuestRef, mode: "auto" | "vga" | "serial") =>
     request<{ sid: string; mode: "vga" | "term"; password?: string; serial?: string }>("POST", `${pveGuestURL(id, g)}/console`, { mode }),
-  pveBackups: (id: string, g: PVEGuestRef) => request<{ storages: string[]; backups: PVEBackup[] }>("GET", `${pveGuestURL(id, g)}/backups`),
+  pveBackups: (id: string, g: PVEGuestRef) => request<{ storages: string[]; backups: PVEBackup[]; problems?: { storage: string; error: string }[] }>("GET", `${pveGuestURL(id, g)}/backups`),
   pveBackup: (id: string, g: PVEGuestRef, b: { storage: string; mode: string; notes: string }) =>
     request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/backups`, b),
   pveDeleteBackup: (id: string, g: PVEGuestRef, volid: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/backups?volid=${encodeURIComponent(volid)}`),
@@ -869,6 +872,9 @@ export const api = {
     request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/zfs/${encodeURIComponent(pool)}/destroy`, b),
   pveHardwareOptions: (id: string, g: PVEGuestRef) => request<PVEHardwareOptions>("GET", `${pveGuestURL(id, g)}/hardware`),
   pveHardware: (id: string, g: PVEGuestRef, h: PVEHardwareReq) => request<void>("PUT", `${pveGuestURL(id, g)}/hardware`, h),
+  pveOptions: (id: string, g: PVEGuestRef) => request<PVEOption[]>("GET", `${pveGuestURL(id, g)}/options`),
+  pveSetOptions: (id: string, g: PVEGuestRef, body: { set?: Record<string, string>; delete?: string[] }) =>
+    request<void>("PUT", `${pveGuestURL(id, g)}/options`, body),
   pveDiskAdd: (id: string, g: PVEGuestRef, d: { bus?: string; storage: string; size_gb: number; path?: string }) =>
     request<void>("POST", `${pveGuestURL(id, g)}/disks`, d),
   pveDiskResize: (id: string, g: PVEGuestRef, disk: string, grow_gb: number) => request<void>("POST", `${pveGuestURL(id, g)}/disks/resize`, { disk, grow_gb }),

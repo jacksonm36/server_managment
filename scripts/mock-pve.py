@@ -385,13 +385,13 @@ class H(BaseHTTPRequestHandler):
             out[-1] = {"time": t1}  # Proxmox leaves the unfinished interval empty
             return self.send(200, out)
         if rest == "/interfaces" and method == "GET" and typ == "lxc":
-            return self.send(200, [{"name": "lo", "inet": "127.0.0.1/8"}, {"name": "eth0", "inet": "10.247.11.20/24", "inet6": "fd00::20/64"}])
+            return self.send(200, [{"name": "lo", "inet": "127.0.0.1/8"}, {"name": "eth0", "hwaddr": "bc:24:11:00:00:02", "inet": "10.247.11.20/24", "inet6": "fd00::20/64"}])
         if rest == "/config" and method == "GET":
             hw = {"sockets": 1, "cpu": "x86-64-v2-AES", "scsihw": "virtio-scsi-single", "scsi0": f"local-lvm:vm-{vmid}-disk-0,iothread=1,size={g['maxdisk'] >> 30}G",
                   "net0": "virtio=BC:24:11:00:00:01,bridge=vmbr0", "ostype": "l26", "boot": "order=scsi0", "onboot": 1, "agent": "1",
                   "ciuser": "debian", "cipassword": "$5$mock$hash", "description": "Mock guest for development."} if typ == "qemu" else {
                   "hostname": g["name"], "rootfs": f"local-lvm:vm-{vmid}-disk-0,size={g['maxdisk'] >> 30}G", "arch": "amd64",
-                  "net0": "name=eth0,bridge=vmbr0,ip=dhcp", "ostype": "debian", "unprivileged": 1, "swap": 512}
+                  "net0": "name=eth0,bridge=vmbr0,hwaddr=BC:24:11:00:00:02,ip=dhcp,tag=20,firewall=1", "ostype": "debian", "unprivileged": 1, "swap": 512}
             out = {"name": g["name"], "cores": g["maxcpu"], "memory": g["maxmem"] >> 20, **hw, **g["config"]}
             return self.send(200, {k: v for k, v in out.items() if v is not None})
         if rest == "/resize" and method == "PUT":
@@ -477,11 +477,13 @@ class H(BaseHTTPRequestHandler):
         if rest == "/resize" and method == "PUT":
             return self.send(200, None)
         if rest == "/agent/network-get-interfaces" and method == "GET":
-            if g["status"] != "running" or not args.guest_ip or g["config"].get("agent") != "1":
+            if g["status"] != "running" or not args.guest_ip or str(g["config"].get("agent", "")).split(",")[0] not in ("1", "enabled=1"):
                 return self.send(500, err="QEMU guest agent is not running")
             return self.send(200, {"result": [
                 {"name": "lo", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": "127.0.0.1", "prefix": 8}]},
-                {"name": "eth0", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": args.guest_ip, "prefix": 24}]}]})
+                {"name": "eth0", "hardware-address": "bc:24:11:00:00:01", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": args.guest_ip, "prefix": 24},
+                                                                                          {"ip-address-type": "ipv6", "ip-address": "fe80::1", "prefix": 64}]},
+                {"name": "docker0", "hardware-address": "02:42:ac:11:00:01", "ip-addresses": [{"ip-address-type": "ipv4", "ip-address": "172.17.0.1", "prefix": 16}]}]})
         if rest == "" and method == "DELETE":
             if g["status"] != "stopped":
                 return self.send(500, err="VM is running - destroy failed")

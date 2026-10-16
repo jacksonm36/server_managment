@@ -183,6 +183,8 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/firewall/rules/{pos}", need("proxmox.guests", a.handlePVEFirewallRuleDelete))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/hardware", need("proxmox.view", a.handlePVEHardwareOptions))
 	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/hardware", need("proxmox.guests", a.handlePVEHardware))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/options", need("proxmox.view", a.handlePVEOptionsList))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/options", need("proxmox.guests", a.handlePVEOptions))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/disks", need("proxmox.guests", a.handlePVEDiskAdd))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/disks/resize", need("proxmox.guests", a.handlePVEDiskResize))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/disks/remove", need("proxmox.guests", a.handlePVEDiskRemove))

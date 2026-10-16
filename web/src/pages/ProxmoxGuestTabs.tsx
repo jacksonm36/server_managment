@@ -44,6 +44,7 @@ export function BackupsTab({ cluster, guest, detail, onChanged }: TabProps) {
   const [data, setData] = useState<{
     storages: string[];
     backups: PVEBackup[];
+    problems?: { storage: string; error: string }[];
   } | null>(null);
   const [err, setErr] = useState("");
   const [storage, setStorage] = useState("");
@@ -132,6 +133,11 @@ export function BackupsTab({ cluster, guest, detail, onChanged }: TabProps) {
         </CardHeader>
         <CardContent>
           {err && <p className="text-sm text-destructive">{err}</p>}
+          {data?.problems?.map((p) => (
+            <p key={p.storage} className="mb-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-1.5 text-xs text-warning">
+              Couldn't list {p.storage}: {p.error}
+            </p>
+          ))}
           {!data ? (
             <p className="text-sm text-muted-foreground">Loading…</p>
           ) : data.backups.length === 0 ? (

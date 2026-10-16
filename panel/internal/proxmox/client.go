@@ -258,49 +258,85 @@ func (c *Client) GuestIPv4(ctx context.Context, node string, vmid int) (string, 
 	return "", errors.New("the guest agent reports no IPv4 address yet")
 }
 
-// GuestIPs lists a running guest's addresses: from the QEMU guest agent, or
-// for a container from its interfaces. Loopback and link-local are left out.
-func (c *Client) GuestIPs(ctx context.Context, node, typ string, vmid int) ([]string, error) {
-	var addrs []string
+// GuestIface is one network interface inside a running guest, with its
+// addresses in CIDR form (10.0.0.5/24).
+type GuestIface struct {
+	Name  string   `json:"name"`
+	MAC   string   `json:"mac,omitempty"`
+	Addrs []string `json:"addrs"`
+}
+
+// GuestInterfaces lists a running guest's interfaces: from the QEMU guest
+// agent, or for a container from Proxmox. Loopback interfaces and
+// link-local addresses are left out.
+func (c *Client) GuestInterfaces(ctx context.Context, node, typ string, vmid int) ([]GuestIface, error) {
+	var out []GuestIface
+	add := func(name, mac string, addrs []string) {
+		ifc := GuestIface{Name: name, MAC: strings.ToUpper(mac), Addrs: []string{}}
+		for _, a := range addrs {
+			host, _, _ := strings.Cut(a, "/")
+			ip := net.ParseIP(host)
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || slices.Contains(ifc.Addrs, a) {
+				continue
+			}
+			ifc.Addrs = append(ifc.Addrs, a)
+		}
+		if name != "lo" {
+			out = append(out, ifc)
+		}
+	}
 	if typ == "lxc" {
 		var ifs []struct {
-			Name  string `json:"name"`
-			Inet  string `json:"inet"`
-			Inet6 string `json:"inet6"`
+			Name   string `json:"name"`
+			HWAddr string `json:"hwaddr"`
+			Inet   string `json:"inet"`
+			Inet6  string `json:"inet6"`
 		}
 		if err := c.Do(ctx, http.MethodGet, GuestPath(node, typ, vmid)+"/interfaces", nil, &ifs); err != nil {
 			return nil, err
 		}
 		for _, i := range ifs {
-			for _, a := range []string{i.Inet, i.Inet6} {
-				addrs = append(addrs, strings.Split(a, " ")...)
-			}
+			add(i.Name, i.HWAddr, strings.Fields(i.Inet+" "+i.Inet6))
 		}
-	} else {
-		var res struct {
-			Result []struct {
-				IPs []struct {
-					Addr string `json:"ip-address"`
-				} `json:"ip-addresses"`
-			} `json:"result"`
-		}
-		if err := c.Do(ctx, http.MethodGet, GuestPath(node, typ, vmid)+"/agent/network-get-interfaces", nil, &res); err != nil {
-			return nil, err
-		}
-		for _, i := range res.Result {
-			for _, a := range i.IPs {
-				addrs = append(addrs, a.Addr)
-			}
-		}
+		return out, nil
 	}
-	out := []string{}
-	for _, a := range addrs {
-		host, _, _ := strings.Cut(a, "/")
-		if ip := net.ParseIP(host); ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() && !slices.Contains(out, host) {
-			out = append(out, host)
+	var res struct {
+		Result []struct {
+			Name string `json:"name"`
+			MAC  string `json:"hardware-address"`
+			IPs  []struct {
+				Addr   string `json:"ip-address"`
+				Prefix int    `json:"prefix"`
+			} `json:"ip-addresses"`
+		} `json:"result"`
+	}
+	if err := c.Do(ctx, http.MethodGet, GuestPath(node, typ, vmid)+"/agent/network-get-interfaces", nil, &res); err != nil {
+		return nil, err
+	}
+	for _, i := range res.Result {
+		var addrs []string
+		for _, a := range i.IPs {
+			if a.Prefix > 0 {
+				a.Addr = fmt.Sprintf("%s/%d", a.Addr, a.Prefix)
+			}
+			addrs = append(addrs, a.Addr)
 		}
+		add(i.Name, i.MAC, addrs)
 	}
 	return out, nil
+}
+
+// IfaceIPs flattens interfaces to their unique addresses, without prefixes.
+func IfaceIPs(ifs []GuestIface) []string {
+	out := []string{}
+	for _, i := range ifs {
+		for _, a := range i.Addrs {
+			if host, _, _ := strings.Cut(a, "/"); !slices.Contains(out, host) {
+				out = append(out, host)
+			}
+		}
+	}
+	return out
 }
 
 // ConsoleProxy is a console session Proxmox opened with vncproxy or

@@ -1,3 +1,4 @@
+import { ConsoleWindow } from "@/pages/ConsoleWindow";
 import { useEffect, useMemo, useState } from "react";
 import { Route, Switch } from "wouter";
 import { LogOut } from "lucide-react";
@@ -104,6 +105,7 @@ export function App() {
             <Deploy />
           </Route>
           <Route path="/proxmox/:cluster/:node/:type/:vmid">{(p) => <ProxmoxGuest {...p} />}</Route>
+          <Route path="/console/:cluster/:node/:type/:vmid">{(p) => <ConsoleWindow {...p} />}</Route>
           <Route path="/security">
             <CrowdSec />
           </Route>

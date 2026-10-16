@@ -324,6 +324,22 @@ func TestTenantIsolation(t *testing.T) {
 		t.Errorf("cloud-init config = %v", c)
 	}
 	pve.mu.Unlock()
+	// Options: only listed keys, checked values; host-reaching keys never.
+	expect("option args", first(call(al, "PUT", vm100+"/options", map[string]any{"set": map[string]string{"args": "-device x"}})), 400)
+	expect("option hookscript reset", first(call(al, "PUT", vm100+"/options", map[string]any{"delete": []string{"hookscript"}})), 400)
+	expect("option bad enum", first(call(al, "PUT", vm100+"/options", map[string]any{"set": map[string]string{"bios": "uefi"}})), 400)
+	expect("option bad bool", first(call(al, "PUT", vm100+"/options", map[string]any{"set": map[string]string{"numa": "yes"}})), 400)
+	expect("options", first(call(al, "PUT", vm100+"/options", map[string]any{
+		"set": map[string]string{"bios": "ovmf", "numa": "1", "vga": "std,clipboard=vnc", "startup": "order=2,up=30"}, "delete": []string{"tablet"},
+	})), 204)
+	pve.mu.Lock()
+	if c := pve.guests[100].config; c["bios"] != "ovmf" || c["numa"] != "1" || c["vga"] != "std,clipboard=vnc" || c["startup"] != "order=2,up=30" {
+		t.Errorf("options config = %v", c)
+	}
+	pve.mu.Unlock()
+	if code, _, list := call(al, "GET", vm100+"/options", nil); code != 200 || len(list) < 10 {
+		t.Errorf("options list: %d %d", code, len(list))
+	}
 	expect("firewall rule with a cluster ipset", first(call(al, "POST", vm100+"/firewall/rules", map[string]any{"type": "in", "action": "ACCEPT", "source": "+management"})), 400)
 	expect("firewall rule", first(call(al, "POST", vm100+"/firewall/rules", map[string]any{"type": "in", "action": "ACCEPT", "proto": "tcp", "dport": "22", "source": "10.0.0.0/8", "enable": 1})), 204)
 	_, fw, _ := call(al, "GET", vm100+"/firewall", nil)

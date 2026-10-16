@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Box, ChevronDown, ChevronRight, LayoutTemplate, Monitor, Network, Server } from "lucide-react";
 import type { PVEGuest, PVEResources } from "@/lib/api";
+import { usePending } from "@/lib/pending";
 
 // ComputeTree is the cluster as a tree: the cluster, its nodes, and each
 // node's guests. Picking the cluster, a node or a guest changes what the
@@ -77,7 +78,7 @@ export function ComputeTree({
                   <button className={row(selected === n && !guest)} onClick={() => onSelect(n)} aria-current={selected === n && !guest ? "true" : undefined}>
                     <Server className="size-4 shrink-0" />
                     <span className="truncate">{n}</span>
-                    <span className={`size-1.5 shrink-0 rounded-full ${dot(node.status)}`} title={node.status} />
+                    <NodeDot node={node.node} status={node.status} />
                     {node.status === "online" && <span className="ml-auto text-xs tabular-nums">{Math.round(node.cpu * 100)}%</span>}
                   </button>
                 ) : (
@@ -100,7 +101,7 @@ export function ComputeTree({
                         >
                           <Icon className="size-3.5 shrink-0" />
                           <span className="truncate">{g.name || `${g.vmid}`}</span>
-                          {!g.template && <span className={`size-1.5 shrink-0 rounded-full ${dot(g.status)}`} />}
+                          {!g.template && <GuestDot node={g.node} vmid={g.vmid} status={g.status} />}
                           <span className="ml-auto font-mono text-[11px] text-muted-foreground/70">{g.vmid}</span>
                         </button>
                       </li>
@@ -114,5 +115,24 @@ export function ComputeTree({
         })}
       </ul>
     </nav>
+  );
+}
+
+// A guest's or node's status dot; it pulses while a power action runs.
+function GuestDot({ node, vmid, status }: { node: string; vmid: number; status: string }) {
+  const p = usePending(`${node}/${vmid}`);
+  return p ? (
+    <span className="animate-ring size-1.5 shrink-0 rounded-full bg-warning text-warning" title={`${p}…`} />
+  ) : (
+    <span className={`size-1.5 shrink-0 rounded-full ${dot(status)}`} />
+  );
+}
+
+function NodeDot({ node, status }: { node: string; status: string }) {
+  const p = usePending(node);
+  return p ? (
+    <span className="animate-ring size-1.5 shrink-0 rounded-full bg-warning text-warning" title={`${p}…`} />
+  ) : (
+    <span className={`size-1.5 shrink-0 rounded-full ${dot(status)}`} title={status} />
   );
 }

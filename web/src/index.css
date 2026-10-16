@@ -114,3 +114,63 @@
     color: var(--muted-foreground);
   }
 }
+
+/* Power actions: a bar sweeping under a banner, a ring pulsing round a
+   status dot, and a check popping in when it is done. */
+@keyframes sm-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@keyframes sm-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+@keyframes sm-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes sm-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility animate-sweep {
+  animation: sm-sweep 1.3s ease-in-out infinite;
+}
+@utility animate-ring {
+  animation: sm-ring 1.2s ease-out infinite;
+}
+@utility animate-pop {
+  animation: sm-pop 0.35s ease-out both;
+}
+@utility animate-fade-in {
+  animation: sm-fade-in 0.2s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-sweep,
+  .animate-ring {
+    animation-duration: 3s;
+  }
+}

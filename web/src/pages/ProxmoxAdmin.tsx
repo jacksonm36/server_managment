@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArchiveRestore, Download, Network, Pencil, Play, Plus, Power, RefreshCw, RotateCcw, RotateCw, Settings2, Shield, Square, TerminalSquare, Trash2, UsersRound } from "lucide-react";
-import { type PVECluster, type PVEGuest, type PVEGuestRef, type PVEResources } from "@/lib/api";
+import { api, type PVECluster, type PVEGuest, type PVEGuestRef, type PVEResources } from "@/lib/api";
+import { setPending } from "@/lib/pending";
+import { PowerBanner, type PowerState } from "@/components/PowerBanner";
 import { pve, ranMsg, type Params, type PVETaskRow, type Row } from "@/lib/pveapi";
 import { formatBytes } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -192,13 +194,54 @@ function NodeActions({ cluster, node, nodes }: { cluster: string; node: string; 
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [power, setPower] = useState<"reboot" | "shutdown" | null>(null);
   const [migrateAll, setMigrateAll] = useState(false);
+  const [pw, setPw] = useState<PowerState>(null);
+  const clearPw = useCallback(() => setPw(null), []);
+  const [hint, setHint] = useState("");
   const bulk = async (action: "startall" | "stopall") => {
     if (!confirm(action === "startall" ? `Start all guests on ${node} that are set to start on boot?` : `Shut down all guests on ${node}?`)) return;
+    setMsg(null);
+    setPending(node, action);
+    setPw({ action, phase: "running", started: Date.now() });
     try {
       const r = await pve.bulk(cluster, node, action);
+      setPw((p) => p && { ...p, phase: "done" });
       setMsg({ ok: true, text: ranMsg(r, "Done.") });
     } catch (e) {
-      setMsg({ ok: false, text: errText(e) });
+      setPw((p) => p && { ...p, phase: "failed", error: errText(e) });
+    } finally {
+      setPending(node, null);
+    }
+  };
+  // follow tracks a node reboot or shutdown: the node's API goes away and,
+  // for a reboot, comes back with a fresh uptime.
+  const follow = async (action: "reboot" | "shutdown") => {
+    setMsg(null);
+    setPending(node, action);
+    setPw({ action, phase: "running", started: Date.now() });
+    setHint("waiting for it to go down");
+    const t0 = Date.now();
+    let prev: number | undefined;
+    let down = false;
+    try {
+      while (Date.now() - t0 < 15 * 60_000) {
+        await new Promise((r) => setTimeout(r, 4000));
+        const up = await api.pveNodeStatus(cluster, node).then(
+          (s) => s.uptime ?? 0,
+          () => undefined,
+        );
+        if (up === undefined) {
+          if (action === "shutdown") break;
+          down = true;
+          setHint("down, waiting for it to come back");
+          continue;
+        }
+        if (down || (prev !== undefined && up < prev)) break;
+        prev = up;
+      }
+      setPw((p) => p && { ...p, phase: "done" });
+    } finally {
+      setHint("");
+      setPending(node, null);
     }
   };
 
@@ -229,6 +272,7 @@ function NodeActions({ cluster, node, nodes }: { cluster: string; node: string; 
           <Power /> Shut down
         </Button>
       </div>
+      <PowerBanner state={pw} name={node} hint={hint && `(${hint})`} onDismiss={clearPw} />
       <Note msg={msg} />
       {shell !== null && <NodeShell cluster={cluster} node={node} cmd={shell} onClose={() => setShell(null)} />}
       {power && (
@@ -240,7 +284,7 @@ function NodeActions({ cluster, node, nodes }: { cluster: string; node: string; 
           onClose={() => setPower(null)}
           run={async (c) => {
             await pve.nodePower(cluster, node, power, c);
-            setMsg({ ok: true, text: `${power === "reboot" ? "Reboot" : "Shutdown"} started.` });
+            void follow(power);
           }}
         />
       )}

@@ -11,6 +11,12 @@ declare module "@novnc/novnc" {
     resizeSession: boolean;
     background: string;
     focusOnClick: boolean;
+    qualityLevel: number;
+    compressionLevel: number;
+    clipViewport: boolean;
+    dragViewport: boolean;
+    clipboardPasteFrom(text: string): void;
+    sendKey(keysym: number, code: string | null, down?: boolean): void;
     disconnect(): void;
     sendCtrlAltDel(): void;
     sendCredentials(c: { password?: string; username?: string }): void;

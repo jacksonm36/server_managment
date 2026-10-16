@@ -32,7 +32,7 @@ func (a *API) handlePVEGuest(w http.ResponseWriter, r *http.Request) {
 		wg             sync.WaitGroup
 		status, config map[string]any
 		stErr, cfgErr  error
-		ips            []string
+		ifaces         []proxmox.GuestIface
 	)
 	wg.Add(2)
 	go func() {
@@ -59,12 +59,12 @@ func (a *API) handlePVEGuest(w http.ResponseWriter, r *http.Request) {
 	}
 	if status["status"] == "running" {
 		actx, acancel := context.WithTimeout(ctx, 3*time.Second)
-		ips, _ = s.Cl.GuestIPs(actx, node, typ, vmid)
+		ifaces, _ = s.Cl.GuestInterfaces(actx, node, typ, vmid)
 		acancel()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"node": node, "type": typ, "vmid": vmid,
-		"status": status, "config": config, "ips": ips,
+		"status": status, "config": config, "ips": proxmox.IfaceIPs(ifaces), "interfaces": ifaces,
 	})
 }
 

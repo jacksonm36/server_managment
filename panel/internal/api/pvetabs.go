@@ -73,22 +73,46 @@ func guestBackups(ctx context.Context, s *pveScope, node string, vmid int, stora
 	return out, nil
 }
 
+// handlePVEBackups lists the guest's backups on every backup storage of
+// its node. A storage that is inactive there or fails to list (a PBS that
+// is down, say) is reported next to the list instead of hiding the rest.
 func (a *API) handlePVEBackups(w http.ResponseWriter, r *http.Request) {
 	s, node, _, vmid, ok := a.pveGuest(w, r)
 	if !ok {
 		return
 	}
-	storages, err := backupStorages(r.Context(), s, node)
-	if err != nil {
+	var list []struct {
+		Storage string `json:"storage"`
+		Active  int    `json:"active"`
+	}
+	if err := s.Cl.Do(r.Context(), http.MethodGet, "/nodes/"+url.PathEscape(node)+"/storage", url.Values{"content": {"backup"}}, &list); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
 		return
 	}
-	backups, err := guestBackups(r.Context(), s, node, vmid, storages)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
-		return
+	type problem struct {
+		Storage string `json:"storage"`
+		Error   string `json:"error"`
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"storages": storages, "backups": backups})
+	storages, backups, problems := []string{}, []pveBackup{}, []problem{}
+	for _, st := range list {
+		if s.TC != nil && !slices.Contains(s.TC.Storages, st.Storage) {
+			continue
+		}
+		if st.Active == 0 {
+			problems = append(problems, problem{st.Storage, "not active on " + node})
+			continue
+		}
+		storages = append(storages, st.Storage)
+		b, err := guestBackups(r.Context(), s, node, vmid, []string{st.Storage})
+		if err != nil {
+			problems = append(problems, problem{st.Storage, err.Error()})
+			continue
+		}
+		backups = append(backups, b...)
+	}
+	slices.Sort(storages)
+	slices.SortFunc(backups, func(a, b pveBackup) int { return int(b.CTime - a.CTime) })
+	writeJSON(w, http.StatusOK, map[string]any{"storages": storages, "backups": backups, "problems": problems})
 }
 
 func (a *API) handlePVEBackupCreate(w http.ResponseWriter, r *http.Request) {
