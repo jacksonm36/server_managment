@@ -57,5 +57,9 @@ func (a *API) handlePVENodeTasks(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pvePass(w, r, s, nodePath(node)+"/tasks", url.Values{"limit": {"30"}})
+	form := url.Values{"limit": {"30"}}
+	if r.URL.Query().Get("errors") == "1" {
+		form.Set("errors", "1")
+	}
+	pvePass(w, r, s, nodePath(node)+"/tasks", form)
 }

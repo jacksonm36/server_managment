@@ -32,6 +32,8 @@ import { FlavorPicker, FlavorsDialog, useFlavors } from "@/components/Flavors";
 import { PVEOverview } from "@/components/PVEOverview";
 import { ComputeTree } from "@/components/ComputeTree";
 import { PVENodeView } from "@/components/PVENodeView";
+import { CreateGuestDialog } from "@/components/PVEForms";
+import { DatacenterView, NodeAdmin } from "@/pages/ProxmoxAdmin";
 
 const statusVariant = (s: string) => (s === "running" || s === "online" ? "success" : s === "stopped" ? "outline" : "warning");
 
@@ -119,6 +121,8 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
   const [deploying, setDeploying] = useState(false);
   const [flavorsOpen, setFlavorsOpen] = useState(false);
   const [node, setNode] = useState(""); // picked in the compute tree; "" = the whole cluster
+  const [view, setView] = useState<"overview" | "datacenter">("overview");
+  const [create, setCreate] = useState<"qemu" | "lxc" | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -154,6 +158,11 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
   const templates = useMemo(() => (res?.guests ?? []).filter((g) => g.template && g.type === "qemu"), [res]);
   const guestHref = (g: PVEGuest) => `/proxmox/${cluster.id}/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`;
   const nodeInfo = res?.nodes?.find((n) => n.node === node);
+  const onlineNodes = useMemo(() => (res?.nodes ?? []).filter((n) => n.status === "online").map((n) => n.node).sort(), [res]);
+  // Where new guests can go: online nodes, or (for a tenant, who sees no
+  // nodes) the nodes its guests run on.
+  const createNodes = useMemo(() => (onlineNodes.length ? onlineNodes : [...new Set((res?.guests ?? []).map((g) => g.node))].sort()), [onlineNodes, res]);
+  const manage = ac.can("proxmox.manage");
   const shown = guests.filter((g) => (!node || g.node === node) && (!filter || `${g.vmid} ${g.name} ${g.node} ${g.status} ${g.server_name ?? ""}`.toLowerCase().includes(filter.toLowerCase())));
 
   return (
@@ -214,7 +223,36 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
 
           {res &&
             !res.error &&
-            (nodeInfo ? <PVENodeView key={node} cluster={cluster.id} node={node} online={nodeInfo.status === "online"} /> : <PVEOverview res={res} guestHref={guestHref} />)}
+            (nodeInfo ? (
+              manage && nodeInfo.status === "online" ? (
+                <NodeAdmin key={node} cluster={cluster.id} node={node} nodes={onlineNodes} summary={<PVENodeView cluster={cluster.id} node={node} online />} />
+              ) : (
+                <PVENodeView key={node} cluster={cluster.id} node={node} online={nodeInfo.status === "online"} />
+              )
+            ) : (
+              <>
+                {manage && (
+                  <div className="flex w-fit gap-1 rounded-lg border p-0.5" role="group" aria-label="Cluster view">
+                    {(
+                      [
+                        ["overview", "Overview"],
+                        ["datacenter", "Datacenter"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        className={`cursor-pointer rounded-md px-3 py-1 text-sm ${view === id ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                        aria-pressed={view === id}
+                        onClick={() => setView(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {manage && view === "datacenter" ? <DatacenterView cluster={cluster} /> : <PVEOverview res={res} guestHref={guestHref} />}
+              </>
+            ))}
 
           <Card>
             <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
@@ -222,7 +260,19 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
                 <CardTitle>{node ? `Guests on ${node}` : "Guests"}</CardTitle>
                 <CardDescription>{node ? guests.filter((g) => g.node === node).length : guests.length} VMs and containers</CardDescription>
               </div>
-              <Input className="w-48" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter guests" />
+              <div className="flex flex-wrap gap-2">
+                {ac.can("proxmox.guests") && createNodes.length > 0 && (
+                  <>
+                    <Button size="sm" variant="secondary" onClick={() => setCreate("qemu")} title="A VM that boots from an ISO">
+                      <Plus /> Create VM
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setCreate("lxc")} title="A container from a template">
+                      <Plus /> Create CT
+                    </Button>
+                  </>
+                )}
+                <Input className="w-48" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter guests" />
+              </div>
             </CardHeader>
             <CardContent className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -426,6 +476,17 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
           onClose={() => setFromImage(false)}
           onStarted={() => {
             setFromImage(false);
+            void load();
+          }}
+        />
+      )}
+      {create && (
+        <CreateGuestDialog
+          cluster={cluster.id}
+          nodes={createNodes}
+          type={create}
+          onClose={() => {
+            setCreate(null);
             void load();
           }}
         />

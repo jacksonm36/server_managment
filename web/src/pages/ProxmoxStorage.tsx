@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Activity, Database, Download, Eraser, FolderOpen, HardDrive, Layers, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { Activity, Database, Download, Eraser, FolderOpen, HardDrive, Layers, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import {
   api,
   type PVECluster,
@@ -22,6 +22,7 @@ import { Input, Label } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { useAction } from "@/pages/ProxmoxGuestTabs";
+import { UploadDialog } from "@/pages/ProxmoxAdmin";
 
 // Cluster storage (platform admins): storage definitions and their usage,
 // what is on each storage, the node's physical disks with SMART health,
@@ -449,6 +450,9 @@ function ContentBrowser({ cluster, node, storage, onClose }: { cluster: string; 
   const { busy, run, note } = useAction();
   const types = storage.content.split(",");
   const canDownload = types.includes("iso") || types.includes("vztmpl");
+  const canUpload = canDownload || types.includes("import");
+  const [uploading, setUploading] = useState(false);
+  const [upNote, setUpNote] = useState("");
 
   const load = useCallback(() => {
     api
@@ -499,6 +503,11 @@ function ContentBrowser({ cluster, node, storage, onClose }: { cluster: string; 
               ))}
             </Select>
           )}
+          {canUpload && (
+            <Button size="sm" variant="secondary" onClick={() => setUploading(true)}>
+              <Upload /> Upload
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={onClose}>
             Close
           </Button>
@@ -507,6 +516,19 @@ function ContentBrowser({ cluster, node, storage, onClose }: { cluster: string; 
       <CardContent className="grid gap-4">
         {err && <p className="text-sm text-destructive">{err}</p>}
         {note}
+        {upNote && <p className="text-sm text-success">{upNote}</p>}
+        {uploading && (
+          <UploadDialog
+            cluster={cluster}
+            node={node}
+            storage={storage}
+            onClose={() => setUploading(false)}
+            onDone={(t) => {
+              setUpNote(t);
+              setTimeout(load, 2000);
+            }}
+          />
+        )}
         {busy && <p className="text-sm text-muted-foreground">{busy}…</p>}
         {canDownload && (
           <form onSubmit={download} className="grid gap-2 rounded-lg border border-dashed p-3 sm:grid-cols-[1fr_8rem_12rem_auto] sm:items-end">

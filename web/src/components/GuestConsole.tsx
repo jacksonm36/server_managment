@@ -12,7 +12,20 @@ type State = "connecting" | "open" | "closed";
 // GuestConsole is a full-window console for a Proxmox guest: noVNC for the
 // display, xterm.js for containers and serial ports. Escape and other keys
 // go to the guest, so it only closes with its own button.
-export function GuestConsole({ cluster, guest, name, onClose }: { cluster: string; guest: PVEGuestRef; name: string; onClose: () => void }) {
+export function GuestConsole({
+  cluster,
+  guest,
+  name,
+  open,
+  onClose,
+}: {
+  cluster: string;
+  guest: PVEGuestRef;
+  name: string;
+  // open replaces the guest console request, e.g. for a node shell.
+  open?: () => Promise<{ sid: string; mode: "vga" | "term"; password?: string }>;
+  onClose: () => void;
+}) {
   const host = useRef<HTMLDivElement>(null);
   const [want, setWant] = useState<Mode>("auto");
   const [mode, setMode] = useState<"vga" | "term" | null>(null);
@@ -34,7 +47,7 @@ export function GuestConsole({ cluster, guest, name, onClose }: { cluster: strin
     (async () => {
       let c;
       try {
-        c = await api.pveConsole(cluster, guest, want);
+        c = await (open ? open() : api.pveConsole(cluster, guest, want));
       } catch (e) {
         setState("closed");
         setNote((e as Error).message);
@@ -122,7 +135,7 @@ export function GuestConsole({ cluster, guest, name, onClose }: { cluster: strin
           </span>
         </div>
         <div className="flex flex-wrap gap-1">
-          {guest.type === "qemu" && (
+          {guest.type === "qemu" && !open && (
             <>
               <Button size="sm" variant={mode === "vga" ? "secondary" : "ghost"} onClick={() => setWant("vga")} title="Graphical display (noVNC)">
                 <Monitor /> Display

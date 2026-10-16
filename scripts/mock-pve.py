@@ -55,6 +55,30 @@ DISKS = {n: [{"devpath": "/dev/nvme0n1", "model": "Samsung SSD 990 PRO 1TB", "se
              {"devpath": "/dev/sdc", "model": "ST4000VN008", "serial": f"ZD-{i}C3", "size": 4000 << 30, "type": "hdd", "health": "FAILED", "wearout": "N/A", "used": "", "gpt": 0, "rpm": 5900}]
          for i, n in enumerate(NODES)}
 ZFS = {n: {} for n in NODES}  # node -> pool -> {"devices": [...], "raidlevel": ...}
+CTTMPL = {"local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst": 130 << 20}
+SERVICES = {s: "running" for s in ("pveproxy", "pvedaemon", "pvestatd", "pve-cluster", "corosync", "chrony", "postfix", "sshd", "cron")}
+NETWORK = {n: {"vmbr0": {"type": "bridge", "cidr": "10.0.1.11/24", "gateway": "10.0.1.1", "bridge_ports": "eno1", "active": 1, "autostart": 1},
+               "vmbr1": {"type": "bridge", "bridge_ports": "", "active": 1, "autostart": 1},
+               "eno1": {"type": "eth", "active": 1, "autostart": 1}} for n in ("pve1", "pve2")}
+NODECFG = {n: {"dns": {"search": "lab.local", "dns1": "10.0.1.1"}, "time": {"timezone": "Europe/Budapest"},
+               "hosts": {"data": "127.0.0.1 localhost\n10.0.1.11 pve1.lab.local pve1\n", "digest": "0" * 40}} for n in ("pve1", "pve2")}
+DC = {  # collection path -> {key: entry}
+    "/cluster/backup": {"backup-nightly": {"id": "backup-nightly", "schedule": "02:00", "storage": "local", "all": 1, "mode": "snapshot", "enabled": 1}},
+    "/cluster/replication": {}, "/cluster/ha/resources": {}, "/cluster/ha/groups": {}, "/cluster/firewall/rules": {},
+    "/cluster/firewall/groups": {}, "/cluster/firewall/aliases": {}, "/cluster/firewall/ipset": {}, "/cluster/sdn/zones": {},
+    "/cluster/sdn/vnets": {}, "/access/groups": {"admins": {"groupid": "admins", "comment": "Admins"}},
+    "/access/roles": {"Administrator": {"roleid": "Administrator", "special": 1, "privs": "Sys.Audit,VM.Allocate"}},
+    "/access/domains": {"pam": {"realm": "pam", "type": "pam", "comment": "Linux PAM"}, "pve": {"realm": "pve", "type": "pve", "comment": "Proxmox VE"}},
+    "/storage": {"local": {"storage": "local", "type": "dir", "path": "/var/lib/vz", "content": "iso,vztmpl,backup,import"},
+                 "local-lvm": {"storage": "local-lvm", "type": "lvmthin", "thinpool": "data", "vgname": "pve", "content": "images,rootdir"}},
+    "/cluster/metrics/server": {},
+}
+DCKEY = {"/cluster/backup": "id", "/cluster/replication": "id", "/cluster/ha/resources": "sid", "/cluster/ha/groups": "group",
+         "/cluster/firewall/groups": "group", "/cluster/firewall/aliases": "name", "/cluster/firewall/ipset": "name",
+         "/cluster/sdn/zones": "zone", "/cluster/sdn/vnets": "vnet", "/access/groups": "groupid", "/access/roles": "roleid",
+         "/access/domains": "realm", "/storage": "storage", "/cluster/metrics/server": "id"}
+DCITEMS = {}  # "<path>/<key>" -> list of items
+OPTIONS = {"/cluster/options": {"keyboard": "en-us", "console": "xtermjs"}, "/cluster/firewall/options": {"enable": 0, "policy_in": "DROP", "policy_out": "ACCEPT"}}
 
 
 def task(node, kind, vmid, fn=None):
@@ -139,26 +163,43 @@ class H(BaseHTTPRequestHandler):
             return self.send(404, err="not found")
         p = p[len("/api2/json"):]
         if p.endswith("/vncwebsocket"):
-            m = re.fullmatch(r"/nodes/[\w-]+/(?:qemu|lxc)/(\d+)/vncwebsocket", p)
+            m = re.fullmatch(r"/nodes/([\w-]+)(?:/(?:qemu|lxc)/(\d+))?/vncwebsocket", p)
             q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
             with lock:
                 c = CONSOLES.pop(q.get("vncticket", ""), None)
-            if not m or not c or c[0] != self.user or c[1] != int(m.group(1)) or str(c[2]) != q.get("port"):
+            if not m or not c or c[0] != self.user or c[1] != int(m.group(2) or 0) or str(c[2]) != q.get("port"):
                 return self.send(401, err="invalid ticket")
-            return ws_console(self, GUESTS[c[1]]["name"], q["vncticket"], c[0], c[3])
+            return ws_console(self, GUESTS[c[1]]["name"] if c[1] else m.group(1), q["vncticket"], c[0], c[3])
         n = int(self.headers.get("Content-Length") or 0)
-        form = {k: v[0] for k, v in urllib.parse.parse_qs(self.rfile.read(n).decode() if n else "").items()}
+        ctype = self.headers.get("Content-Type", "")
+        if ctype.startswith("multipart/form-data"):
+            body = self.rfile.read(n) if n else self.read_chunked()
+            form = multipart_fields(body, ctype)
+        else:
+            form = {k: v[0] for k, v in urllib.parse.parse_qs(self.rfile.read(n).decode() if n else "").items()}
         q = {k: v[0] for k, v in urllib.parse.parse_qs(u.query).items()}
         with lock:
             return self.route(method, p, form, q)
 
+    def read_chunked(self):
+        out = b""
+        while True:
+            size = int(self.rfile.readline().strip() or b"0", 16)
+            if size == 0:
+                self.rfile.readline()
+                return out
+            out += self.rfile.read(size)
+            self.rfile.readline()
+
     def route(self, method, p, form, q):
         user, root = self.user, self.user == "root@pam"
         deny = lambda: self.send(403, err="Permission check failed")
-        if p == "/storage" or p.startswith("/storage/") or re.fullmatch(r"/nodes/[\w-]+/disks/.*", p):
+        if p == "/storage" or p.startswith("/storage/") or re.fullmatch(r"/nodes/[\w-]+/disks/(list|smart|wipedisk|zfs)(/.*)?", p):
             if not root:
                 return deny()
             return self.storage_admin(method, p, form, q)
+        if root and self.manage(method, p, form, q):
+            return
         if p.startswith("/pools") or p.startswith("/access") or re.fullmatch(r"/nodes/[\w-]+/network", p):
             if not root:
                 return deny()
@@ -535,6 +576,162 @@ class H(BaseHTTPRequestHandler):
                         STORAGES.remove(name)
             return self.send(200, task(node, "zfsremove", 0, destroy))
         return self.send(404, err="not found")
+    def manage(self, method, p, form, q):
+        """Nodes, storage and datacenter (root token only). True if handled."""
+        m = re.fullmatch(r"/nodes/([\w-]+)(/.*)?", p)
+        if m and m.group(1) in NODES:
+            node, rest = m.group(1), m.group(2) or ""
+            if rest == "/status" and method == "GET":
+                v = NODES[node]
+                return self.send(200, {"cpu": 0.07, "uptime": 812345, "loadavg": ["0.31", "0.42", "0.40"], "pveversion": "pve-manager/8.4.1/mock",
+                                       "kversion": "Linux 6.8.12-9-pve", "cpuinfo": {"cpus": v["maxcpu"], "model": "Mock CPU @ 3.0GHz", "sockets": 1},
+                                       "memory": {"total": v["maxmem"], "used": v["maxmem"] // 3, "free": v["maxmem"] * 2 // 3},
+                                       "rootfs": {"total": 100 << 30, "used": 22 << 30, "avail": 78 << 30}, "swap": {"total": 8 << 30, "used": 0},
+                                       "current-kernel": {"release": "6.8.12-9-pve"}, "boot-info": {"mode": "efi"}}) or True
+            if rest == "/status" and method == "POST":
+                return self.send(200, None) or True
+            if rest == "/rrddata" and method == "GET":
+                import math
+                t1 = now() // 60 * 60
+                return self.send(200, [{"time": t1 - (59 - i) * 60, "cpu": 0.05 + 0.2 * (math.sin(i / 5) + 1) / 2, "memused": NODES[node]["maxmem"] / 3,
+                                        "memtotal": NODES[node]["maxmem"], "netin": 30000 + 2000 * i, "netout": 9000 + 500 * i, "iowait": 0.01} for i in range(60)]) or True
+            if rest == "/services" and method == "GET":
+                return self.send(200, [{"service": k, "name": k, "desc": f"{k} daemon", "state": v, "unit-state": "enabled"} for k, v in sorted(SERVICES.items())]) or True
+            sm = re.fullmatch(r"/services/([\w@.-]+)/(start|stop|restart|reload)", rest)
+            if sm and method == "POST":
+                SERVICES[sm.group(1)] = "dead" if sm.group(2) == "stop" else "running"
+                return self.send(200, task(node, "srv" + sm.group(2), 0)) or True
+            if rest == "/apt/update" and method == "GET":
+                return self.send(200, [{"Package": "pve-manager", "OldVersion": "8.4.1", "Version": "8.4.2", "Origin": "Proxmox", "Description": "Proxmox VE manager"},
+                                       {"Package": "openssl", "OldVersion": "3.0.15-1", "Version": "3.0.16-1", "Origin": "Debian", "Description": "SSL toolkit"}]) or True
+            if rest == "/apt/update" and method == "POST":
+                return self.send(200, task(node, "aptupdate", 0)) or True
+            if rest == "/apt/repositories" and method == "GET":
+                return self.send(200, {"infos": [{"kind": "warning", "message": "The enterprise repository is enabled, but there is no active subscription!"}], "files": []}) or True
+            if rest == "/disks/list" and method == "GET":
+                return self.send(200, [{"devpath": "/dev/sda", "type": "ssd", "size": 512 << 30, "model": "Mock SSD", "serial": "MOCK1", "health": "PASSED", "used": "LVM", "wearout": 98},
+                                       {"devpath": "/dev/sdb", "type": "hdd", "size": 4 << 40, "model": "Mock HDD", "serial": "MOCK2", "health": "PASSED", "wearout": "N/A"}]) or True
+            if rest == "/disks/smart" and method == "GET":
+                return self.send(200, {"health": "PASSED", "type": "ata", "attributes": [{"id": " 5", "name": "Reallocated_Sector_Ct", "value": 100, "worst": 100, "threshold": 10, "raw": "0"}]}) or True
+            if rest in ("/disks/zfs", "/disks/lvmthin", "/disks/directory") and method == "GET":
+                return self.send(200, [{"lv": "data", "vg": "pve", "lv_size": 300 << 30, "used": 40 << 30}] if rest == "/disks/lvmthin" else []) or True
+            if rest == "/disks/lvm" and method == "GET":
+                return self.send(200, {"children": [{"name": "pve", "size": 476 << 30, "free": 16 << 30}]}) or True
+            if rest.startswith("/disks/") and method in ("POST", "PUT"):
+                return self.send(200, task(node, rest.split("/")[-1], 0)) or True
+            if rest in ("/dns", "/time", "/hosts"):
+                k = rest[1:]
+                if method == "GET":
+                    return self.send(200, {**NODECFG[node][k], **({"localtime": now()} if k == "time" else {})}) or True
+                NODECFG[node][k].update({a: b for a, b in form.items() if a != "digest"})
+                return self.send(200, None) or True
+            if rest == "/syslog" and method == "GET":
+                return self.send(200, [{"n": i + 1, "t": f"Oct 15 12:{i % 60:02d}:00 {node} {q.get('service') or 'pvedaemon'}[123]: mock line {i + 1}"} for i in range(int(q.get("limit", 50)))]) or True
+            if rest == "/tasks" and method == "GET" and not q.get("vmid"):
+                out = [{"upid": u, "type": t["type"], "id": t["id"], "node": t["node"], "user": "root@pam!servermgr", "starttime": t["starttime"],
+                        **({"endtime": t["starttime"] + 2, "status": t["exitstatus"]} if t["status"] == "stopped" else {})} for u, t in TASKS.items() if t["node"] == node]
+                return self.send(200, sorted(out, key=lambda t: -t["starttime"])[:100]) or True
+            if re.fullmatch(r"/tasks/[^/]+", rest) and method == "DELETE":
+                return self.send(200, None) or True
+            if rest in ("/startall", "/stopall", "/migrateall") and method == "POST":
+                return self.send(200, task(node, rest[1:], 0)) or True
+            if rest == "/termproxy" and method == "POST":
+                port, ticket = 5900 + len(CONSOLES), "PVEVNC:" + secrets.token_hex(12)
+                CONSOLES[ticket] = (self.user, 0, port, True)
+                return self.send(200, {"port": str(port), "ticket": ticket, "user": self.user}) or True
+            if rest == "/network":
+                if method == "GET":
+                    return self.send(200, [{"iface": k, **v} for k, v in NETWORK[node].items() if not q.get("type") or v["type"] == "bridge"]) or True
+                if method == "POST":
+                    NETWORK[node][form["iface"]] = {**{k: v for k, v in form.items() if k != "iface"}, "active": 0, "autostart": int(form.get("autostart", 0))}
+                    return self.send(200, None) or True
+                return self.send(200, task(node, "srvreload", 0) if method == "PUT" else None) or True
+            nm = re.fullmatch(r"/network/([\w.-]+)", rest)
+            if nm:
+                if method == "PUT":
+                    NETWORK[node].setdefault(nm.group(1), {}).update(form)
+                elif method == "DELETE":
+                    NETWORK[node].pop(nm.group(1), None)
+                return self.send(200, None) or True
+            cm = re.fullmatch(r"/storage/([\w-]+)/(upload|status)", rest)
+            if cm and cm.group(2) == "upload" and method == "POST":
+                name = form.get("filename", "upload.iso")
+                if form.get("content") == "iso":
+                    ISOS.add(name)
+                else:
+                    CTTMPL[f"{cm.group(1)}:vztmpl/{name}"] = form.get("_size", 0)
+                return self.send(200, task(node, "imgcopy", 0)) or True
+            if rest in ("/qemu", "/lxc") and method == "POST" and not form.get("force") and "import-from" not in form.get("scsi0", ""):
+                vmid = int(form.get("vmid", 0))
+                if vmid in GUESTS:
+                    return self.send(500, err=f"VM {vmid} already exists") or True
+                cfg = {k: v for k, v in form.items() if k not in ("vmid", "name", "hostname", "cores", "memory", "password", "start", "ostemplate")}
+
+                def create():
+                    GUESTS[vmid] = {"type": rest[1:], "node": node, "name": form.get("name") or form.get("hostname") or f"vm-{vmid}", "status": "running" if form.get("start") == "1" else "stopped",
+                                    "maxcpu": int(form.get("cores", 1)), "maxmem": int(form.get("memory", 512)) << 20, "maxdisk": 32 << 30, "template": 0,
+                                    "started": now(), "config": cfg, "pool": form.get("pool", "")}
+                return self.send(200, task(node, "qmcreate" if rest == "/qemu" else "vzcreate", vmid, create)) or True
+            return False
+        for path, coll in DC.items():
+            key = DCKEY.get(path, "pos")
+            if p == path:
+                if method == "GET":
+                    rows = list(coll.values())
+                    if path == "/cluster/firewall/rules":
+                        rows = [{"pos": i, **r} for i, r in enumerate(DCITEMS.get(path, []))]
+                    return self.send(200, rows) or True
+                if method == "POST":
+                    if path == "/cluster/firewall/rules":
+                        DCITEMS.setdefault(path, []).insert(0, dict(form))
+                        return self.send(200, None) or True
+                    k = form.get(key) or f"job-{secrets.token_hex(3)}"
+                    coll[k] = {**form, key: k}
+                    return self.send(200, None) or True
+            em = re.fullmatch(re.escape(path) + r"/([^/]+)(?:/subnets)?(?:/([^/]+))?", p)
+            if em:
+                k, item = urllib.parse.unquote(em.group(1)), urllib.parse.unquote(em.group(2) or "")
+                if path == "/cluster/firewall/rules":
+                    rules = DCITEMS.setdefault(path, [])
+                    if method == "DELETE" and int(k) < len(rules):
+                        rules.pop(int(k))
+                    elif method == "PUT" and int(k) < len(rules):
+                        rules[int(k)].update(form)
+                    return self.send(200, None) or True
+                items = DCITEMS.setdefault(f"{path}/{k}", [])
+                sub = p.endswith("/subnets") or path in ("/cluster/firewall/groups", "/cluster/firewall/ipset")
+                if item and method == "DELETE":
+                    items[:] = [x for x in items if str(x.get("cidr") or x.get("subnet") or x.get("pos")) != item]
+                    return self.send(200, None) or True
+                if method == "GET":
+                    return self.send(200, [{"pos": i, **x} for i, x in enumerate(items)] if sub and not item else coll.get(k, {})) or True
+                if method == "POST" and sub:
+                    items.append(dict(form))
+                    return self.send(200, None) or True
+                if method == "PUT":
+                    coll.setdefault(k, {key: k}).update(form)
+                    return self.send(200, None) or True
+                if method == "DELETE":
+                    coll.pop(k, None)
+                    return self.send(200, None) or True
+        if p in OPTIONS:
+            if method == "PUT":
+                OPTIONS[p].update({k: v for k, v in form.items() if k != "digest"})
+                return self.send(200, None) or True
+            return self.send(200, OPTIONS[p]) or True
+        if p == "/cluster/status" and method == "GET":
+            return self.send(200, [{"type": "cluster", "name": "mock", "quorate": 1, "nodes": len(NODES), "version": 3}] +
+                             [{"type": "node", "name": n, "online": 1, "ip": f"10.0.1.{11 + i}"} for i, n in enumerate(NODES)]) or True
+        if p == "/cluster/tasks" and method == "GET":
+            return self.send(200, [{"upid": u, "type": t["type"], "id": t["id"], "node": t["node"], "user": "root@pam!servermgr", "starttime": t["starttime"],
+                                    "status": t.get("exitstatus", "")} for u, t in TASKS.items()]) or True
+        if p == "/cluster/log" and method == "GET":
+            return self.send(200, [{"uid": 1, "time": now() - 60, "node": "pve1", "user": "root@pam", "tag": "pvedaemon", "msg": "mock log entry"}]) or True
+        if p == "/cluster/ha/status/current" and method == "GET":
+            return self.send(200, [{"id": "quorum", "type": "quorum", "status": "OK"}]) or True
+        if p == "/cluster/sdn" and method == "PUT":
+            return self.send(200, task("pve1", "reloadnetworkall", 0)) or True
+        return False
 
     def admin(self, method, p, form):
         """Pools, users, tokens, ACLs and bridges (root token only)."""
@@ -594,6 +791,25 @@ class H(BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         self.handle_any("DELETE")
+
+
+def multipart_fields(body, ctype):
+    """Text fields of a multipart body; the file part yields its name and size."""
+    boundary = ctype.split("boundary=", 1)[1].strip('"').encode()
+    out = {}
+    for part in body.split(b"--" + boundary):
+        head, _, data = part.partition(b"\r\n\r\n")
+        nm = re.search(rb'name="([^"]+)"', head)
+        if not nm:
+            continue
+        data = data[:-2] if data.endswith(b"\r\n") else data
+        fn = re.search(rb'filename="([^"]*)"', head)
+        if fn:
+            out[nm.group(1).decode()] = fn.group(1).decode()
+            out["_size"] = len(data)
+        else:
+            out[nm.group(1).decode()] = data.decode(errors="replace")
+    return out
 
 
 class WS:

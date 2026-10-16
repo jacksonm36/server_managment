@@ -341,27 +341,6 @@ func cfgStr(cfg map[string]any, k string) string {
 
 // ---- disks ----
 
-// diskSizeGB reads "size=32G" (or M/T) from a disk value.
-func diskSizeGB(v string) int64 {
-	for _, p := range strings.Split(v, ",") {
-		if s, ok := strings.CutPrefix(p, "size="); ok && s != "" {
-			n, err := strconv.ParseFloat(s[:len(s)-1], 64)
-			if err != nil {
-				return 0
-			}
-			switch s[len(s)-1] {
-			case 'T':
-				return int64(n * 1024)
-			case 'G':
-				return int64(n)
-			case 'M':
-				return int64(n / 1024)
-			}
-		}
-	}
-	return 0
-}
-
 func isCDROM(v string) bool { return strings.Contains(v, "media=cdrom") }
 
 func (a *API) handlePVEDiskAdd(w http.ResponseWriter, r *http.Request) {
