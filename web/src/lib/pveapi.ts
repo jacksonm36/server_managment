@@ -24,6 +24,16 @@ export type PVEChoices = {
   nodes: string[];
   nextid?: number;
 };
+export type PVEAppliance = {
+  template: string;
+  package: string;
+  section: string;
+  headline: string;
+  description?: string;
+  version?: string;
+  os?: string;
+  infopage?: string;
+};
 export type PVETaskRow = { upid: string; type: string; user: string; status?: string; starttime: number; endtime?: number; id?: string; node?: string };
 export type PVEVolumeRow = { volid: string; format?: string; size: number; ctime?: number; content: string; vmid?: number | string; notes?: string };
 export type Params = Record<string, string | number | boolean>;
@@ -38,6 +48,9 @@ export const pve = {
   create: (id: string, node: string, type: "qemu" | "lxc", params: Record<string, string>) =>
     request<{ upid: string; vmid: number; node: string; type: string }>("POST", `${np(id, node)}/guests`, { type, params }),
   choices: (id: string, node: string) => request<PVEChoices>("GET", `${np(id, node)}/choices`),
+  appliances: (id: string, node: string) => request<PVEAppliance[]>("GET", `${np(id, node)}/appliances`),
+  applianceDownload: (id: string, node: string, storage: string, template: string) =>
+    request<PVERun>("POST", `${np(id, node)}/appliances`, { storage, template }),
 
   // nodes
   nodeView: <T = unknown>(id: string, node: string, what: string, query = "") => request<T>("GET", `${np(id, node)}/view/${what}${query}`),

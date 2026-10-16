@@ -55,6 +55,31 @@ DISKS = {n: [{"devpath": "/dev/nvme0n1", "model": "Samsung SSD 990 PRO 1TB", "se
              {"devpath": "/dev/sdc", "model": "ST4000VN008", "serial": f"ZD-{i}C3", "size": 4000 << 30, "type": "hdd", "health": "FAILED", "wearout": "N/A", "used": "", "gpt": 0, "rpm": 5900}]
          for i, n in enumerate(NODES)}
 ZFS = {n: {} for n in NODES}  # node -> pool -> {"devices": [...], "raidlevel": ...}
+APLINFO = [
+    {"template": "debian-13-standard_13.1-2_amd64.tar.zst", "package": "debian-13-standard", "section": "system", "headline": "Debian 13 (standard)", "version": "13.1-2", "os": "debian-13", "type": "lxc", "description": "Minimal Debian system."},
+    {"template": "ubuntu-24.04-standard_24.04-2_amd64.tar.zst", "package": "ubuntu-24.04-standard", "section": "system", "headline": "Ubuntu 24.04 (standard)", "version": "24.04-2", "os": "ubuntu-24.04", "type": "lxc", "description": "Minimal Ubuntu system."},
+    {"template": "alpine-3.22-default_20250617_amd64.tar.xz", "package": "alpine-3.22-default", "section": "system", "headline": "Alpine Linux 3.22", "version": "3.22", "os": "alpine", "type": "lxc", "description": "Small Alpine system."},
+    {"template": "debian-12-turnkey-wordpress_18.0-1_amd64.tar.gz", "package": "turnkey-wordpress", "section": "turnkeylinux", "headline": "TurnKey WordPress", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/wordpress", "description": "Blog and content management."},
+    {"template": "debian-12-turnkey-nextcloud_18.0-1_amd64.tar.gz", "package": "turnkey-nextcloud", "section": "turnkeylinux", "headline": "TurnKey Nextcloud", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/nextcloud", "description": "File sync, share and collaboration."},
+    {"template": "debian-12-turnkey-gitlab_18.0-1_amd64.tar.gz", "package": "turnkey-gitlab", "section": "turnkeylinux", "headline": "TurnKey GitLab", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/gitlab", "description": "Git hosting, CI/CD and issue tracking."},
+    {"template": "debian-12-turnkey-gitea_18.0-1_amd64.tar.gz", "package": "turnkey-gitea", "section": "turnkeylinux", "headline": "TurnKey Gitea", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/gitea", "description": "Lightweight self-hosted Git."},
+    {"template": "debian-12-turnkey-nginx-php-fastcgi_18.0-1_amd64.tar.gz", "package": "turnkey-nginx-php-fastcgi", "section": "turnkeylinux", "headline": "TurnKey Nginx PHP FastCGI", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/nginx-php-fastcgi", "description": "Web stack: Nginx + PHP-FPM."},
+    {"template": "debian-12-turnkey-lamp_18.0-1_amd64.tar.gz", "package": "turnkey-lamp", "section": "turnkeylinux", "headline": "TurnKey LAMP Stack", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/lamp", "description": "Linux, Apache, MySQL, PHP."},
+    {"template": "debian-12-turnkey-nodejs_18.0-1_amd64.tar.gz", "package": "turnkey-nodejs", "section": "turnkeylinux", "headline": "TurnKey Node.js", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/nodejs", "description": "JavaScript runtime with a ready web server."},
+    {"template": "debian-12-turnkey-mediawiki_18.0-1_amd64.tar.gz", "package": "turnkey-mediawiki", "section": "turnkeylinux", "headline": "TurnKey MediaWiki", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/mediawiki", "description": "The wiki engine behind Wikipedia."},
+    {"template": "debian-12-turnkey-odoo_18.0-1_amd64.tar.gz", "package": "turnkey-odoo", "section": "turnkeylinux", "headline": "TurnKey Odoo", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/odoo", "description": "ERP and CRM suite."},
+    {"template": "debian-12-turnkey-moodle_18.0-1_amd64.tar.gz", "package": "turnkey-moodle", "section": "turnkeylinux", "headline": "TurnKey Moodle", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/moodle", "description": "Learning management system."},
+    {"template": "debian-12-turnkey-mattermost_18.0-1_amd64.tar.gz", "package": "turnkey-mattermost", "section": "turnkeylinux", "headline": "TurnKey Mattermost", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/mattermost", "description": "Team chat."},
+    {"template": "debian-12-turnkey-openvpn_18.0-1_amd64.tar.gz", "package": "turnkey-openvpn", "section": "turnkeylinux", "headline": "TurnKey OpenVPN", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/openvpn", "description": "VPN server."},
+    {"template": "debian-12-turnkey-wireguard_18.0-1_amd64.tar.gz", "package": "turnkey-wireguard", "section": "turnkeylinux", "headline": "TurnKey WireGuard", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/wireguard", "description": "Fast modern VPN."},
+    {"template": "debian-12-turnkey-fileserver_18.0-1_amd64.tar.gz", "package": "turnkey-fileserver", "section": "turnkeylinux", "headline": "TurnKey File Server", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/fileserver", "description": "Samba file sharing."},
+    {"template": "debian-12-turnkey-postgresql_18.0-1_amd64.tar.gz", "package": "turnkey-postgresql", "section": "turnkeylinux", "headline": "TurnKey PostgreSQL", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/postgresql", "description": "Database server."},
+    {"template": "debian-12-turnkey-mysql_18.0-1_amd64.tar.gz", "package": "turnkey-mysql", "section": "turnkeylinux", "headline": "TurnKey MySQL", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/mysql", "description": "Database server."},
+    {"template": "debian-12-turnkey-redmine_18.0-1_amd64.tar.gz", "package": "turnkey-redmine", "section": "turnkeylinux", "headline": "TurnKey Redmine", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/redmine", "description": "Project management."},
+    {"template": "debian-12-turnkey-jenkins_18.0-1_amd64.tar.gz", "package": "turnkey-jenkins", "section": "turnkeylinux", "headline": "TurnKey Jenkins", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/jenkins", "description": "Automation server."},
+    {"template": "debian-12-turnkey-zoneminder_18.0-1_amd64.tar.gz", "package": "turnkey-zoneminder", "section": "turnkeylinux", "headline": "TurnKey ZoneMinder", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/zoneminder", "description": "Video surveillance."},
+    {"template": "debian-12-turnkey-core_18.0-1_amd64.tar.gz", "package": "turnkey-core", "section": "turnkeylinux", "headline": "TurnKey Core", "version": "18.0-1", "os": "debian-12", "type": "lxc", "infopage": "https://www.turnkeylinux.org/core", "description": "TurnKey's minimal base."},
+]
 CTTMPL = {"local:vztmpl/debian-13-standard_13.1-2_amd64.tar.zst": 130 << 20}
 SERVICES = {s: "running" for s in ("pveproxy", "pvedaemon", "pvestatd", "pve-cluster", "corosync", "chrony", "postfix", "sshd", "cron")}
 NETWORK = {n: {"vmbr0": {"type": "bridge", "cidr": "10.0.1.11/24", "gateway": "10.0.1.1", "bridge_ports": "eno1", "active": 1, "autostart": 1},
@@ -253,6 +278,8 @@ class H(BaseHTTPRequestHandler):
             if method == "GET" and not volid and q.get("content") == "iso":
                 return self.send(200, [{"volid": f"{st}:iso/{n}", "content": "iso", "size": 700 << 20} for n in sorted(ISOS)
                                        if "iso" in STORAGE_INFO.get(st, ("", ""))[1]])
+            if method == "GET" and not volid and q.get("content") == "vztmpl":
+                return self.send(200, [{"volid": v, "content": "vztmpl", "format": "tzst", "size": n} for v, n in CTTMPL.items() if v.startswith(st + ":")])
             if method == "GET" and not volid and root and not q.get("vmid"):
                 # the storage page's browser: everything on the storage
                 out = []
@@ -640,6 +667,11 @@ class H(BaseHTTPRequestHandler):
                 return self.send(200, None) or True
             if rest in ("/startall", "/stopall", "/migrateall") and method == "POST":
                 return self.send(200, task(node, rest[1:], 0)) or True
+            if rest == "/aplinfo" and method == "GET":
+                return self.send(200, APLINFO) or True
+            if rest == "/aplinfo" and method == "POST":
+                CTTMPL[f"{form.get('storage', 'local')}:vztmpl/{form.get('template', '')}"] = 200 << 20
+                return self.send(200, task(node, "download", 0)) or True
             if rest == "/termproxy" and method == "POST":
                 port, ticket = 5900 + len(CONSOLES), "PVEVNC:" + secrets.token_hex(12)
                 CONSOLES[ticket] = (self.user, 0, port, True, ticket)

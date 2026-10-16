@@ -16,12 +16,24 @@
   user: debian
   url: https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2
   checksums: https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS
+- id: ubuntu-26.04
+  name: Ubuntu 26.04 LTS
+  vendor: Ubuntu
+  user: ubuntu
+  url: https://cloud-images.ubuntu.com/resolute/current/resolute-server-cloudimg-amd64.img
+  checksums: https://cloud-images.ubuntu.com/resolute/current/SHA256SUMS
 - id: ubuntu-24.04
   name: Ubuntu 24.04 LTS
   vendor: Ubuntu
   user: ubuntu
   url: https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
   checksums: https://cloud-images.ubuntu.com/noble/current/SHA256SUMS
+- id: ubuntu-25.10
+  name: Ubuntu 25.10
+  vendor: Ubuntu
+  user: ubuntu
+  url: https://cloud-images.ubuntu.com/questing/current/questing-server-cloudimg-amd64.img
+  checksums: https://cloud-images.ubuntu.com/questing/current/SHA256SUMS
 - id: ubuntu-22.04
   name: Ubuntu 22.04 LTS
   vendor: Ubuntu
@@ -40,6 +52,12 @@
   user: rocky
   url: https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2
   checksums: https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2.CHECKSUM
+- id: rocky-8
+  name: Rocky Linux 8
+  vendor: Rocky Linux
+  user: rocky
+  url: https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2
+  checksums: https://dl.rockylinux.org/pub/rocky/8/images/x86_64/Rocky-8-GenericCloud-Base.latest.x86_64.qcow2.CHECKSUM
 - id: alma-10
   name: AlmaLinux 10
   vendor: AlmaLinux
@@ -52,6 +70,12 @@
   user: almalinux
   url: https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2
   checksums: https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM
+- id: alma-8
+  name: AlmaLinux 8
+  vendor: AlmaLinux
+  user: almalinux
+  url: https://repo.almalinux.org/almalinux/8/cloud/x86_64/images/AlmaLinux-8-GenericCloud-latest.x86_64.qcow2
+  checksums: https://repo.almalinux.org/almalinux/8/cloud/x86_64/images/CHECKSUM
 - id: centos-stream-10
   name: CentOS Stream 10
   vendor: CentOS
@@ -70,3 +94,21 @@
   user: arch
   url: https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2
   checksums: https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2.SHA256
+- id: fedora-42
+  name: Fedora 42 Cloud
+  vendor: Fedora
+  user: fedora
+  url: https://download.fedoraproject.org/pub/fedora/linux/releases/42/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-42-1.1.x86_64.qcow2
+  checksums: https://download.fedoraproject.org/pub/fedora/linux/releases/42/Cloud/x86_64/images/Fedora-Cloud-42-1.1-x86_64-CHECKSUM
+- id: opensuse-leap-15.6
+  name: openSUSE Leap 15.6
+  vendor: openSUSE
+  user: opensuse
+  url: https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2
+  checksums: https://download.opensuse.org/repositories/Cloud:/Images:/Leap_15.6/images/openSUSE-Leap-15.6.x86_64-NoCloud.qcow2.sha256
+- id: opensuse-tumbleweed
+  name: openSUSE Tumbleweed
+  vendor: openSUSE
+  user: opensuse
+  url: https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Minimal-VM.x86_64-Cloud.qcow2
+  checksums: https://download.opensuse.org/tumbleweed/appliances/openSUSE-Tumbleweed-Minimal-VM.x86_64-Cloud.qcow2.sha256

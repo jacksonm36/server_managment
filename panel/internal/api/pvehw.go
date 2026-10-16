@@ -339,9 +339,12 @@ func (a *API) handlePVEChoices(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			for _, v := range vols {
-				if kind == "iso" {
+				switch {
+				case v.Content != "" && v.Content != kind:
+					// only what was asked for, even if a storage lists more
+				case kind == "iso":
 					isos = append(isos, v.VolID)
-				} else {
+				default:
 					tmpls = append(tmpls, v.VolID)
 				}
 			}

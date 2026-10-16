@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useLocation } from "wouter";
+import { api } from "@/lib/api";
+import { useAccess } from "@/lib/access";
 import { pve, type PVEChoices } from "@/lib/pveapi";
 import { formatBytes } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -85,7 +87,7 @@ export function FormDialog({
 }
 
 // useChoices loads what a node offers (storages, ISOs, bridges…).
-export function useChoices(cluster: string, node: string) {
+export function useChoices(cluster: string, node: string, reload = 0) {
   const [c, setC] = useState<PVEChoices | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
@@ -95,7 +97,7 @@ export function useChoices(cluster: string, node: string) {
       .choices(cluster, node)
       .then(setC)
       .catch((e) => setErr(errText(e)));
-  }, [cluster, node]);
+  }, [cluster, node, reload]);
   return { c, err };
 }
 
@@ -124,37 +126,64 @@ export function Check({ label, v, set }: { label: string; v: boolean; set: (b: b
   );
 }
 
+// GuestPreset fills the create form, e.g. from a Windows edition or a
+// container template picked in the Deploy catalog.
+export type GuestPreset = {
+  node?: string;
+  title?: string;
+  description?: string;
+  name?: string;
+  ostype?: string;
+  bios?: string;
+  cores?: string;
+  memory?: string;
+  size?: string;
+  template?: string;
+  iso?: RegExp; // pick the first ISO whose name matches
+};
+
+// The Windows paravirtual drivers (disk, network, balloon, guest agent),
+// published by the Fedora project; Windows Setup needs them to see a
+// VirtIO disk.
+export const VIRTIO_WIN_URL = "https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/stable-virtio/virtio-win.iso";
+
 export function CreateGuestDialog({
   cluster,
   nodes,
   type,
+  preset,
   onClose,
 }: {
   cluster: string;
   nodes: string[];
   type: "qemu" | "lxc";
+  preset?: GuestPreset;
   onClose: () => void;
 }) {
   const [, nav] = useLocation();
-  const [node, setNode] = useState(nodes[0] ?? "");
-  const { c, err } = useChoices(cluster, node);
+  const [node, setNode] = useState(preset?.node || nodes[0] || "");
+  const [reload, setReload] = useState(0);
+  const { c, err } = useChoices(cluster, node, reload);
+  const ac = useAccess();
+  const [dl, setDl] = useState("");
   const qemu = type === "qemu";
   const [f, setF] = useState({
     vmid: "",
-    name: "",
+    name: preset?.name ?? "",
     iso: "",
-    ostype: "l26",
-    bios: "seabios",
-    cores: "2",
+    drivers: "",
+    ostype: preset?.ostype ?? "l26",
+    bios: preset?.bios ?? "seabios",
+    cores: preset?.cores ?? "2",
     sockets: "1",
-    memory: "2048",
+    memory: preset?.memory ?? "2048",
     storage: "",
-    size: qemu ? "32" : "8",
+    size: preset?.size ?? (qemu ? "32" : "8"),
     bridge: "",
     tag: "",
     ip: "dhcp",
     gw: "",
-    template: "",
+    template: preset?.template ?? "",
     password: "",
     sshkey: "",
     swap: "512",
@@ -169,16 +198,42 @@ export function CreateGuestDialog({
       ...x,
       vmid: x.vmid || String(c.nextid ?? ""),
       bridge: x.bridge || c.bridges[0] || "",
+      iso: x.iso || (preset?.iso && c.isos.find((i) => preset.iso!.test(i.split("/").pop() ?? ""))) || "",
+      drivers: x.drivers || c.isos.find((i) => /virtio-win/i.test(i)) || "",
+      storage: x.storage || (storagesFor(c, qemu ? "images" : "rootdir")[0]?.storage ?? ""),
     }));
-  }, [c]);
+  }, [c, preset]);
+  const win = qemu && f.ostype.startsWith("win");
+  const isoStorage = storagesFor(c, "iso")[0]?.storage ?? "";
+  // fetchDrivers has the node download virtio-win.iso, then reloads the
+  // ISO list once Proxmox has it.
+  const fetchDrivers = async () => {
+    setDl("Downloading virtio-win.iso…");
+    try {
+      const r = await api.pveDownloadURL(cluster, node, isoStorage, { url: VIRTIO_WIN_URL, content: "iso" });
+      for (let i = 0; i < 300; i++) {
+        await new Promise((res) => setTimeout(res, 3000));
+        const t = await api.pveNodeTask(cluster, node, r.upid);
+        if (t.status === "stopped") {
+          setDl(t.exitstatus === "OK" ? "" : `Download failed: ${t.exitstatus}`);
+          setReload((n) => n + 1);
+          return;
+        }
+      }
+    } catch (e) {
+      setDl(errText(e));
+    }
+  };
   const diskContent = qemu ? "images" : "rootdir";
   const nodeList = useMemo(() => (nodes.length ? nodes : [node]), [nodes, node]);
 
   return (
     <FormDialog
       wide
-      title={qemu ? "Create virtual machine" : "Create container"}
-      description={qemu ? "Boots from an ISO; install the OS in the console." : "From a container template; download templates on the Storage page."}
+      title={preset?.title ?? (qemu ? "Create virtual machine" : "Create container")}
+      description={
+        preset?.description ?? (qemu ? "Boots from an ISO; install the OS in the console." : "From a container template; download templates on the Deploy page.")
+      }
       submit="Create"
       onClose={onClose}
       onSubmit={async () => {
@@ -194,6 +249,7 @@ export function CreateGuestDialog({
             scsi0: `${f.storage}:${f.size},discard=on,iothread=1,ssd=1`,
             ide2: `${f.iso || "none"},media=cdrom`,
             boot: "order=scsi0;ide2;net0",
+            ...(win && f.drivers ? { ide0: `${f.drivers},media=cdrom` } : {}),
             cpu: "x86-64-v2-AES",
             net0: net.join(","),
             bios: f.bios,
@@ -203,7 +259,10 @@ export function CreateGuestDialog({
             p.machine = "q35";
             p.efidisk0 = `${f.storage}:1,efitype=4m,pre-enrolled-keys=1`;
           }
-          if (f.ostype.startsWith("win")) p.tpmstate0 = `${f.storage}:1,version=v2.0`;
+          if (win) {
+            p.tpmstate0 = `${f.storage}:1,version=v2.0`;
+            p.vga = "std";
+          }
         } else {
           net.push(`ip=${f.ip}`);
           if (f.gw && f.ip !== "dhcp") net.push(`gw=${f.gw}`);
@@ -269,7 +328,28 @@ export function CreateGuestDialog({
             </Select>
           </Field>
         </div>
-      ) : (
+      ) : null}
+      {win && (
+        <Field label="Drivers ISO (virtio-win)" hint="Windows Setup needs it to see the disk: Load driver, then vioscsi, your Windows version, amd64">
+          <div className="flex gap-2">
+            <Select value={f.drivers} onChange={(e) => up("drivers")(e.target.value)}>
+              <option value="">None</option>
+              {c?.isos.map((i) => (
+                <option key={i} value={i}>
+                  {i.split("/").pop()}
+                </option>
+              ))}
+            </Select>
+            {!f.drivers && ac.can("proxmox.manage") && isoStorage && (
+              <Button type="button" size="sm" variant="secondary" disabled={!!dl && dl.endsWith("…")} onClick={fetchDrivers}>
+                Download
+              </Button>
+            )}
+          </div>
+          {dl && <p className="text-xs text-muted-foreground">{dl}</p>}
+        </Field>
+      )}
+      {!qemu && (
         <Field label="Template">
           <Select value={f.template} onChange={(e) => up("template")(e.target.value)} required>
             <option value="">{c ? (c.templates.length ? "Pick a template…" : "No templates downloaded yet") : "Loading…"}</option>

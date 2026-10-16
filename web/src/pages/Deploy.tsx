@@ -13,29 +13,14 @@ import { DeployDialog } from "@/components/DeployDialog";
 import { ImageTemplateDialog } from "@/components/ImageTemplateDialog";
 import { FlavorsDialog } from "@/components/Flavors";
 import { ProvisionDialog } from "@/pages/Proxmox";
+import { ContainerCatalog, WindowsCatalog } from "@/pages/DeployCatalogs";
+import { DistroIcon, iconKey } from "@/components/DistroIcon";
 
 // Deploy is the cloud-init deployer: an image catalog to deploy new VMs
 // from (servermgr builds and reuses a template per image and node), the
 // cluster's own templates, and every deployment with its log.
 
-type Tab = "catalog" | "templates" | "deployments";
-
-// Each vendor gets its own colour and initials on the catalog cards.
-const vendorStyle: Record<string, string> = {
-  Debian: "bg-rose-500/15 text-rose-400 border-rose-500/30",
-  Ubuntu: "bg-orange-500/15 text-orange-400 border-orange-500/30",
-  "Rocky Linux": "bg-emerald-500/15 text-emerald-400 border-emerald-500/30",
-  AlmaLinux: "bg-sky-500/15 text-sky-400 border-sky-500/30",
-  CentOS: "bg-violet-500/15 text-violet-400 border-violet-500/30",
-  "Arch Linux": "bg-cyan-500/15 text-cyan-400 border-cyan-500/30",
-};
-const initials = (v: string) =>
-  v
-    .split(/\s+/)
-    .map((w) => w[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+type Tab = "catalog" | "windows" | "containers" | "templates" | "deployments";
 
 export function Deploy() {
   const ac = useAccess();
@@ -88,7 +73,9 @@ export function Deploy() {
     void load();
   };
   const tabs: [Tab, string, boolean][] = [
-    ["catalog", "Image catalog", admin],
+    ["catalog", "Linux cloud images", admin],
+    ["windows", "Windows", ac.can("proxmox.guests")],
+    ["containers", "Containers (LXC)", ac.can("proxmox.guests")],
     ["templates", `Templates${templates.length ? ` (${templates.length})` : ""}`, true],
     ["deployments", `Deployments${active ? ` (${provs.filter((p) => p.status === "running").length} running)` : ""}`, ac.can("proxmox.operate")],
   ];
@@ -98,7 +85,9 @@ export function Deploy() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Deploy</h1>
-          <p className="text-sm text-muted-foreground">New VMs from cloud images with cloud-init: your user, SSH keys and network, enrolled into servermgr if you like.</p>
+          <p className="text-sm text-muted-foreground">
+            Linux VMs from cloud images with cloud-init, Windows VMs ready for your installer, and containers from OS templates or TurnKey appliances.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {clusters && clusters.length > 1 && (
@@ -147,6 +136,8 @@ export function Deploy() {
           </nav>
 
           {tab === "catalog" && admin && <Catalog res={res} onDeploy={(id) => setDeploying(id)} />}
+          {tab === "windows" && <WindowsCatalog cluster={cluster.id} res={res} />}
+          {tab === "containers" && <ContainerCatalog cluster={cluster.id} res={res} />}
           {tab === "templates" && (
             <Card className="p-4">
               <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
@@ -264,9 +255,7 @@ function Catalog({ res, onDeploy }: { res: PVEResources | null; onDeploy: (image
             return (
               <Card key={i.id} className="flex flex-col gap-3 p-4">
                 <div className="flex items-start gap-3">
-                  <div className={`grid size-10 shrink-0 place-items-center rounded-lg border text-sm font-bold ${vendorStyle[i.vendor] ?? "bg-muted text-muted-foreground"}`}>
-                    {initials(i.vendor)}
-                  </div>
+                  <DistroIcon k={iconKey(i.id, i.vendor)} label={i.vendor} />
                   <div className="min-w-0">
                     <div className="truncate font-medium">{i.name}</div>
                     <div className="text-xs text-muted-foreground">{i.vendor}</div>

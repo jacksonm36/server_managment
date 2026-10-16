@@ -85,6 +85,17 @@ func TestPVEStorageAdmin(t *testing.T) {
 	expect("volume unconfirmed", first(call(root, "DELETE", base+"/nodes/pve1/storage/local/content?volume=local:iso/debian-13.iso", nil)), 400)
 	expect("delete volume", first(call(root, "DELETE", base+"/nodes/pve1/storage/local/content?volume=local:iso/debian-13.iso&confirm=local:iso/debian-13.iso", nil)), 204)
 
+	// Appliances: Proxmox's catalog, containers only, safe names only.
+	code, _, aps := call(root, "GET", base+"/nodes/pve1/appliances", nil)
+	expect("list appliances", code, 200)
+	if len(aps) != 2 || aps[1].(map[string]any)["package"] != "turnkey-wordpress" {
+		t.Errorf("appliances = %v", aps)
+	}
+	ap := func(b map[string]any) int { return first(call(root, "POST", base+"/nodes/pve1/appliances", b)) }
+	expect("appliance not in the catalog", ap(map[string]any{"storage": "local", "template": "made-up_1.0_amd64.tar.gz"}), 400)
+	expect("appliance to a storage without templates", ap(map[string]any{"storage": "local-lvm", "template": "debian-13-turnkey-wordpress_19.0-1_amd64.tar.gz"}), 400)
+	expect("download an appliance", ap(map[string]any{"storage": "local", "template": "debian-13-turnkey-wordpress_19.0-1_amd64.tar.gz"}), 200)
+
 	// Disks: only unused ones are wiped.
 	wipe := func(disk, confirm string) int {
 		return first(call(root, "POST", base+"/nodes/pve1/disks/wipe", map[string]any{"disk": disk, "confirm": confirm}))

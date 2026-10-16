@@ -202,6 +202,8 @@ func (a *API) Handler() http.Handler {
 	// create guests
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/guests", need("proxmox.guests", a.handlePVECreateGuest))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/choices", need("proxmox.view", a.handlePVEChoices))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/appliances", need("proxmox.view", a.handlePVEAppliances))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/appliances", need("proxmox.manage", a.handlePVEApplianceDownload))
 	// nodes (platform only)
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/view/{what}", need("proxmox.manage", a.handlePVENodeView))
 	authed.HandleFunc("PUT /api/v1/proxmox/{id}/nodes/{node}/view/{what}", need("proxmox.manage", a.handlePVENodeSet))

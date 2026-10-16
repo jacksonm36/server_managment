@@ -371,6 +371,20 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		delete(f.backups, volid)
 		f.reply(w, 200, nil, "")
+	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "aplinfo" && r.Method == "GET":
+		f.reply(w, 200, []map[string]any{
+			{"template": "debian-13-standard_13.1-2_amd64.tar.zst", "package": "debian-13-standard", "section": "system", "headline": "Debian 13", "type": "lxc"},
+			{"template": "debian-13-turnkey-wordpress_19.0-1_amd64.tar.gz", "package": "turnkey-wordpress", "section": "turnkeylinux", "headline": "TurnKey WordPress", "type": "lxc"},
+			{"template": "../../etc/passwd.tar.gz", "package": "evil", "section": "system", "type": "lxc"},
+			{"template": "some-vm.ova", "package": "vm", "section": "system", "type": "qemu"},
+		}, "")
+	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "aplinfo" && r.Method == "POST":
+		if !root {
+			deny()
+			return
+		}
+		f.imports[r.Form.Get("storage")+":vztmpl/"+r.Form.Get("template")] = r.Form
+		f.reply(w, 200, fmt.Sprintf("UPID:%s:0:0:0:download:0:%s:", parts[1], user), "")
 	case len(parts) == 5 && parts[0] == "nodes" && parts[2] == "storage" && parts[4] == "download-url" && r.Method == "POST":
 		if !root {
 			deny()
