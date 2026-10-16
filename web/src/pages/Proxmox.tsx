@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import {
   Camera,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   RefreshCw,
@@ -100,6 +102,10 @@ export function Proxmox() {
 }
 
 const TREE_KEY = "sm.pve.tree-width";
+const TREE_HIDE_KEY = "sm.pve.tree-hidden";
+
+// Until someone drags it, the guest list takes a share of the window.
+const autoTreeW = () => Math.round(Math.min(360, Math.max(220, window.innerWidth * 0.14)));
 
 function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; ac: Access; onEdit: () => void; onDeleted: () => void }) {
   const [res, setRes] = useState<PVEResources | null>(null);
@@ -108,13 +114,38 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
   const [guest, setGuest] = useState<PVEGuest | null>(null); // picked in the tree: shown in the pane
   const [view, setView] = useState<"overview" | "datacenter">("overview");
   const [create, setCreate] = useState<"qemu" | "lxc" | null>(null);
-  const [treeW, setTreeW] = useState(() => {
+  const [fixedW, setTreeW] = useState<number | null>(() => {
     try {
-      return Math.min(520, Math.max(200, Number(localStorage.getItem(TREE_KEY)) || 256));
+      const w = Number(localStorage.getItem(TREE_KEY));
+      return w ? Math.min(520, Math.max(200, w)) : null;
     } catch {
-      return 256;
+      return null;
     }
   });
+  const [autoW, setAutoW] = useState(autoTreeW);
+  useEffect(() => {
+    const on = () => setAutoW(autoTreeW());
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  const treeW = fixedW ?? autoW;
+  const [treeHidden, setTreeHidden] = useState(() => {
+    try {
+      return localStorage.getItem(TREE_HIDE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleTree = () => {
+    const h = !treeHidden;
+    setTreeHidden(h);
+    try {
+      if (h) localStorage.setItem(TREE_HIDE_KEY, "1");
+      else localStorage.removeItem(TREE_HIDE_KEY);
+    } catch {
+      /* private window */
+    }
+  };
   const pane = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -204,6 +235,17 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
               <Rocket className="size-4" /> Deploy
             </Link>
           )}
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-8"
+            aria-label={treeHidden ? "Show guest list" : "Hide guest list"}
+            aria-pressed={!treeHidden}
+            title={treeHidden ? "Show guest list" : "Hide guest list"}
+            onClick={toggleTree}
+          >
+            {treeHidden ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </Button>
           <Button size="icon" variant="ghost" className="size-8" aria-label="Refresh" onClick={load}>
             <RefreshCw className="size-4" />
           </Button>
@@ -233,10 +275,10 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
       )}
 
       <div
-        className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[var(--tree-w)_minmax(0,1fr)] lg:items-start"
+        className={`grid grid-cols-[minmax(0,1fr)] gap-4 lg:items-start ${treeHidden ? "" : "lg:grid-cols-[var(--tree-w)_minmax(0,1fr)]"}`}
         style={{ "--tree-w": `${treeW}px` } as React.CSSProperties}
       >
-        {res && !res.error && (
+        {res && !res.error && !treeHidden && (
           <div className="relative lg:sticky lg:top-20">
             <Card className="max-h-[60vh] overflow-y-auto p-3 lg:max-h-[calc(100vh-6rem)]">
               <ComputeTree
@@ -256,6 +298,15 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
               aria-valuenow={treeW}
               tabIndex={0}
               onPointerDown={resize}
+              onDoubleClick={() => {
+                setTreeW(null);
+                try {
+                  localStorage.removeItem(TREE_KEY);
+                } catch {
+                  /* private window */
+                }
+              }}
+              title="Drag to resize, double-click to fit the window"
               onKeyDown={(e) => {
                 const d = e.key === "ArrowLeft" ? -16 : e.key === "ArrowRight" ? 16 : 0;
                 if (!d) return;
@@ -274,7 +325,7 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
             </div>
           </div>
         )}
-        <div ref={pane} className="grid min-w-0 scroll-mt-20 grid-cols-[minmax(0,1fr)] gap-4 lg:col-start-2">
+        <div ref={pane} className={`grid min-w-0 scroll-mt-20 grid-cols-[minmax(0,1fr)] gap-4 ${treeHidden ? "" : "lg:col-start-2"}`}>
           {res?.tenant && !guest && !node && <TenantUsageCard t={res.tenant} />}
 
           {res &&

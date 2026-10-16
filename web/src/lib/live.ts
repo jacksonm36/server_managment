@@ -43,7 +43,7 @@ export async function refreshServers() {
 }
 
 export async function loadMetricsHistory(id: string) {
-  const hist = await api.metrics(id);
+  const hist = (await api.metrics(id)) ?? []; // null for a server with no samples yet
   const metrics = new Map(state.metrics);
   // Merge with anything that arrived live while the request was in flight.
   const live = metrics.get(id) ?? [];

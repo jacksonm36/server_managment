@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  PanelLeft,
   Search,
   Server,
   Settings,
@@ -27,7 +28,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 // The app frame: a sectioned sidebar on the left (collapsible to icons on
 // desktop, a drawer on phones) and a top bar with search, fleet usage and
-// the account.
+// the account. Until someone toggles it, the sidebar shrinks to icons on
+// its own when the window is narrower than WIDE.
 
 type NavItem = { href: string; label: string; icon: ReactNode; show: boolean; badge?: ReactNode };
 
@@ -70,28 +72,59 @@ function navSections(perms: Set<string>): { title?: string; items: NavItem[] }[]
 }
 
 const COLLAPSE_KEY = "sm.sidebar.collapsed";
+const WIDE = "(min-width: 1280px)";
+
+// useMedia follows a CSS media query.
+function useMedia(q: string) {
+  const [m, setM] = useState(() => window.matchMedia(q).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(q);
+    const on = () => setM(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [q]);
+  return m;
+}
 
 export function Shell({ me, access, onLogout, children }: { me: Me; access: AccessData; onLogout: () => void; children: ReactNode }) {
-  const [collapsed, setCollapsed] = useState(() => {
+  // "1" collapsed, "0" open, null = follow the window width.
+  const [pref, setPref] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(COLLAPSE_KEY) === "1";
+      return localStorage.getItem(COLLAPSE_KEY);
     } catch {
-      return false;
+      return null;
     }
   });
+  const wide = useMedia(WIDE);
+  const collapsed = pref === null ? !wide : pref === "1";
   const [drawer, setDrawer] = useState(false);
   const [loc] = useLocation();
   useEffect(() => setDrawer(false), [loc]);
   function toggle() {
-    setCollapsed((c) => {
-      try {
-        localStorage.setItem(COLLAPSE_KEY, c ? "0" : "1");
-      } catch {
-        /* private mode */
-      }
-      return !c;
-    });
+    const next = !collapsed;
+    // Toggling back to what the width would pick returns to automatic.
+    const p = next === !wide ? null : next ? "1" : "0";
+    setPref(p);
+    try {
+      if (p === null) localStorage.removeItem(COLLAPSE_KEY);
+      else localStorage.setItem(COLLAPSE_KEY, p);
+    } catch {
+      /* private mode */
+    }
   }
+  const toggleRef = useRef(toggle);
+  useEffect(() => {
+    toggleRef.current = toggle;
+  });
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.key !== "[" || e.ctrlKey || e.metaKey || e.altKey || t.closest("input,textarea,select,[contenteditable=true]")) return;
+      toggleRef.current();
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, []);
   const sections = navSections(access.perms);
 
   return (
@@ -157,6 +190,15 @@ export function Shell({ me, access, onLogout, children }: { me: Me; access: Acce
         <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/85 px-4 backdrop-blur sm:px-6">
           <button onClick={() => setDrawer(true)} className="cursor-pointer text-muted-foreground lg:hidden" aria-label="Open menu">
             <Menu className="size-5" />
+          </button>
+          <button
+            onClick={toggle}
+            className="hidden size-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:flex"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-pressed={!collapsed}
+            title={`${collapsed ? "Expand" : "Collapse"} sidebar ([)${pref === null ? " · follows window width" : ""}`}
+          >
+            <PanelLeft className="size-4" />
           </button>
           <GlobalSearch canPVE={access.perms.has("proxmox.view")} />
           <div className="ml-auto flex items-center gap-4 text-sm">
@@ -318,7 +360,7 @@ function GlobalSearch({ canPVE }: { canPVE: boolean }) {
   }
 
   return (
-    <div ref={box} className="relative w-full max-w-xs">
+    <div ref={box} className="relative w-full max-w-xs lg:max-w-md">
       <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
       <input
         value={q}
