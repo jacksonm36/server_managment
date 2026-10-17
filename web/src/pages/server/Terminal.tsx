@@ -23,7 +23,7 @@ export function Terminal({ serverId, online }: { serverId: string; online: boole
       fontFamily: 'ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace',
       fontSize: 13,
       scrollback: 5000,
-      theme: { background: "#0c0e12", foreground: "#e6e6e6", cursor: "#67d4f0", selectionBackground: "#2b4a5a" },
+      theme: { background: "#0d1017", foreground: "#e6e6e6", cursor: "#ff9d4d", selectionBackground: "#5a3a22" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -93,7 +93,7 @@ export function Terminal({ serverId, online }: { serverId: string; online: boole
           </Button>
         </div>
       </div>
-      <div ref={host} className={`${full ? "h-full" : "h-[32rem]"} min-h-0 rounded-md bg-[#0c0e12] p-2`} />
+      <div ref={host} className={`${full ? "h-full" : "h-[32rem]"} min-h-0 rounded-md bg-[#0d1017] p-2`} />
     </Card>
   );
 }

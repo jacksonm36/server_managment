@@ -1,6 +1,7 @@
 // Package pki implements the panel's internal certificate authority. The CA
 // signs agent client certificates at enrollment and a fresh panel server
-// certificate on every start.
+// certificate on every start, for a server key kept next to the CA so the
+// key that install commands pin stays the same across restarts.
 package pki
 
 import (
@@ -12,6 +13,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
@@ -27,6 +29,7 @@ type CA struct {
 	Cert    *x509.Certificate
 	CertPEM []byte
 	key     crypto.Signer
+	dir     string
 }
 
 // LoadOrCreate loads ca.crt/ca.key from dir, creating a new CA on first start.
@@ -57,7 +60,7 @@ func LoadOrCreate(dir string) (*CA, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &CA{Cert: cert, CertPEM: certPEM, key: key}, nil
+	return &CA{Cert: cert, CertPEM: certPEM, key: key, dir: dir}, nil
 }
 
 func create(dir, certPath, keyPath string) (*CA, error) {
@@ -94,7 +97,7 @@ func create(dir, certPath, keyPath string) (*CA, error) {
 		return nil, err
 	}
 	cert, _ := x509.ParseCertificate(der)
-	return &CA{Cert: cert, CertPEM: certPEM, key: key}, nil
+	return &CA{Cert: cert, CertPEM: certPEM, key: key, dir: dir}, nil
 }
 
 // Fingerprint is the hex SHA-256 of the CA certificate's DER bytes. The agent
@@ -142,7 +145,7 @@ func (ca *CA) SignAgentCSR(csrPEM []byte, serverID string, validity time.Duratio
 // ServerCert issues a short-lived panel server certificate for the given
 // hostnames/IPs. It is regenerated on every start, so it is never stored.
 func (ca *CA) ServerCert(hosts []string) (tls.Certificate, error) {
-	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	key, err := ca.serverKey()
 	if err != nil {
 		return tls.Certificate{}, err
 	}
@@ -166,6 +169,43 @@ func (ca *CA) ServerCert(hosts []string) (tls.Certificate, error) {
 		return tls.Certificate{}, err
 	}
 	return tls.Certificate{Certificate: [][]byte{der, ca.Cert.Raw}, PrivateKey: key}, nil
+}
+
+// serverKey loads server.key from the CA's directory, creating it once.
+func (ca *CA) serverKey() (*ecdsa.PrivateKey, error) {
+	if ca.dir == "" {
+		return ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	}
+	path := filepath.Join(ca.dir, "server.key")
+	if b, err := os.ReadFile(path); err == nil {
+		kb, _ := pem.Decode(b)
+		if kb == nil {
+			return nil, errors.New("server.key: no PEM block")
+		}
+		return x509.ParseECPrivateKey(kb.Bytes)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	der, err := x509.MarshalECPrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+	return key, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), 0o600)
+}
+
+// PublicKeyPin is the certificate's public key in curl's --pinnedpubkey
+// form: sha256// and the base64 SHA-256 of its SubjectPublicKeyInfo.
+func PublicKeyPin(c tls.Certificate) (string, error) {
+	leaf, err := x509.ParseCertificate(c.Certificate[0])
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(leaf.RawSubjectPublicKeyInfo)
+	return "sha256//" + base64.StdEncoding.EncodeToString(sum[:]), nil
 }
 
 func parseCertPEM(p []byte) (*x509.Certificate, error) {

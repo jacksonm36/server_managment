@@ -29,6 +29,7 @@ type testPanel struct {
 	api            *API
 	conn           *pgx.Conn
 	url            string
+	base           string // the panel's HTTP address
 	web, db, other string
 	call           func(c client, method, path string, body any) (int, map[string]any, []any)
 	login          func(user, pass string) (client, map[string]any)
@@ -66,7 +67,7 @@ func newTestPanel(t *testing.T) *testPanel {
 	if err := st.CreateAdmin(ctx, "root", hash); err != nil {
 		t.Fatal(err)
 	}
-	p := &testPanel{t: t, api: a, conn: conn, url: url, web: store.NewUUID(), db: store.NewUUID(), other: store.NewUUID()}
+	p := &testPanel{t: t, api: a, conn: conn, url: url, base: srv.URL, web: store.NewUUID(), db: store.NewUUID(), other: store.NewUUID()}
 	for name, id := range map[string]string{"web1": p.web, "db1": p.db, "other": p.other} {
 		if _, err := conn.Exec(ctx, `INSERT INTO servers (id, name) VALUES ($1, $2)`, id, name); err != nil {
 			t.Fatal(err)

@@ -140,7 +140,7 @@ export function Servers() {
           </p>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 min-[1800px]:grid-cols-4 min-[2300px]:grid-cols-5">
           {servers.map((s) => (
             <ServerCard key={s.id} s={s} groups={groups} selectable={can("playbooks.run")} selected={selected.has(s.id)} onToggle={() => toggle(s.id)} />
           ))}

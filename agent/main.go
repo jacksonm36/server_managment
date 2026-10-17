@@ -90,7 +90,7 @@ func usage() {
 
 func cmdEnroll(args []string) error {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
-	panel := fs.String("panel", "", "panel base URL, e.g. http://10.0.1.240:8090")
+	panel := fs.String("panel", "", "panel base URL, e.g. https://10.0.1.240:8443")
 	token := fs.String("token", "", "one-time join token")
 	caSHA := fs.String("ca-sha256", "", "expected SHA-256 of the panel CA certificate")
 	dir := fs.String("state-dir", defaultStateDir, "state directory")
@@ -118,7 +118,7 @@ func cmdEnroll(args []string) error {
 		"csr_pem":  string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})),
 		"hostname": hostname,
 	})
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := ops.PinnedPanelClient(*caSHA, 30*time.Second)
 	resp, err := client.Post(strings.TrimRight(*panel, "/")+"/api/v1/enroll", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -211,6 +211,7 @@ func cmdRun(args []string, log *slog.Logger) error {
 	defer stop()
 
 	ops.PanelURL = st.PanelURL
+	ops.PanelCA = pool
 	ops.StartRenewer(ctx, log)
 	ops.StartBackups(ctx, log)
 	c := &client{addr: st.GRPCAddr, tls: tlsCfg, log: log.With("server", st.ServerID), sys: sysinfo.New()}

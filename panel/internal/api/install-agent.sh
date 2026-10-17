@@ -2,15 +2,18 @@
 # servermgr agent installer. The panel serves this script at /install.sh with
 # its own address filled in; the copy in the repository needs --panel.
 #
-#   Install:    curl -fsSL http://PANEL:8090/install.sh | sudo sh -s -- --token TOKEN --ca-sha256 SHA
-#   From git:   sudo sh install-agent.sh --panel http://PANEL:8090 --token TOKEN --ca-sha256 SHA
+#   Install:    curl -fsSLk --pinnedpubkey 'PIN' https://PANEL:8443/install.sh | sudo sh -s -- --token TOKEN --ca-sha256 SHA
+#   From git:   sudo sh install-agent.sh --panel https://PANEL:8443 --pin 'PIN' --token TOKEN --ca-sha256 SHA
 #   Update:     run it again without --token (keeps the enrollment)
 #   Uninstall:  sudo sh install-agent.sh --uninstall
 #
-# Get the token and CA fingerprint from the panel: Servers -> Add server.
+# Get the token, CA fingerprint and key pin from the panel: Servers -> Add server.
+# Over HTTPS every download pins the panel's server key (or, when updating,
+# trusts the panel CA saved at enrollment), so nothing comes from elsewhere.
 set -eu
 
 PANEL_URL='__PANEL_URL__'
+PANEL_PIN='__PANEL_PIN__'
 TOKEN=""
 CA_SHA256=""
 UNINSTALL=0
@@ -25,6 +28,7 @@ while [ $# -gt 0 ]; do
     --panel) PANEL_URL="${2:-}"; shift 2 ;;
     --token) TOKEN="${2:-}"; shift 2 ;;
     --ca-sha256) CA_SHA256="${2:-}"; shift 2 ;;
+    --pin) PANEL_PIN="${2:-}"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     -h|--help) sed -n '2,10p' "$0" 2>/dev/null || true; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
@@ -44,7 +48,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
 fi
 
 case "$PANEL_URL" in
-  __PANEL_URL__|"") die "--panel is required, e.g. --panel http://10.0.1.240:8090" ;;
+  __PANEL_URL__|"") die "--panel is required, e.g. --panel https://10.0.1.240:8443" ;;
   http://*|https://*) ;;
   *) die "--panel must start with http:// or https://" ;;
 esac
@@ -59,6 +63,18 @@ if [ -n "$TOKEN" ]; then
   [ -n "$CA_SHA256" ] || die "--ca-sha256 is required with --token"
   [ "$ENROLLED" -eq 0 ] || die "already enrolled; run with --uninstall first to enroll again"
 fi
+[ "$PANEL_PIN" = "__PANEL_PIN__" ] && PANEL_PIN=""
+CURL_TLS=""
+case "$PANEL_URL" in
+  https://*)
+    if [ -n "$PANEL_PIN" ]; then
+      CURL_TLS="-k --pinnedpubkey $PANEL_PIN"
+    elif [ "$ENROLLED" -eq 1 ] && [ -f "$STATE_DIR/ca.crt" ]; then
+      CURL_TLS="--cacert $STATE_DIR/ca.crt"
+    else
+      die "--pin is required with an https panel (copy the install command from the panel)"
+    fi ;;
+esac
 
 command -v curl >/dev/null 2>&1 || {
   echo "Installing curl..."
@@ -76,12 +92,16 @@ esac
 TMP=$(mktemp)
 trap 'rm -f "$TMP"' EXIT
 echo "Downloading the agent ($ARCH) from $PANEL_URL..."
-curl -fsSL "$PANEL_URL/download/servermgr-agent-linux-$ARCH" -o "$TMP" || die "download failed; is $PANEL_URL reachable from here?"
+# shellcheck disable=SC2086 # CURL_TLS holds separate options
+curl -fsSL $CURL_TLS "$PANEL_URL/download/servermgr-agent-linux-$ARCH" -o "$TMP" || die "download failed; is $PANEL_URL reachable from here?"
 [ -s "$TMP" ] || die "downloaded an empty file"
 install -m 0755 "$TMP" "$BIN"
 
 if [ -n "$TOKEN" ]; then
   "$BIN" enroll --panel "$PANEL_URL" --token "$TOKEN" --ca-sha256 "$CA_SHA256"
+else
+  # An agent enrolled over plain HTTP moves to this (HTTPS) address.
+  sed -i "s#\"panel_url\": *\"[^\"]*\"#\"panel_url\": \"$PANEL_URL\"#" "$STATE_DIR/state.json"
 fi
 
 cat > "$UNIT" <<'UNIT'

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/mail"
@@ -53,6 +54,24 @@ type userReq struct {
 	Disabled           bool    `json:"disabled"`
 	MustChangePassword bool    `json:"must_change_password"`
 	Groups             []int64 `json:"groups"`
+	// TenantID puts the user in a tenant (null: a platform user). Left
+	// out of an update, the user stays where they are.
+	TenantID json.RawMessage `json:"tenant_id"`
+}
+
+// tenant parses TenantID: keep reports that it was left out.
+func (req *userReq) tenant() (id *int64, keep bool, err error) {
+	if len(req.TenantID) == 0 {
+		return nil, true, nil
+	}
+	if string(req.TenantID) == "null" {
+		return nil, false, nil
+	}
+	var n int64
+	if err := json.Unmarshal(req.TenantID, &n); err != nil || n <= 0 {
+		return nil, false, errors.New("tenant_id must be a tenant's id or null")
+	}
+	return &n, false, nil
 }
 
 func (a *API) checkUserReq(w http.ResponseWriter, r *http.Request, req *userReq) bool {
@@ -115,9 +134,14 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
+	tenant, _, err := req.tenant()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	u := &store.User{
 		Username: req.Username, DisplayName: req.DisplayName, Email: req.Email, Role: req.Role,
-		MustChangePassword: req.MustChangePassword, Groups: orEmpty(req.Groups),
+		MustChangePassword: req.MustChangePassword, Groups: orEmpty(req.Groups), TenantID: tenant,
 	}
 	if err := a.Store.CreateUser(r.Context(), u, hash); err != nil {
 		if errors.Is(err, store.ErrExists) {
@@ -127,7 +151,7 @@ func (a *API) handleCreateUser(w http.ResponseWriter, r *http.Request) {
 		a.storeErr(w, err, "user group")
 		return
 	}
-	a.audit(r, "", "user.create", req.Username, map[string]any{"role": req.Role, "groups": u.Groups}, true)
+	a.audit(r, "", "user.create", req.Username, map[string]any{"role": req.Role, "groups": u.Groups, "tenant_id": u.TenantID}, true)
 	writeJSON(w, http.StatusCreated, map[string]any{"id": u.ID})
 }
 
@@ -152,12 +176,25 @@ func (a *API) handleUpdateUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "you cannot demote or disable yourself")
 		return
 	}
-	u := &store.User{ID: id, DisplayName: req.DisplayName, Email: req.Email, Role: req.Role, Disabled: req.Disabled, Groups: req.Groups}
-	if err := a.Store.UpdateUser(r.Context(), u); err != nil {
-		a.storeErr(w, err, "user or group")
+	tenant, keep, err := req.tenant()
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	a.audit(r, "", "user.update", strconv.FormatInt(id, 10), map[string]any{"role": req.Role, "disabled": req.Disabled, "groups": req.Groups}, true)
+	if me := adminFrom(r.Context()); me.ID == id && tenant != nil {
+		writeErr(w, http.StatusBadRequest, "you cannot move yourself into a tenant")
+		return
+	}
+	u := &store.User{ID: id, DisplayName: req.DisplayName, Email: req.Email, Role: req.Role, Disabled: req.Disabled, Groups: req.Groups, TenantID: tenant}
+	if err := a.Store.UpdateUser(r.Context(), u, keep); err != nil {
+		a.storeErr(w, err, "user, group or tenant")
+		return
+	}
+	detail := map[string]any{"role": req.Role, "disabled": req.Disabled, "groups": req.Groups}
+	if !keep {
+		detail["tenant_id"] = tenant
+	}
+	a.audit(r, "", "user.update", strconv.FormatInt(id, 10), detail, true)
 	w.WriteHeader(http.StatusNoContent)
 }
 

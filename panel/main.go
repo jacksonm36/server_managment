@@ -158,9 +158,21 @@ func run(log *slog.Logger) error {
 	if err := st.FailStaleAnsibleRuns(ctx); err != nil {
 		log.Warn("ansible: mark interrupted runs", "err", err)
 	}
+	// Agents and install commands use HTTPS unless it is turned off.
+	httpsAddr := env("SM_HTTPS_ADDR", ":8443")
+	publicURL := "http://" + net.JoinHostPort(publicHost, portOf(httpAddr))
+	pin := ""
+	if httpsAddr != "off" {
+		publicURL = "https://" + net.JoinHostPort(publicHost, portOf(httpsAddr))
+		if pin, err = pki.PublicKeyPin(srvCert); err != nil {
+			return err
+		}
+	}
 	a := &api.API{
 		Cfg: api.Config{
-			PublicURL:   "http://" + net.JoinHostPort(publicHost, portOf(httpAddr)),
+			PublicURL:   publicURL,
+			TLSPin:      pin,
+			LocalURL:    "http://" + net.JoinHostPort("127.0.0.1", portOf(httpAddr)),
 			GRPCAddr:    net.JoinHostPort(publicHost, grpcPort),
 			AgentBinDir: binDir,
 			DataDir:     dataDir,
@@ -180,11 +192,17 @@ func run(log *slog.Logger) error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	// HTTPS for the UI, with a certificate from the panel CA (download it from
-	// /ca.crt to trust it). Plain HTTP stays up for agent install/enrollment,
-	// which pins the CA fingerprint itself. SM_HTTPS_ADDR=off disables it.
+	// HTTPS for the UI, the API and agents, with a certificate from the panel
+	// CA (download it from /ca.crt to trust it in a browser; agents pin it).
+	// Plain HTTP only serves the panel host itself and redirects everyone
+	// else to HTTPS (SM_HTTPS_REDIRECT=off keeps it fully open).
+	// SM_HTTPS_ADDR=off disables HTTPS.
 	var hss *http.Server
-	if httpsAddr := env("SM_HTTPS_ADDR", ":8443"); httpsAddr != "off" {
+	if httpsAddr != "off" {
+		if env("SM_HTTPS_REDIRECT", "on") != "off" {
+			hs.Handler = api.HTTPSRedirect(handler, portOf(httpsAddr))
+			log.Info("HTTP redirects browsers to HTTPS", "https_port", portOf(httpsAddr))
+		}
 		hss = &http.Server{
 			Addr:              httpsAddr,
 			Handler:           handler,

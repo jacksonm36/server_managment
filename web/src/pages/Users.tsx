@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { KeyRound, LogOut, Pencil, Plus, ShieldCheck, Trash2, UserCheck, UserX } from "lucide-react";
-import { api, type Grant, type Permission, type RoleInfo, type ServerGroup, type User, type UserGroup } from "@/lib/api";
+import { api, type Grant, type Permission, type RoleInfo, type ServerGroup, type Tenant, type User, type UserGroup } from "@/lib/api";
+import { useAccess } from "@/lib/access";
+import { TenantsTab } from "@/pages/Tenants";
 import { useLive } from "@/lib/live";
 import { reloadServerGroups } from "@/lib/groups";
 import { timeAgo } from "@/lib/utils";
@@ -24,6 +26,7 @@ const TABS = [
   { id: "roles", label: "Roles" },
   { id: "groups", label: "User groups" },
   { id: "server-groups", label: "Server groups" },
+  { id: "tenants", label: "Tenants" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
 
@@ -34,29 +37,34 @@ type Data = {
   serverGroups: ServerGroup[];
   grants: Grant[];
   perms: Permission[];
+  tenants: Tenant[];
 };
 
-const empty: Data = { users: [], roles: [], groups: [], serverGroups: [], grants: [], perms: [] };
+const empty: Data = { users: [], roles: [], groups: [], serverGroups: [], grants: [], perms: [], tenants: [] };
 
 export function Users({ me }: { me: string }) {
+  const ac = useAccess();
+  const canTenants = ac.can("tenants.manage");
+  const tabs = TABS.filter((t) => t.id !== "tenants" || canTenants);
   const [tab, setTab] = useState<TabId>(() => (TABS.find((t) => t.id === window.location.hash.slice(1))?.id ?? "users") as TabId);
   const [data, setData] = useState<Data>(empty);
   const [error, setError] = useState("");
   const reload = useCallback(async () => {
     try {
-      const [users, roles, groups, serverGroups, grants, perms] = await Promise.all([
+      const [users, roles, groups, serverGroups, grants, perms, tenants] = await Promise.all([
         api.users(),
         api.roles(),
         api.userGroups(),
         api.serverGroups(),
         api.grants(),
         api.permissions(),
+        canTenants ? api.tenants() : Promise.resolve([]),
       ]);
-      setData({ users, roles, groups, serverGroups, grants, perms: perms.permissions });
+      setData({ users, roles, groups, serverGroups, grants, perms: perms.permissions, tenants });
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [canTenants]);
   useEffect(() => {
     void reload();
   }, [reload]);
@@ -88,7 +96,7 @@ export function Users({ me }: { me: string }) {
         </p>
       </div>
       <div role="tablist" className="-mx-1 flex gap-1 overflow-x-auto border-b px-1">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <button
             key={t.id}
             role="tab"
@@ -110,6 +118,7 @@ export function Users({ me }: { me: string }) {
       {tab === "roles" && <RolesTab data={data} act={act} />}
       {tab === "groups" && <UserGroupsTab data={data} act={act} />}
       {tab === "server-groups" && <ServerGroupsTab data={data} act={act} />}
+      {tab === "tenants" && canTenants && <TenantsTab tenants={data.tenants} serverGroups={data.serverGroups} act={act} />}
     </div>
   );
 }
@@ -267,6 +276,11 @@ function UsersTab({ me, data, act }: { me: string; data: Data; act: Act }) {
                           <ShieldCheck className="size-3" /> 2FA
                         </Badge>
                       )}
+                      {u.tenant_id && (
+                        <Badge variant="outline" title="A tenant's user: kept inside the tenant">
+                          {data.tenants.find((t) => t.id === u.tenant_id)?.name ?? "tenant"}
+                        </Badge>
+                      )}
                       {u.disabled && <Badge variant="destructive">disabled</Badge>}
                       {u.must_change_password && <Badge variant="warning">must change password</Badge>}
                     </div>
@@ -356,6 +370,7 @@ const userBody = (u: User) => ({
   disabled: u.disabled,
   groups: u.groups,
 });
+// userBody leaves tenant_id out, so the user stays in their tenant.
 
 function UserDialog({ user, self, data, act, onClose }: { user?: User; self: boolean; data: Data; act: Act; onClose: () => void }) {
   // After creating, the dialog stays open on the new user so access can be added.
@@ -365,6 +380,7 @@ function UserDialog({ user, self, data, act, onClose }: { user?: User; self: boo
   const [email, setEmail] = useState(user?.email ?? "");
   const [role, setRole] = useState(user?.role ?? "operator");
   const [groups, setGroups] = useState<number[]>(user?.groups ?? []);
+  const [tenant, setTenant] = useState(user?.tenant_id ? String(user.tenant_id) : "");
   const [password, setPassword] = useState(genPassword);
   const [mustChange, setMustChange] = useState(true);
   const [created, setCreated] = useState("");
@@ -374,7 +390,14 @@ function UserDialog({ user, self, data, act, onClose }: { user?: User; self: boo
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const body = { display_name: displayName.trim(), email: email.trim(), role, disabled: user?.disabled ?? false, groups };
+    const body = {
+      display_name: displayName.trim(),
+      email: email.trim(),
+      role,
+      disabled: user?.disabled ?? false,
+      groups,
+      ...(data.tenants.length > 0 || user?.tenant_id ? { tenant_id: tenant ? Number(tenant) : null } : {}),
+    };
     try {
       if (id) {
         await api.updateUser(id, body);
@@ -436,6 +459,24 @@ function UserDialog({ user, self, data, act, onClose }: { user?: User; self: boo
               {roleInfo?.description && <p className="text-xs text-muted-foreground">{roleInfo.description}</p>}
               {self && <p className="text-xs text-muted-foreground">You can't change your own main role.</p>}
             </div>
+            {(data.tenants.length > 0 || user?.tenant_id) && (
+              <div className="grid gap-2">
+                <Label htmlFor="u-tenant">Tenant</Label>
+                <Select id="u-tenant" value={tenant} disabled={self} onChange={(e) => setTenant(e.target.value)}>
+                  <option value="">None (platform user)</option>
+                  {data.tenants.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name}
+                    </option>
+                  ))}
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {tenant
+                    ? "Kept inside the tenant whatever their roles say: only the tenant's Proxmox guests and the servers of its server group, no panel settings or users. Moving a user signs them out."
+                    : "A platform user: their roles apply as they are."}
+                </p>
+              </div>
+            )}
             {data.groups.length > 0 && (
               <div className="grid gap-2">
                 <Label>User groups</Label>

@@ -267,7 +267,12 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 	ad := adminFrom(r.Context())
 	ac := accessFrom(r.Context())
+	var tenant any
+	if ac.Tenant != nil {
+		tenant = map[string]any{"id": ac.Tenant.ID, "name": ac.Tenant.Name}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
+		"tenant":   tenant,
 		"username": ad.Username, "display_name": ad.DisplayName, "role": ad.Role,
 		"must_change_password": ad.MustChangePassword,
 		"permissions":          ac.Global(),

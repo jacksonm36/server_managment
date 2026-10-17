@@ -24,6 +24,8 @@ type Who struct {
 	// Access is the user's permissions; nil for the panel's own background
 	// work (schedules, baselines, provisioning), which may do anything.
 	Access *Access
+	// Tenant is the acting user's tenant, recorded in the audit log.
+	Tenant *int64
 }
 
 // Dispatch validates op/params, records the job and sends it to the agent.
@@ -110,6 +112,7 @@ func whoFrom(r *http.Request) Who {
 		w.Actor = ad.Username
 	}
 	w.Access = accessFrom(r.Context())
+	w.Tenant = w.Access.TenantID()
 	return w
 }
 

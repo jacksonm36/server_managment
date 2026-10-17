@@ -1,31 +1,35 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "wouter";
 import {
   Camera,
-  Copy as CloneIcon,
-  Pause,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
-  Play,
   Plus,
-  Power,
   RefreshCw,
-  RotateCw,
+  Rocket,
   ShieldCheck,
-  Square,
   Trash2,
   Undo2,
 } from "lucide-react";
-import { api, type PVECluster, type PVEGuest, type PVEProvision, type PVEResources, type PVESnapshot } from "@/lib/api";
+import { api, type PVECluster, type PVEGuest, type PVEGuestRef, type PVEResources, type PVESnapshot, type PVETenantInfo } from "@/lib/api";
 import { useAccess, type Access } from "@/lib/access";
-import { formatBytes, formatUptime, pct, timeAgo } from "@/lib/utils";
+import { formatBytes } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-
-const statusVariant = (s: string) => (s === "running" || s === "online" ? "success" : s === "stopped" ? "outline" : "warning");
+import { FlavorPicker, useFlavors } from "@/components/Flavors";
+import { CloudInitFields, ciOpts, emptyCI, type CIForm } from "@/components/CloudInitFields";
+import { PVEOverview } from "@/components/PVEOverview";
+import { VLANInput, vlanNum } from "@/components/VLANField";
+import { ComputeTree } from "@/components/ComputeTree";
+import { PVENodeView } from "@/components/PVENodeView";
+import { CreateGuestDialog } from "@/components/PVEForms";
+import { DatacenterView, NodeAdmin } from "@/pages/ProxmoxAdmin";
+import { ProxmoxGuest } from "@/pages/ProxmoxGuest";
 
 export function Proxmox() {
   const ac = useAccess();
@@ -46,6 +50,7 @@ export function Proxmox() {
   useEffect(() => {
     void load();
   }, [load]);
+  const current = clusters?.find((c) => c.id === cur);
 
   return (
     <div className="grid gap-6">
@@ -81,23 +86,15 @@ export function Proxmox() {
           ))}
         </div>
       )}
-      {cur && clusters && (
-        <ClusterView
-          key={cur}
-          cluster={clusters.find((c) => c.id === cur)!}
-          ac={ac}
-          onEdit={() => setEditing(clusters.find((c) => c.id === cur)!)}
-          onDeleted={load}
-        />
-      )}
+      {current && <ClusterView key={current.id} cluster={current} ac={ac} onEdit={() => setEditing(current)} onDeleted={load} />}
       {editing && (
         <ClusterDialog
           cluster={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
           onSaved={(id) => {
             setEditing(null);
-            setCur(id);
-            void load();
+            // Load the list first: a new cluster isn't in it yet.
+            void load().then(() => setCur(id));
           }}
         />
       )}
@@ -105,66 +102,155 @@ export function Proxmox() {
   );
 }
 
+const TREE_KEY = "sm.pve.tree-width";
+const TREE_HIDE_KEY = "sm.pve.tree-hidden";
+
+// Until someone drags it, the guest list takes a share of the window.
+const autoTreeW = () => Math.round(Math.min(360, Math.max(220, window.innerWidth * 0.14)));
+
 function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; ac: Access; onEdit: () => void; onDeleted: () => void }) {
   const [res, setRes] = useState<PVEResources | null>(null);
-  const [provs, setProvs] = useState<PVEProvision[]>([]);
-  const [busy, setBusy] = useState<Record<number, string>>({});
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const [filter, setFilter] = useState("");
-  const [snaps, setSnaps] = useState<PVEGuest | null>(null);
-  const [del, setDel] = useState<PVEGuest | null>(null);
-  const [newVM, setNewVM] = useState<PVEGuest | null>(null);
+  const [node, setNode] = useState(""); // picked in the compute tree; "" = the whole cluster
+  const [guest, setGuest] = useState<PVEGuest | null>(null); // picked in the tree: shown in the pane
+  const [view, setView] = useState<"overview" | "datacenter">("overview");
+  const [create, setCreate] = useState<"qemu" | "lxc" | null>(null);
+  const [fixedW, setTreeW] = useState<number | null>(() => {
+    try {
+      const w = Number(localStorage.getItem(TREE_KEY));
+      return w ? Math.min(520, Math.max(200, w)) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [autoW, setAutoW] = useState(autoTreeW);
+  useEffect(() => {
+    const on = () => setAutoW(autoTreeW());
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, []);
+  const treeW = fixedW ?? autoW;
+  const [treeHidden, setTreeHidden] = useState(() => {
+    try {
+      return localStorage.getItem(TREE_HIDE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleTree = () => {
+    const h = !treeHidden;
+    setTreeHidden(h);
+    try {
+      if (h) localStorage.setItem(TREE_HIDE_KEY, "1");
+      else localStorage.removeItem(TREE_HIDE_KEY);
+    } catch {
+      /* private window */
+    }
+  };
+  const pane = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const [r, p] = await Promise.all([api.pveResources(cluster.id), ac.can("proxmox.operate") ? api.pveProvisions() : Promise.resolve([])]);
-      setRes(r);
-      setProvs(p.filter((x) => x.cluster_id === cluster.id));
+      setRes(await api.pveResources(cluster.id));
     } catch (e) {
       setMsg({ ok: false, text: (e as Error).message });
     }
-  }, [cluster.id, ac]);
-  const provisioning = provs.some((p) => p.status === "running");
+  }, [cluster.id]);
   useEffect(() => {
     void load();
-    const t = setInterval(load, provisioning ? 3000 : 10000);
+    const t = setInterval(load, 10000);
     return () => clearInterval(t);
-  }, [load, provisioning]);
+  }, [load]);
 
-  async function power(g: PVEGuest, action: string) {
-    setBusy((b) => ({ ...b, [g.vmid]: action }));
-    setMsg(null);
-    try {
-      await api.pvePower(cluster.id, g, action);
-      setMsg({ ok: true, text: `${g.name}: ${action} done.` });
-    } catch (e) {
-      setMsg({ ok: false, text: `${g.name}: ${(e as Error).message}` });
-    } finally {
-      setBusy((b) => ({ ...b, [g.vmid]: "" }));
-      void load();
-    }
-  }
+  const nodeInfo = res?.nodes?.find((n) => n.node === node);
+  const onlineNodes = useMemo(() => (res?.nodes ?? []).filter((n) => n.status === "online").map((n) => n.node).sort(), [res]);
+  // Where new guests can go: online nodes, or (for a tenant, who sees no
+  // nodes) the nodes its guests run on.
+  const createNodes = useMemo(() => (onlineNodes.length ? onlineNodes : [...new Set((res?.guests ?? []).map((g) => g.node))].sort()), [onlineNodes, res]);
+  const manage = ac.can("proxmox.manage");
 
-  const guests = useMemo(() => (res?.guests ?? []).filter((g) => !g.template), [res]);
-  const templates = useMemo(() => (res?.guests ?? []).filter((g) => g.template && g.type === "qemu"), [res]);
-  const shown = guests.filter((g) => !filter || `${g.vmid} ${g.name} ${g.node} ${g.status} ${g.server_name ?? ""}`.toLowerCase().includes(filter.toLowerCase()));
+  const pick = (g: PVEGuest | null, n = "") => {
+    setGuest(g);
+    setNode(n);
+    // On a phone the pane is under the tree.
+    if (window.matchMedia("(max-width: 1023px)").matches) pane.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  // Dragging the tree's right edge sets its width (kept per browser).
+  const resize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const x0 = e.clientX;
+    const w0 = treeW;
+    let w = w0;
+    const move = (m: PointerEvent) => {
+      w = Math.min(520, Math.max(200, w0 + m.clientX - x0));
+      setTreeW(w);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.style.removeProperty("cursor");
+      document.body.style.removeProperty("user-select");
+      try {
+        localStorage.setItem(TREE_KEY, String(w));
+      } catch {
+        /* private window */
+      }
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
 
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <span className="font-medium">{cluster.name}</span>
-          <span className="font-mono text-xs text-muted-foreground">{cluster.url}</span>
+          {cluster.url && <span className="font-mono text-xs text-muted-foreground">{cluster.url}</span>}
           {res?.version && <Badge variant="outline">PVE {res.version}</Badge>}
-          <Badge variant="success" className="gap-1" title={`Pinned certificate SHA-256 ${cluster.fingerprint}`}>
-            <ShieldCheck className="size-3" /> pinned
-          </Badge>
+          {cluster.fingerprint && (
+            <Badge variant="success" className="gap-1" title={`Pinned certificate SHA-256 ${cluster.fingerprint}`}>
+              <ShieldCheck className="size-3" /> pinned
+            </Badge>
+          )}
+          {res?.tenant && (
+            <Badge variant="success" className="gap-1" title="Your organization's own pool, isolated by Proxmox">
+              <ShieldCheck className="size-3" /> pool {res.tenant.pool}
+            </Badge>
+          )}
         </div>
-        <div className="flex gap-1">
+        <div className="flex flex-wrap items-center gap-1">
+          {ac.can("proxmox.guests") && createNodes.length > 0 && (
+            <>
+              <Button size="sm" variant="secondary" onClick={() => setCreate("qemu")} title="A VM that boots from an ISO">
+                <Plus /> Create VM
+              </Button>
+              <Button size="sm" variant="secondary" onClick={() => setCreate("lxc")} title="A container from a template">
+                <Plus /> Create CT
+              </Button>
+            </>
+          )}
+          {ac.can("proxmox.guests") && (
+            <Link href="/deploy" className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
+              <Rocket className="size-4" /> Deploy
+            </Link>
+          )}
+          <Button
+            size="icon"
+            variant="ghost"
+            className="size-8"
+            aria-label={treeHidden ? "Show guest list" : "Hide guest list"}
+            aria-pressed={!treeHidden}
+            title={treeHidden ? "Show guest list" : "Hide guest list"}
+            onClick={toggleTree}
+          >
+            {treeHidden ? <PanelLeftOpen className="size-4" /> : <PanelLeftClose className="size-4" />}
+          </Button>
           <Button size="icon" variant="ghost" className="size-8" aria-label="Refresh" onClick={load}>
             <RefreshCw className="size-4" />
           </Button>
-          {ac.can("proxmox.manage") && (
+          {manage && (
             <>
               <Button size="icon" variant="ghost" className="size-8" aria-label="Edit cluster" onClick={onEdit}>
                 <Pencil className="size-4" />
@@ -189,208 +275,113 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
         <p className={`rounded-lg border px-4 py-2 text-sm ${msg.ok ? "border-success/30 bg-success/10 text-success" : "border-destructive/30 bg-destructive/10 text-destructive"}`}>{msg.text}</p>
       )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        {(res?.nodes ?? []).map((n) => (
-          <Card key={n.node} className="p-4">
-            <div className="flex items-center justify-between">
-              <span className="font-medium">{n.node}</span>
-              <Badge variant={statusVariant(n.status)}>{n.status}</Badge>
+      <div
+        className={`grid grid-cols-[minmax(0,1fr)] gap-4 lg:items-start ${treeHidden ? "" : "lg:grid-cols-[var(--tree-w)_minmax(0,1fr)]"}`}
+        style={{ "--tree-w": `${treeW}px` } as React.CSSProperties}
+      >
+        {res && !res.error && !treeHidden && (
+          <div className="relative lg:sticky lg:top-20">
+            <Card className="max-h-[60vh] overflow-y-auto p-3 lg:max-h-[calc(100vh-6rem)]">
+              <ComputeTree
+                cluster={cluster.id}
+                name={cluster.name}
+                res={res}
+                selected={node}
+                onSelect={(n) => pick(null, n)}
+                guest={guest?.id ?? ""}
+                onGuest={(g) => pick(g, g.node)}
+              />
+            </Card>
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the guest list"
+              aria-valuenow={treeW}
+              tabIndex={0}
+              onPointerDown={resize}
+              onDoubleClick={() => {
+                setTreeW(null);
+                try {
+                  localStorage.removeItem(TREE_KEY);
+                } catch {
+                  /* private window */
+                }
+              }}
+              title="Drag to resize, double-click to fit the window"
+              onKeyDown={(e) => {
+                const d = e.key === "ArrowLeft" ? -16 : e.key === "ArrowRight" ? 16 : 0;
+                if (!d) return;
+                e.preventDefault();
+                const w = Math.min(520, Math.max(200, treeW + d));
+                setTreeW(w);
+                try {
+                  localStorage.setItem(TREE_KEY, String(w));
+                } catch {
+                  /* private window */
+                }
+              }}
+              className="group absolute top-0 -right-3 hidden h-full w-3 cursor-col-resize items-center justify-center outline-none lg:flex"
+            >
+              <span className="h-12 w-1 rounded-full bg-border transition-colors group-hover:bg-brand group-focus-visible:bg-brand" />
             </div>
-            <Meter label="CPU" value={n.cpu * 100} text={`${Math.round(n.cpu * 100)}% of ${n.maxcpu}`} />
-            <Meter label="Memory" value={pct(n.mem, n.maxmem)} text={`${formatBytes(n.mem)} / ${formatBytes(n.maxmem)}`} />
-            <div className="mt-2 text-xs text-muted-foreground">up {formatUptime(n.uptime)}</div>
-          </Card>
-        ))}
-      </div>
-
-      <Card>
-        <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
-          <div>
-            <CardTitle>Guests</CardTitle>
-            <CardDescription>{guests.length} VMs and containers</CardDescription>
           </div>
-          <Input className="w-48" placeholder="Filter…" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="Filter guests" />
-        </CardHeader>
-        <CardContent className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-left text-xs text-muted-foreground">
-              <tr>
-                <th className="py-2 pr-3 font-normal">ID</th>
-                <th className="py-2 pr-3 font-normal">Name</th>
-                <th className="py-2 pr-3 font-normal">Node</th>
-                <th className="py-2 pr-3 font-normal">Status</th>
-                <th className="hidden py-2 pr-3 font-normal md:table-cell">CPU / Memory</th>
-                <th className="py-2 font-normal" />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {shown.map((g) => {
-                const running = g.status === "running";
-                const b = busy[g.vmid];
-                return (
-                  <tr key={g.id}>
-                    <td className="py-2 pr-3 font-mono text-xs">{g.vmid}</td>
-                    <td className="py-2 pr-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{g.name}</span>
-                        <Badge variant="outline">{g.type === "qemu" ? "VM" : "CT"}</Badge>
-                        {g.server_id && (
-                          <Link href={`/servers/${g.server_id}`} className="text-xs text-brand hover:underline">
-                            managed
-                          </Link>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-2 pr-3 text-xs">{g.node}</td>
-                    <td className="py-2 pr-3">
-                      <Badge variant={statusVariant(g.status)}>{b ? `${b}…` : g.status}</Badge>
-                      {running && <div className="mt-0.5 text-[11px] text-muted-foreground">up {formatUptime(g.uptime)}</div>}
-                    </td>
-                    <td className="hidden py-2 pr-3 text-xs text-muted-foreground md:table-cell">
-                      {g.maxcpu} vCPU · {running ? `${formatBytes(g.mem)} / ` : ""}
-                      {formatBytes(g.maxmem)}
-                    </td>
-                    <td className="py-2 text-right whitespace-nowrap">
-                      {ac.can("proxmox.operate") && (
-                        <span className="inline-flex gap-0.5">
-                          {!running && (
-                            <Icon title="Start" onClick={() => power(g, g.status === "paused" ? "resume" : "start")} disabled={!!b}>
-                              <Play />
-                            </Icon>
-                          )}
-                          {running && (
-                            <>
-                              <Icon title="Shut down" onClick={() => power(g, "shutdown")} disabled={!!b}>
-                                <Power />
-                              </Icon>
-                              <Icon title="Reboot" onClick={() => power(g, "reboot")} disabled={!!b}>
-                                <RotateCw />
-                              </Icon>
-                              {g.type === "qemu" && (
-                                <Icon title="Suspend" onClick={() => power(g, "suspend")} disabled={!!b}>
-                                  <Pause />
-                                </Icon>
-                              )}
-                              <Icon
-                                title="Stop (hard)"
-                                className="text-destructive"
-                                onClick={() => confirm(`Hard-stop ${g.name}? Unsaved data in the guest is lost.`) && power(g, "stop")}
-                                disabled={!!b}
-                              >
-                                <Square />
-                              </Icon>
-                            </>
-                          )}
-                          <Icon title="Snapshots" onClick={() => setSnaps(g)}>
-                            <Camera />
-                          </Icon>
-                          {ac.can("proxmox.manage") && (
-                            <Icon title={running ? "Stop it before deleting" : "Delete"} className="text-destructive" disabled={running || !!b} onClick={() => setDel(g)}>
-                              <Trash2 />
-                            </Icon>
-                          )}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          {res && shown.length === 0 && <p className="py-3 text-sm text-muted-foreground">No guests match.</p>}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Templates</CardTitle>
-            <CardDescription>Cloud-init VM templates. New VMs get the panel's SSH key and can enroll into servermgr automatically.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {templates.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No VM templates on this cluster.</p>
-            ) : (
-              <ul className="divide-y text-sm">
-                {templates.map((t) => (
-                  <li key={t.id} className="flex items-center justify-between gap-2 py-2">
-                    <span>
-                      <span className="font-medium">{t.name}</span>
-                      <span className="ml-2 font-mono text-xs text-muted-foreground">
-                        {t.vmid} · {t.node}
-                      </span>
-                    </span>
-                    {ac.can("proxmox.manage") && (
-                      <Button size="sm" variant="brand" onClick={() => setNewVM(t)}>
-                        <CloneIcon /> New VM
-                      </Button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
-        {ac.can("proxmox.operate") && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Provisioning</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {provs.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No VMs created from servermgr yet.</p>
-              ) : (
-                <ul className="divide-y text-sm">
-                  {provs.slice(0, 10).map((p) => (
-                    <li key={p.id} className="py-2">
-                      <details>
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-2">
-                          <span>
-                            <span className="font-medium">{p.name}</span>
-                            {p.vmid && <span className="ml-2 font-mono text-xs text-muted-foreground">{p.vmid}</span>}
-                            {p.server_id && (
-                              <Link href={`/servers/${p.server_id}`} className="ml-2 text-xs text-brand hover:underline">
-                                server
-                              </Link>
-                            )}
-                          </span>
-                          <span className="flex items-center gap-2">
-                            <Badge variant={p.status === "succeeded" ? "success" : p.status === "failed" ? "destructive" : "warning"}>{p.status}</Badge>
-                            <span className="text-xs text-muted-foreground">{timeAgo(p.created_at)}</span>
-                          </span>
-                        </summary>
-                        <pre className="mt-2 max-h-56 overflow-auto rounded bg-muted p-2 text-xs whitespace-pre-wrap">{p.log}</pre>
-                      </details>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
         )}
+        <div ref={pane} className={`grid min-w-0 scroll-mt-20 grid-cols-[minmax(0,1fr)] gap-4 ${treeHidden ? "" : "lg:col-start-2"}`}>
+          {res?.tenant && !guest && !node && <TenantUsageCard t={res.tenant} />}
+
+          {res &&
+            !res.error &&
+            (guest ? (
+              <Card className="p-4 sm:p-5">
+                <ProxmoxGuest key={guest.id} cluster={cluster.id} node={guest.node} type={guest.type} vmid={String(guest.vmid)} embedded onGone={() => (pick(null), void load())} />
+              </Card>
+            ) : nodeInfo ? (
+              manage && nodeInfo.status === "online" ? (
+                <NodeAdmin key={node} cluster={cluster.id} node={node} nodes={onlineNodes} guests={(res.guests ?? []).filter((g) => g.node === node)} onGuest={(g) => pick(g, g.node)} />
+              ) : (
+                <PVENodeView
+                  key={node}
+                  cluster={cluster.id}
+                  node={node}
+                  online={nodeInfo.status === "online"}
+                  guests={(res.guests ?? []).filter((g) => g.node === node)}
+                  onGuest={(g) => pick(g, g.node)}
+                />
+              )
+            ) : (
+              <>
+                {manage && (
+                  <div className="flex w-fit gap-1 rounded-lg border p-0.5" role="group" aria-label="Cluster view">
+                    {(
+                      [
+                        ["overview", "Overview"],
+                        ["datacenter", "Datacenter"],
+                      ] as const
+                    ).map(([id, label]) => (
+                      <button
+                        key={id}
+                        className={`cursor-pointer rounded-md px-3 py-1 text-sm ${view === id ? "bg-accent text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                        aria-pressed={view === id}
+                        onClick={() => setView(id)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {manage && view === "datacenter" ? <DatacenterView cluster={cluster} res={res} /> : <PVEOverview res={res} onGuest={(g) => pick(g, g.node)} />}
+              </>
+            ))}
+        </div>
       </div>
 
-      {snaps && <SnapshotsDialog cluster={cluster} guest={snaps} ac={ac} onClose={() => setSnaps(null)} />}
-      {del && (
-        <DeleteDialog
-          cluster={cluster}
-          guest={del}
-          onClose={() => setDel(null)}
-          onDone={(text) => {
-            setDel(null);
-            setMsg({ ok: true, text });
-            void load();
-          }}
-        />
-      )}
-      {newVM && (
-        <ProvisionDialog
-          cluster={cluster}
-          template={newVM}
-          nodes={(res?.nodes ?? []).map((n) => n.node)}
-          onClose={() => setNewVM(null)}
-          onStarted={() => {
-            setNewVM(null);
+      {create && (
+        <CreateGuestDialog
+          cluster={cluster.id}
+          nodes={createNodes}
+          type={create}
+          onClose={() => {
+            setCreate(null);
             void load();
           }}
         />
@@ -399,11 +390,32 @@ function ClusterView({ cluster, ac, onEdit, onDeleted }: { cluster: PVECluster; 
   );
 }
 
-function Icon({ title, onClick, disabled, className = "", children }: { title: string; onClick: () => void; disabled?: boolean; className?: string; children: React.ReactNode }) {
+function TenantUsageCard({ t }: { t: PVETenantInfo }) {
+  const rows: { label: string; used: number; max: number; fmt: (n: number) => string }[] = [
+    { label: "Guests", used: t.usage.guests, max: t.quota.guests, fmt: String },
+    { label: "vCPUs", used: t.usage.cores, max: t.quota.cores, fmt: String },
+    { label: "Memory", used: t.usage.memory_mb, max: t.quota.memory_mb, fmt: (n) => formatBytes(n * 1024 * 1024) },
+    { label: "Disk", used: t.usage.disk_gb, max: t.quota.disk_gb, fmt: (n) => `${n} GB` },
+  ];
   return (
-    <Button size="icon" variant="ghost" className={`size-7 [&_svg]:size-3.5 ${className}`} title={title} aria-label={title} disabled={disabled} onClick={onClick}>
-      {children}
-    </Button>
+    <Card className="p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <span className="font-medium">{t.name}</span>
+        <span className="text-xs text-muted-foreground">
+          Storage: {t.storages.join(", ") || "none"} · Network: {t.bridges.join(", ") || "none"}
+        </span>
+      </div>
+      <div className="grid gap-x-6 sm:grid-cols-2 lg:grid-cols-4">
+        {rows.map((r) => (
+          <Meter
+            key={r.label}
+            label={r.label}
+            value={r.max > 0 ? (r.used / r.max) * 100 : 0}
+            text={r.max > 0 ? `${r.fmt(r.used)} of ${r.fmt(r.max)}` : `${r.fmt(r.used)} (no limit)`}
+          />
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -424,7 +436,7 @@ function Meter({ label, value, text }: { label: string; value: number; text: str
 
 function ClusterDialog({ cluster, onClose, onSaved }: { cluster: PVECluster | null; onClose: () => void; onSaved: (id: string) => void }) {
   const [f, setF] = useState({ name: cluster?.name ?? "", url: cluster?.url ?? "https://", token_id: cluster?.token_id ?? "", token_secret: "" });
-  const [probe, setProbe] = useState<{ fingerprint: string; subject: string } | null>(cluster ? { fingerprint: cluster.fingerprint, subject: "" } : null);
+  const [probe, setProbe] = useState<{ fingerprint: string; subject: string } | null>(cluster ? { fingerprint: cluster.fingerprint ?? "", subject: "" } : null);
   const [trusted, setTrusted] = useState(!!cluster);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -529,7 +541,7 @@ function ClusterDialog({ cluster, onClose, onSaved }: { cluster: PVECluster | nu
   );
 }
 
-function SnapshotsDialog({ cluster, guest, ac, onClose }: { cluster: PVECluster; guest: PVEGuest; ac: Access; onClose: () => void }) {
+export function SnapshotsDialog({ cluster, guest, ac, onClose }: { cluster: PVECluster; guest: PVEGuestRef & { name: string }; ac: Access; onClose: () => void }) {
   const [list, setList] = useState<PVESnapshot[] | null>(null);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
@@ -583,7 +595,7 @@ function SnapshotsDialog({ cluster, guest, ac, onClose }: { cluster: PVECluster;
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    {ac.can("proxmox.manage") && (
+                    {ac.can("proxmox.guests") && (
                       <Button
                         size="sm"
                         variant="outline"
@@ -651,7 +663,7 @@ function SnapshotsDialog({ cluster, guest, ac, onClose }: { cluster: PVECluster;
   );
 }
 
-function DeleteDialog({ cluster, guest, onClose, onDone }: { cluster: PVECluster; guest: PVEGuest; onClose: () => void; onDone: (msg: string) => void }) {
+export function DeleteDialog({ cluster, guest, onClose, onDone }: { cluster: string; guest: PVEGuestRef & { name: string }; onClose: () => void; onDone: (msg: string) => void }) {
   const [confirmName, setConfirmName] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
@@ -671,7 +683,7 @@ function DeleteDialog({ cluster, guest, onClose, onDone }: { cluster: PVECluster
             setBusy(true);
             setErr("");
             try {
-              await api.pveDeleteGuest(cluster.id, guest, confirmName);
+              await api.pveDeleteGuest(cluster, guest, confirmName);
               onDone(`${guest.name} deleted.`);
             } catch (e) {
               setErr((e as Error).message);
@@ -699,16 +711,20 @@ function DeleteDialog({ cluster, guest, onClose, onDone }: { cluster: PVECluster
   );
 }
 
-function ProvisionDialog({
+export function ProvisionDialog({
   cluster,
   template,
   nodes,
+  storages,
+  tenant,
   onClose,
   onStarted,
 }: {
   cluster: PVECluster;
   template: PVEGuest;
   nodes: string[];
+  storages: string[];
+  tenant?: PVETenantInfo;
   onClose: () => void;
   onStarted: () => void;
 }) {
@@ -716,24 +732,36 @@ function ProvisionDialog({
     name: "",
     target: "",
     cores: 2,
-    memory_mb: 2048,
-    disk_grow_gb: 0,
+    memory_mb: (template.tags ?? "").split(/[;, ]/).includes("windows") ? 4096 : 2048,
+    disk_gb: 0,
     full_clone: true,
     ipMode: "dhcp",
     ip: "",
     gateway: "",
     enroll: true,
+    storage: tenant?.storages.length === 1 ? tenant.storages[0] : "",
+    bridge: tenant?.bridges.length === 1 ? tenant.bridges[0] : "",
+    vlan: "",
   });
+  const storageChoices = tenant ? tenant.storages : storages;
+  const flavors = useFlavors();
+  const [flavor, setFlavor] = useState<number | null>(null);
+  const [ci, setCI] = useState<CIForm>(emptyCI);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
+  // Windows templates use Cloudbase-Init: Administrator password, hostname
+  // and network; no SSH keys or agent enrollment.
+  const win = (template.tags ?? "").split(/[;, ]/).includes("windows");
+  const [showPw, setShowPw] = useState(false);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>New VM from {template.name}</DialogTitle>
           <DialogDescription>
-            Clones the template, sets cloud-init (root with the panel's SSH key, network), starts it and, if enrolled, installs the
-            servermgr agent over SSH. The template needs cloud-init and qemu-guest-agent (for DHCP).
+            {win
+              ? "Clones the Windows template and starts it. Cloudbase-Init sets the Administrator password, the computer name and the network on first boot, then Windows restarts once."
+              : "Clones the template, sets cloud-init (the panel's SSH key, your user, keys and network), starts it and, if enrolled, installs the servermgr agent over SSH. The template needs cloud-init and qemu-guest-agent (for DHCP)."}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -750,11 +778,15 @@ function ProvisionDialog({
                 name: f.name.trim(),
                 cores: f.cores,
                 memory_mb: f.memory_mb,
-                disk_grow_gb: f.disk_grow_gb,
+                disk_gb: f.disk_gb,
                 full_clone: f.full_clone,
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
-                enroll: f.enroll,
+                enroll: win ? false : f.enroll,
+                storage: f.storage,
+                bridge: f.bridge.trim(),
+                vlan: vlanNum(f.vlan),
+                ...(win ? { cipassword: ci.cipassword, nameserver: ci.nameserver.trim(), tags: ciOpts(ci).tags } : ciOpts(ci)),
               });
               onStarted();
             } catch (e) {
@@ -766,27 +798,87 @@ function ProvisionDialog({
         >
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label htmlFor="pp-name">Hostname</Label>
-              <Input id="pp-name" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="web-03" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" required />
+              <Label htmlFor="pp-name">{win ? "Computer name" : "Hostname"}</Label>
+              <Input
+                id="pp-name"
+                value={f.name}
+                onChange={(e) => setF({ ...f, name: e.target.value })}
+                placeholder={win ? "app-win-01" : "web-03"}
+                pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?"
+                maxLength={win ? 15 : 63}
+                title={win ? "At most 15 characters: lowercase letters, digits, dashes" : undefined}
+                required
+              />
             </div>
+            {!tenant && (
+              <div className="grid gap-1.5">
+                <Label htmlFor="pp-node">Node</Label>
+                <Select id="pp-node" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })}>
+                  <option value="">{template.node} (same as template)</option>
+                  {nodes
+                    .filter((n) => n !== template.node)
+                    .map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                </Select>
+              </div>
+            )}
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="grid gap-1.5">
-              <Label htmlFor="pp-node">Node</Label>
-              <Select id="pp-node" value={f.target} onChange={(e) => setF({ ...f, target: e.target.value })}>
-                <option value="">{template.node} (same as template)</option>
-                {nodes
-                  .filter((n) => n !== template.node)
-                  .map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
+              <Label htmlFor="pp-storage">Disk storage</Label>
+              <Select id="pp-storage" value={f.storage} required={!!tenant} onChange={(e) => setF({ ...f, storage: e.target.value })}>
+                {tenant ? <option value="">Pick one…</option> : <option value="">Same as the template</option>}
+                {storageChoices.map((x) => (
+                  <option key={x} value={x}>
+                    {x}
+                  </option>
+                ))}
               </Select>
             </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="pp-bridge">Network bridge</Label>
+              {tenant ? (
+                <Select id="pp-bridge" value={f.bridge} required onChange={(e) => setF({ ...f, bridge: e.target.value })}>
+                  <option value="">Pick one…</option>
+                  {tenant.bridges.map((x) => (
+                    <option key={x} value={x}>
+                      {x}
+                    </option>
+                  ))}
+                </Select>
+              ) : (
+                <Input id="pp-bridge" value={f.bridge} onChange={(e) => setF({ ...f, bridge: e.target.value })} placeholder="Same as the template (e.g. vmbr0)" />
+              )}
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="pp-vlan">VLAN</Label>
+              <VLANInput id="pp-vlan" value={f.vlan} onChange={(v) => setF({ ...f, vlan: v })} allowed={tenant ? (tenant.vlans ?? []) : undefined} />
+            </div>
           </div>
+          <FlavorPicker
+            flavors={flavors}
+            picked={flavor}
+            onPick={(x) => {
+              setFlavor(x ? x.id : null);
+              if (x) setF({ ...f, cores: x.cores, memory_mb: x.memory_mb, disk_gb: x.disk_gb });
+            }}
+          />
           <div className="grid grid-cols-3 gap-3">
-            <Num id="pp-cores" label="vCPUs" value={f.cores} min={1} max={128} onChange={(v) => setF({ ...f, cores: v })} />
-            <Num id="pp-mem" label="Memory (MB)" value={f.memory_mb} min={256} max={1048576} step={256} onChange={(v) => setF({ ...f, memory_mb: v })} />
-            <Num id="pp-disk" label="Grow disk (GB)" value={f.disk_grow_gb} min={0} max={10000} onChange={(v) => setF({ ...f, disk_grow_gb: v })} />
+            <Num id="pp-cores" label="vCPUs" value={f.cores} min={1} max={128} onChange={(v) => {
+              setFlavor(null);
+              setF({ ...f, cores: v });
+            }} />
+            <Num id="pp-mem" label="Memory (MB)" value={f.memory_mb} min={256} max={1048576} step={256} onChange={(v) => {
+              setFlavor(null);
+              setF({ ...f, memory_mb: v });
+            }} />
+            <Num id="pp-disk" label="Disk (GB, 0 = template's)" value={f.disk_gb} min={0} max={10000} onChange={(v) => {
+              setFlavor(null);
+              setF({ ...f, disk_gb: v });
+            }} />
           </div>
           <div className="grid gap-1.5">
             <Label>Network</Label>
@@ -804,16 +896,54 @@ function ProvisionDialog({
               </div>
             )}
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={f.full_clone} onChange={(e) => setF({ ...f, full_clone: e.target.checked })} /> Full clone (independent of the template)
-          </label>
-          <label className="flex items-start gap-2 text-sm">
-            <input type="checkbox" className="mt-1" checked={f.enroll} onChange={(e) => setF({ ...f, enroll: e.target.checked })} />
-            <span>
-              Enroll into servermgr
-              <span className="block text-xs text-muted-foreground">Installs the agent, links the VM to its server and prepares it for Ansible.</span>
-            </span>
-          </label>
+          {!tenant && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={f.full_clone} onChange={(e) => setF({ ...f, full_clone: e.target.checked })} /> Full clone (independent of the
+              template)
+            </label>
+          )}
+          {win ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-1.5">
+                <Label htmlFor="pp-winpw">Administrator password</Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="pp-winpw"
+                    type={showPw ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={ci.cipassword}
+                    onChange={(e) => setCI({ ...ci, cipassword: e.target.value })}
+                    minLength={12}
+                    required
+                  />
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setShowPw((x) => !x)}>
+                    {showPw ? "Hide" : "Show"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">At least 12 characters, with three of: lower case, upper case, digits, symbols.</p>
+              </div>
+              <div className="grid gap-1.5">
+                <Label htmlFor="pp-windns">DNS servers</Label>
+                <Input id="pp-windns" value={ci.nameserver} onChange={(e) => setCI({ ...ci, nameserver: e.target.value })} placeholder="From DHCP, or 1.1.1.1 9.9.9.9" />
+              </div>
+            </div>
+          ) : (
+            <>
+              <details className="rounded-lg border px-3 py-2">
+                <summary className="cursor-pointer text-sm font-medium select-none">Cloud-init: user, SSH keys, DNS, tags</summary>
+                <div className="mt-3">
+                  <CloudInitFields value={ci} onChange={setCI} idPrefix="pp-ci" />
+                </div>
+              </details>
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={f.enroll} onChange={(e) => setF({ ...f, enroll: e.target.checked })} />
+                <span>
+                  Enroll into servermgr
+                  <span className="block text-xs text-muted-foreground">Installs the agent, links the VM to its server and prepares it for Ansible.</span>
+                </span>
+              </label>
+            </>
+          )}
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>

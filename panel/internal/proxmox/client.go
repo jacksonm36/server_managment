@@ -4,6 +4,7 @@
 package proxmox
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -13,11 +14,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 type Client struct {
@@ -86,6 +93,12 @@ func New(baseURL, tokenID, secret, pinned string) *Client {
 		MaxIdleConnsPerHost: 4,
 	}
 	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), TokenID: tokenID, Secret: secret, http: &http.Client{Transport: tr, Timeout: 60 * time.Second}}
+}
+
+// WithToken is a client for the same server (and pinned certificate)
+// that authenticates with another token.
+func (c *Client) WithToken(tokenID, secret string) *Client {
+	return &Client{BaseURL: c.BaseURL, TokenID: tokenID, Secret: secret, http: c.http}
 }
 
 // APIError is an error response from Proxmox.
@@ -165,6 +178,9 @@ type Resource struct {
 	Uptime   int64   `json:"uptime"`
 	Template int     `json:"template,omitempty"`
 	Tags     string  `json:"tags,omitempty"`
+	Pool     string  `json:"pool,omitempty"`
+	Storage  string  `json:"storage,omitempty"`
+	Shared   int     `json:"shared,omitempty"`
 }
 
 func (c *Client) Resources(ctx context.Context) ([]Resource, error) {
@@ -241,4 +257,297 @@ func (c *Client) GuestIPv4(ctx context.Context, node string, vmid int) (string, 
 		}
 	}
 	return "", errors.New("the guest agent reports no IPv4 address yet")
+}
+
+// GuestIface is one network interface inside a running guest, with its
+// addresses in CIDR form (10.0.0.5/24).
+type GuestIface struct {
+	Name  string   `json:"name"`
+	MAC   string   `json:"mac,omitempty"`
+	Addrs []string `json:"addrs"`
+}
+
+// GuestInterfaces lists a running guest's interfaces: from the QEMU guest
+// agent, or for a container from Proxmox. Loopback interfaces and
+// link-local addresses are left out.
+func (c *Client) GuestInterfaces(ctx context.Context, node, typ string, vmid int) ([]GuestIface, error) {
+	var out []GuestIface
+	add := func(name, mac string, addrs []string) {
+		ifc := GuestIface{Name: name, MAC: strings.ToUpper(mac), Addrs: []string{}}
+		for _, a := range addrs {
+			host, _, _ := strings.Cut(a, "/")
+			ip := net.ParseIP(host)
+			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() || slices.Contains(ifc.Addrs, a) {
+				continue
+			}
+			ifc.Addrs = append(ifc.Addrs, a)
+		}
+		if name != "lo" {
+			out = append(out, ifc)
+		}
+	}
+	if typ == "lxc" {
+		var ifs []struct {
+			Name   string `json:"name"`
+			HWAddr string `json:"hwaddr"`
+			Inet   string `json:"inet"`
+			Inet6  string `json:"inet6"`
+		}
+		if err := c.Do(ctx, http.MethodGet, GuestPath(node, typ, vmid)+"/interfaces", nil, &ifs); err != nil {
+			return nil, err
+		}
+		for _, i := range ifs {
+			add(i.Name, i.HWAddr, strings.Fields(i.Inet+" "+i.Inet6))
+		}
+		return out, nil
+	}
+	var res struct {
+		Result []struct {
+			Name string `json:"name"`
+			MAC  string `json:"hardware-address"`
+			IPs  []struct {
+				Addr   string `json:"ip-address"`
+				Prefix int    `json:"prefix"`
+			} `json:"ip-addresses"`
+		} `json:"result"`
+	}
+	if err := c.Do(ctx, http.MethodGet, GuestPath(node, typ, vmid)+"/agent/network-get-interfaces", nil, &res); err != nil {
+		return nil, err
+	}
+	for _, i := range res.Result {
+		var addrs []string
+		for _, a := range i.IPs {
+			if a.Prefix > 0 {
+				a.Addr = fmt.Sprintf("%s/%d", a.Addr, a.Prefix)
+			}
+			addrs = append(addrs, a.Addr)
+		}
+		add(i.Name, i.MAC, addrs)
+	}
+	return out, nil
+}
+
+// IfaceIPs flattens interfaces to their unique addresses, without prefixes.
+func IfaceIPs(ifs []GuestIface) []string {
+	out := []string{}
+	for _, i := range ifs {
+		for _, a := range i.Addrs {
+			if host, _, _ := strings.Cut(a, "/"); !slices.Contains(out, host) {
+				out = append(out, host)
+			}
+		}
+	}
+	return out
+}
+
+// ConsoleProxy is a console session Proxmox opened with vncproxy or
+// termproxy: a port on the node and a short-lived ticket for it.
+type ConsoleProxy struct {
+	Port   int
+	Ticket string
+	// Password is the display's own one-time VNC password, when Proxmox
+	// generated one (generate-password); otherwise the ticket is used.
+	Password string
+	User     string // termproxy: the user the ticket was issued to
+	Base     string // API path the console belongs to: a guest or /nodes/<node>
+}
+
+// OpenConsole starts vncproxy (serial == "") or termproxy on serial
+// ("serial0"…; empty for a container's console when term is true).
+func (c *Client) OpenConsole(ctx context.Context, node, typ string, vmid int, term bool, serial string) (*ConsoleProxy, error) {
+	var res struct {
+		Port     json.Number `json:"port"`
+		Ticket   string      `json:"ticket"`
+		Password string      `json:"password"`
+		User     string      `json:"user"`
+	}
+	form := url.Values{}
+	sub := "/vncproxy"
+	if term {
+		sub = "/termproxy"
+		if serial != "" {
+			form.Set("serial", serial)
+		}
+	} else {
+		form.Set("websocket", "1")
+		if typ == "qemu" {
+			// A random 8-character VNC password instead of the ticket,
+			// whose first 8 characters (all VNC auth uses) barely change.
+			form.Set("generate-password", "1")
+		}
+	}
+	err := c.Do(ctx, http.MethodPost, GuestPath(node, typ, vmid)+sub, form, &res)
+	if err != nil && form.Has("generate-password") && strings.Contains(err.Error(), "generate-password") {
+		form.Del("generate-password") // an older Proxmox
+		err = c.Do(ctx, http.MethodPost, GuestPath(node, typ, vmid)+sub, form, &res)
+	}
+	if err != nil {
+		return nil, err
+	}
+	port, err := res.Port.Int64()
+	if err != nil || port <= 0 || res.Ticket == "" {
+		return nil, errors.New("proxmox returned no console port or ticket")
+	}
+	if res.User == "" {
+		res.User, _, _ = strings.Cut(c.TokenID, "!")
+	}
+	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, Password: res.Password, User: res.User, Base: GuestPath(node, typ, vmid)}, nil
+}
+
+// OpenNodeShell starts termproxy for a node's own shell. cmd is "" for a
+// login shell or "upgrade" for Proxmox's package upgrade.
+func (c *Client) OpenNodeShell(ctx context.Context, node, cmd string) (*ConsoleProxy, error) {
+	var res struct {
+		Port   json.Number `json:"port"`
+		Ticket string      `json:"ticket"`
+		User   string      `json:"user"`
+	}
+	form := url.Values{}
+	if cmd != "" {
+		form.Set("cmd", cmd)
+	}
+	base := "/nodes/" + url.PathEscape(node)
+	if err := c.Do(ctx, http.MethodPost, base+"/termproxy", form, &res); err != nil {
+		return nil, err
+	}
+	port, err := res.Port.Int64()
+	if err != nil || port <= 0 || res.Ticket == "" {
+		return nil, errors.New("proxmox returned no console port or ticket")
+	}
+	if res.User == "" {
+		res.User, _, _ = strings.Cut(c.TokenID, "!")
+	}
+	return &ConsoleProxy{Port: int(port), Ticket: res.Ticket, User: res.User, Base: base}, nil
+}
+
+// Upload streams a file of size bytes to path (a storage's /upload) as
+// multipart form data, without holding it in memory, and returns the
+// task's UPID. Proxmox's API server refuses chunked request bodies, so the
+// form is sent with its exact length.
+func (c *Client) Upload(ctx context.Context, path string, fields map[string]string, filename string, file io.Reader, size int64) (string, error) {
+	if size < 0 {
+		return "", errors.New("upload: the file size must be known")
+	}
+	var form bytes.Buffer
+	mw := multipart.NewWriter(&form)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			return "", err
+		}
+	}
+	if _, err := mw.CreateFormFile("filename", filename); err != nil {
+		return "", err
+	}
+	headLen := form.Len()
+	if err := mw.Close(); err != nil {
+		return "", err
+	}
+	head, tail := form.Bytes()[:headLen], form.Bytes()[headLen:]
+	body := io.MultiReader(bytes.NewReader(head), &exactReader{r: file, n: size}, bytes.NewReader(tail))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL+"/api2/json"+path, body)
+	if err != nil {
+		return "", err
+	}
+	req.ContentLength = int64(len(head)) + size + int64(len(tail))
+	req.Header.Set("Authorization", "PVEAPIToken="+c.TokenID+"="+c.Secret)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	hc := *c.http
+	hc.Timeout = 0 // the context bounds an upload, which can take a while
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	var env struct {
+		Data    json.RawMessage `json:"data"`
+		Message string          `json:"message"`
+	}
+	_ = json.Unmarshal(raw, &env)
+	if resp.StatusCode >= 300 {
+		msg := strings.TrimSpace(env.Message)
+		if msg == "" {
+			msg = resp.Status
+		}
+		return "", &APIError{resp.StatusCode, msg}
+	}
+	var upid string
+	_ = json.Unmarshal(env.Data, &upid)
+	return upid, nil
+}
+
+// DialConsole opens Proxmox's vncwebsocket for a console session, over the
+// pinned TLS connection and authenticated with the client's token.
+func (c *Client) DialConsole(ctx context.Context, node, typ string, vmid int, p *ConsoleProxy) (*websocket.Conn, error) {
+	u, err := url.Parse(c.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+	u.Scheme = map[string]string{"https": "wss", "http": "ws"}[u.Scheme]
+	base := p.Base
+	if base == "" {
+		base = GuestPath(node, typ, vmid)
+	}
+	u.Path = "/api2/json" + base + "/vncwebsocket"
+	u.RawQuery = url.Values{"port": {strconv.Itoa(p.Port)}, "vncticket": {p.Ticket}}.Encode()
+	hc := *c.http
+	hc.Timeout = 0 // the context bounds the dial; the socket lives on
+	conn, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{
+		HTTPClient:   &hc,
+		HTTPHeader:   http.Header{"Authorization": {"PVEAPIToken=" + c.TokenID + "=" + c.Secret}},
+		Subprotocols: []string{"binary"},
+	})
+	if err != nil {
+		if resp != nil {
+			return nil, fmt.Errorf("proxmox console: %s", resp.Status)
+		}
+		// Errors can quote the URL; keep the ticket out of them.
+		msg := strings.ReplaceAll(err.Error(), url.QueryEscape(p.Ticket), "(ticket)")
+		return nil, errors.New("proxmox console: " + strings.ReplaceAll(msg, p.Ticket, "(ticket)"))
+	}
+	conn.SetReadLimit(4 << 20)
+	return conn, nil
+}
+
+// Forwarder is a reverse proxy to the API (/api2/...) that authenticates
+// every request with the client's token over the pinned connection. The
+// caller decides who may use it; the client's secret never leaves the
+// panel.
+func (c *Client) Forwarder() http.Handler {
+	target, _ := url.Parse(c.BaseURL)
+	return &httputil.ReverseProxy{
+		Transport: c.http.Transport,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			pr.SetURL(target)
+			pr.Out.Host = target.Host
+			pr.Out.Header.Set("Authorization", "PVEAPIToken="+c.TokenID+"="+c.Secret)
+			pr.Out.Header.Del("Cookie")
+			pr.Out.Header.Del("CSRFPreventionToken")
+		},
+	}
+}
+
+// exactReader yields exactly n bytes of r, failing if r ends early, so a
+// short file cannot leave the declared Content-Length unmet.
+type exactReader struct {
+	r io.Reader
+	n int64
+}
+
+func (e *exactReader) Read(p []byte) (int, error) {
+	if e.n <= 0 {
+		return 0, io.EOF
+	}
+	if int64(len(p)) > e.n {
+		p = p[:e.n]
+	}
+	n, err := e.r.Read(p)
+	e.n -= int64(n)
+	if err == io.EOF && e.n > 0 {
+		return n, io.ErrUnexpectedEOF
+	}
+	if e.n == 0 {
+		return n, io.EOF
+	}
+	return n, err
 }

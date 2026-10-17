@@ -13,9 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -404,6 +402,7 @@ func (a *API) handleSaveTofuWorkspace(w http.ResponseWriter, r *http.Request) {
 		GitURL      string            `json:"git_url"`
 		GitRef      string            `json:"git_ref"`
 		GitPath     string            `json:"git_path"`
+		Proxmox     string            `json:"proxmox_cluster"` // "" = none
 		Vars        []struct {
 			TofuVar
 			Keep bool `json:"keep"` // sensitive value left blank: keep the stored one
@@ -459,6 +458,15 @@ func (a *API) handleSaveTofuWorkspace(w http.ResponseWriter, r *http.Request) {
 	default:
 		bad("source must be inline or git")
 		return
+	}
+
+	if req.Proxmox != "" {
+		c, err := a.Store.GetProxmoxCluster(r.Context(), req.Proxmox)
+		if err != nil {
+			bad("unknown Proxmox cluster")
+			return
+		}
+		ws.ProxmoxCluster = &c.ID
 	}
 
 	var old []TofuVar
@@ -860,11 +868,7 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 			return err
 		}
 
-		port := "8090"
-		if u, err := url.Parse(a.Cfg.PublicURL); err == nil && u.Port() != "" {
-			port = u.Port()
-		}
-		stateURL := "http://" + net.JoinHostPort("127.0.0.1", port) + "/tofu/state/" + ws.ID
+		stateURL := a.Cfg.LocalURL + "/tofu/state/" + ws.ID
 		env := []string{
 			"PATH=/usr/local/bin:/usr/bin:/bin", "HOME=" + filepath.Join(work, "home"), "LANG=C.UTF-8",
 			"TF_IN_AUTOMATION=1", "TF_INPUT=0",
@@ -882,6 +886,17 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 			}
 		}
 		secrets := []string{token}
+		if ws.ProxmoxCluster != nil {
+			// Set last, so they win over workspace variables.
+			pveEnv, pveToken, stop, err := a.tofuProxmox(ctx, *ws.ProxmoxCluster, work)
+			if err != nil {
+				return fmt.Errorf("proxmox: %w", err)
+			}
+			defer stop()
+			env = append(env, pveEnv...)
+			secrets = append(secrets, pveToken)
+			write("[servermgr] the Proxmox provider reaches the cluster through the panel, which adds the cluster's API token\n")
+		}
 		for _, v := range vars {
 			if v.Sensitive && len(v.Value) >= 4 {
 				secrets = append(secrets, v.Value)
@@ -905,7 +920,9 @@ func (a *API) executeTofuRun(ctx context.Context, run *store.TofuRun, ws *store.
 			return runStreamed(cmd, masked)
 		}
 
-		if code, err := tofuCmd("init", "-input=false", "-no-color", "-reconfigure"); err != nil || code != 0 {
+		if code, err := tofuCmd("init", "-input=false", "-no-color", "-reconfigure"); err != nil {
+			return fmt.Errorf("tofu init failed: %w", err)
+		} else if code != 0 {
 			return fmt.Errorf("tofu init failed")
 		}
 		switch run.Kind {

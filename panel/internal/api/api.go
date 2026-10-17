@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
@@ -26,9 +27,15 @@ import (
 )
 
 type Config struct {
-	// PublicURL is the panel's HTTP base URL as reachable by agents,
-	// e.g. http://10.0.1.240:8090.
+	// PublicURL is the panel's base URL as reachable by agents, e.g.
+	// https://10.0.1.240:8443 (http:// only when HTTPS is turned off).
 	PublicURL string
+	// TLSPin is the HTTPS server key in curl's --pinnedpubkey form, so an
+	// install command trusts exactly this panel before it has the CA.
+	TLSPin string
+	// LocalURL is plain HTTP on the loopback interface, for the panel's
+	// own helpers (OpenTofu's state backend).
+	LocalURL string
 	// GRPCAddr is host:port agents dial for the mTLS stream.
 	GRPCAddr string
 	// AgentBinDir holds servermgr-agent-linux-<arch> binaries for download.
@@ -54,6 +61,15 @@ type API struct {
 	Ctx context.Context
 
 	limiter *loginLimiter
+
+	// pveReserved holds the quota of tenant VMs being created, which do
+	// not show up in their pool yet.
+	pveMu       sync.Mutex
+	pveCreateMu sync.Mutex // nextid + create, so parallel builds get distinct VMIDs
+	pveReserved map[int64]tenantUsage
+	// pveConsoles are console sessions waiting for their WebSocket.
+	pveConsoles map[string]*pveConsole
+	pveOpen     map[int64]int // open consoles per user
 }
 
 func (a *API) Handler() http.Handler {
@@ -129,15 +145,121 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("DELETE /api/v1/proxmox/{id}", need("proxmox.manage", a.handleDeletePVE))
 	authed.HandleFunc("GET /api/v1/proxmox/provisions", need("proxmox.operate", a.handleListProvisions))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/resources", need("proxmox.view", a.handlePVEResources))
-	authed.HandleFunc("POST /api/v1/proxmox/{id}/provision", need("proxmox.manage", a.handlePVEProvision))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guest-os", need("proxmox.view", a.handlePVEGuestOS))
+	authed.HandleFunc("GET /api/v1/proxmox-images", need("proxmox.view", a.handlePVEImages))
+	authed.HandleFunc("GET /api/v1/proxmox-isos", need("proxmox.manage", a.handlePVEISOs))
+	authed.HandleFunc("GET /api/v1/proxmox-flavors", need("proxmox.view", a.handleListFlavors))
+	authed.HandleFunc("POST /api/v1/proxmox-flavors", need("proxmox.manage", a.handleSaveFlavor))
+	authed.HandleFunc("PUT /api/v1/proxmox-flavors/{fid}", need("proxmox.manage", a.handleSaveFlavor))
+	authed.HandleFunc("DELETE /api/v1/proxmox-flavors/{fid}", need("proxmox.manage", a.handleDeleteFlavor))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/deploy", need("proxmox.manage", a.handlePVEDeploy))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/storage", need("proxmox.manage", a.handlePVEStorage))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/storage", need("proxmox.manage", a.handlePVEStorageCreate))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/storage/{storage}", need("proxmox.manage", a.handlePVEStorageUpdate))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/storage/{storage}", need("proxmox.manage", a.handlePVEStorageDelete))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/storage/{storage}/content", need("proxmox.manage", a.handlePVEStorageContent))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/nodes/{node}/storage/{storage}/content", need("proxmox.manage", a.handlePVEVolumeDelete))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/storage/{storage}/download", need("proxmox.manage", a.handlePVEDownloadURL))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/status", need("proxmox.view", a.handlePVENodeStatus))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/rrd", need("proxmox.view", a.handlePVENodeRRD))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/tasks", need("proxmox.view", a.handlePVENodeTasks))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/task", need("proxmox.manage", a.handlePVENodeTask))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/disks", need("proxmox.manage", a.handlePVEDisks))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/disks/smart", need("proxmox.manage", a.handlePVEDiskSMART))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/disks/wipe", need("proxmox.manage", a.handlePVEDiskWipe))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/zfs", need("proxmox.manage", a.handlePVEZFS))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/zfs", need("proxmox.manage", a.handlePVEZFSCreate))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/zfs/{pool}", need("proxmox.manage", a.handlePVEZFSDetail))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/zfs/{pool}/destroy", need("proxmox.manage", a.handlePVEZFSDestroy))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/template-targets", need("proxmox.manage", a.handlePVETemplateTargets))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/templates", need("proxmox.manage", a.handlePVETemplateCreate))
+	authed.HandleFunc("GET /api/v1/windows/editions", need("proxmox.view", a.handleWindowsEditions))
+	authed.HandleFunc("GET /api/v1/windows/prepare.ps1", need("proxmox.manage", a.handleWindowsScript))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/windows-iso", need("proxmox.manage", a.handlePVEWindowsISO))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/windows-templates", need("proxmox.manage", a.handlePVEWindowsBuild))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows-prep", need("proxmox.manage", a.handlePVEWindowsPrep))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows-template", need("proxmox.manage", a.handlePVEWindowsTemplate))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/provision", need("proxmox.guests", a.handlePVEProvision))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/power", need("proxmox.operate", a.handlePVEPower))
-	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.manage", a.handlePVEDeleteGuest))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.guests", a.handlePVEDeleteGuest))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.view", a.handlePVEGuest))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/rrd", need("proxmox.view", a.handlePVEGuestRRD))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/tasks", need("proxmox.view", a.handlePVEGuestTasks))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/tasks/log", need("proxmox.view", a.handlePVEGuestTaskLog))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/console", need("proxmox.console", a.handlePVEConsole))
+	authed.HandleFunc("GET /api/v1/proxmox-console/{sid}", need("proxmox.console", a.handlePVEConsoleWS))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/backups", need("proxmox.view", a.handlePVEBackups))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/backups", need("proxmox.operate", a.handlePVEBackupCreate))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/backups", need("proxmox.guests", a.handlePVEBackupDelete))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/restore", need("proxmox.guests", a.handlePVEBackupRestore))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/cloudinit", need("proxmox.guests", a.handlePVECloudInit))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/firewall", need("proxmox.view", a.handlePVEFirewall))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/firewall/options", need("proxmox.guests", a.handlePVEFirewallOptions))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/firewall/rules", need("proxmox.guests", a.handlePVEFirewallRuleAdd))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/firewall/rules/{pos}", need("proxmox.guests", a.handlePVEFirewallRuleDelete))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/hardware", need("proxmox.view", a.handlePVEHardwareOptions))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/hardware", need("proxmox.guests", a.handlePVEHardware))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/options", need("proxmox.view", a.handlePVEOptionsList))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/options", need("proxmox.guests", a.handlePVEOptions))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/disks", need("proxmox.guests", a.handlePVEDiskAdd))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/disks/resize", need("proxmox.guests", a.handlePVEDiskResize))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/disks/remove", need("proxmox.guests", a.handlePVEDiskRemove))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/nics/{nic}", need("proxmox.guests", a.handlePVENIC))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/nics/{nic}", need("proxmox.guests", a.handlePVENICDelete))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/cdrom", need("proxmox.guests", a.handlePVECDROM))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/clone", need("proxmox.guests", a.handlePVEClone))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/migrate", need("proxmox.manage", a.handlePVEMigrate))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/template", need("proxmox.manage", a.handlePVEMakeTemplate))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("proxmox.view", a.handlePVESnapshots))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots", need("proxmox.operate", a.handlePVESnapshotCreate))
 	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}", need("proxmox.operate", a.handlePVESnapshotDelete))
-	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}/rollback", need("proxmox.manage", a.handlePVESnapshotRollback))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/snapshots/{snap}/rollback", need("proxmox.guests", a.handlePVESnapshotRollback))
+	// create guests
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/guests", need("proxmox.guests", a.handlePVECreateGuest))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/choices", need("proxmox.view", a.handlePVEChoices))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/appliances", need("proxmox.view", a.handlePVEAppliances))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/appliances", need("proxmox.manage", a.handlePVEApplianceDownload))
+	// nodes (platform only)
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/view/{what}", need("proxmox.manage", a.handlePVENodeView))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/nodes/{node}/view/{what}", need("proxmox.manage", a.handlePVENodeSet))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/syslog", need("proxmox.manage", a.handlePVENodeSyslog))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/tasks/log", need("proxmox.manage", a.handlePVENodeTaskLog))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/nodes/{node}/tasks", need("proxmox.manage", a.handlePVENodeTaskStop))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/power", need("proxmox.manage", a.handlePVENodePower))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/services/{service}/{action}", need("proxmox.manage", a.handlePVENodeService))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/apt/refresh", need("proxmox.manage", a.handlePVENodeAptRefresh))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/bulk", need("proxmox.manage", a.handlePVENodeBulk))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/network", need("proxmox.manage", a.handlePVENetworkCreate))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/nodes/{node}/network", need("proxmox.manage", a.handlePVENetworkApply))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/nodes/{node}/network", need("proxmox.manage", a.handlePVENetworkApply))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/nodes/{node}/network/{iface}", need("proxmox.manage", a.handlePVENetworkUpdate))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/nodes/{node}/network/{iface}", need("proxmox.manage", a.handlePVENetworkDelete))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/disks/{action}", need("proxmox.manage", a.handlePVENodeDisk))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/storage/{storage}/status", need("proxmox.manage", a.handlePVEStorageStatus))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/storage/{storage}/upload", need("proxmox.manage", a.handlePVEStorageUpload))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/shell", need("proxmox.manage", a.handlePVENodeShell))
+	// datacenter (platform only)
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/dc/{coll}", need("proxmox.manage", a.handlePVEDCList))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/dc/{coll}", need("proxmox.manage", a.handlePVEDCCreate))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/dc/{coll}", need("proxmox.manage", a.handlePVEDCUpdate))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/dc/{coll}/{key}", need("proxmox.manage", a.handlePVEDCGet))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/dc/{coll}/{key}", need("proxmox.manage", a.handlePVEDCUpdate))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/dc/{coll}/{key}", need("proxmox.manage", a.handlePVEDCDelete))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/dc/{coll}/{key}/items", need("proxmox.manage", a.handlePVEDCItems))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/dc/{coll}/{key}/items", need("proxmox.manage", a.handlePVEDCItems))
+	authed.HandleFunc("PUT /api/v1/proxmox/{id}/dc/{coll}/{key}/items/{item}", need("proxmox.manage", a.handlePVEDCItems))
+	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/dc/{coll}/{key}/items/{item}", need("proxmox.manage", a.handlePVEDCItems))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/sdn/apply", need("proxmox.manage", a.handlePVESDNApply))
+	authed.HandleFunc("GET /api/v1/tenants", need("tenants.manage", a.handleListTenants))
+	authed.HandleFunc("POST /api/v1/tenants", need("tenants.manage", a.handleSaveTenant))
+	authed.HandleFunc("PUT /api/v1/tenants/{id}", need("tenants.manage", a.handleSaveTenant))
+	authed.HandleFunc("DELETE /api/v1/tenants/{id}", need("tenants.manage", a.handleDeleteTenant))
+	authed.HandleFunc("GET /api/v1/tenant-options/{cluster}", need("tenants.manage", a.handleTenantOptions))
+	authed.HandleFunc("PUT /api/v1/tenants/{id}/clusters/{cluster}", need("tenants.manage", a.handleSetupTenantCluster))
+	authed.HandleFunc("DELETE /api/v1/tenants/{id}/clusters/{cluster}", need("tenants.manage", a.handleRemoveTenantCluster))
 	authed.HandleFunc("GET /api/v1/tofu", need("tofu.view", a.handleTofuOverview))
 	authed.HandleFunc("POST /api/v1/tofu/setup", need("tofu.manage", a.handleTofuSetup))
+	authed.HandleFunc("GET /api/v1/proxmox/{id}/tofu-stacks", need("tofu.manage", a.handleTofuStacks))
 	authed.HandleFunc("POST /api/v1/tofu/workspaces", need("tofu.manage", a.handleSaveTofuWorkspace))
 	authed.HandleFunc("PUT /api/v1/tofu/workspaces/{id}", need("tofu.manage", a.handleSaveTofuWorkspace))
 	authed.HandleFunc("DELETE /api/v1/tofu/workspaces/{id}", need("tofu.manage", a.handleDeleteTofuWorkspace))
@@ -421,7 +543,7 @@ var opsByName = map[string]opSpec{
 	"compose.read":           {op: agentv1.Op_OP_COMPOSE_READ, params: []string{"name"}},
 	"compose.save":           {op: agentv1.Op_OP_COMPOSE_SAVE, params: []string{"name", "yaml", "deploy"}, maxParam: 256 << 10},
 	"compose.action":         {op: agentv1.Op_OP_COMPOSE_ACTION, params: []string{"name", "action"}},
-	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current"}},
+	"agent.update":           {op: agentv1.Op_OP_AGENT_UPDATE, params: []string{"sha256", "version", "current", "panel_url"}},
 	"app.deploy":             {op: agentv1.Op_OP_APP_DEPLOY, params: []string{"domain", "app", "name", "version", "steps", "version_steps", "vars", "compose"}, maxParam: 64 << 10},
 	"crowdsec.status":        {op: agentv1.Op_OP_CROWDSEC_STATUS},
 	"ansible.prepare":        {op: agentv1.Op_OP_ANSIBLE_PREPARE, params: []string{"address"}}, // key + source address are added by Dispatch
@@ -592,8 +714,7 @@ func (a *API) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.audit(r, "", "server.join_token", req.Name, map[string]any{"expires_at": expires, "baseline": req.PlaybookID}, true)
-	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | sudo sh -s -- --token %s --ca-sha256 %s",
-		a.Cfg.PublicURL, raw, a.CA.Fingerprint())
+	cmd := a.installCommand("sudo sh", raw)
 	writeJSON(w, http.StatusCreated, map[string]any{
 		"token": raw, "expires_at": expires, "ca_sha256": a.CA.Fingerprint(), "install_command": cmd,
 	})
@@ -670,5 +791,17 @@ func (a *API) handleInstallScript(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/x-shellscript")
-	_, _ = io.WriteString(w, strings.Replace(installScript, "__PANEL_URL__", a.Cfg.PublicURL, 1))
+	s := strings.Replace(installScript, "__PANEL_URL__", a.Cfg.PublicURL, 1)
+	_, _ = io.WriteString(w, strings.Replace(s, "__PANEL_PIN__", a.Cfg.TLSPin, 1))
+}
+
+// installCommand is the one-liner that installs and enrolls an agent. Over
+// HTTPS curl pins the panel's server key, so the script comes from this
+// panel even though the machine does not trust the panel CA yet.
+func (a *API) installCommand(sh, token string) string {
+	fetch := "curl -fsSL"
+	if strings.HasPrefix(a.Cfg.PublicURL, "https://") && a.Cfg.TLSPin != "" {
+		fetch = "curl -fsSLk --pinnedpubkey '" + a.Cfg.TLSPin + "'"
+	}
+	return fmt.Sprintf("%s %s/install.sh | %s -s -- --token %s --ca-sha256 %s", fetch, a.Cfg.PublicURL, sh, token, a.CA.Fingerprint())
 }

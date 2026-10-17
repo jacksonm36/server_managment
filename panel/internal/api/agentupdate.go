@@ -75,7 +75,7 @@ func (a *API) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusConflict, "no agent build for architecture "+srv.Arch)
 		return
 	}
-	job, err := a.Dispatch(r.Context(), whoFrom(r), srv.ID, "agent.update", map[string]string{"sha256": sum, "version": b.Version, "current": srv.AgentVersion})
+	job, err := a.Dispatch(r.Context(), whoFrom(r), srv.ID, "agent.update", map[string]string{"sha256": sum, "version": b.Version, "current": srv.AgentVersion, "panel_url": a.Cfg.PublicURL})
 	if err != nil {
 		a.writeDispatchErr(w, err)
 		return
