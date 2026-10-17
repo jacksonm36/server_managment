@@ -102,6 +102,7 @@ type TenantCluster struct {
 	Pool      string     `json:"pool"`
 	Storages  []string   `json:"storages"`
 	Bridges   []string   `json:"bridges"`
+	VLANs     []int      `json:"vlans"` // VLAN tags allowed on the bridges; empty = untagged only
 	Templates []int      `json:"templates"`
 	PVEUser   string     `json:"pve_user"`
 	TokenID   string     `json:"token_id"`
@@ -113,11 +114,11 @@ type TenantCluster struct {
 // one, tenant users get no access to the cluster at all.
 func (tc *TenantCluster) Isolated() bool { return tc.TokenID != "" && tc.Sealed != "" }
 
-const tcCols = `tenant_id, cluster_id::text, pool, storages, bridges, templates, pve_user, token_id, token_secret, set_up_at`
+const tcCols = `tenant_id, cluster_id::text, pool, storages, bridges, vlans, templates, pve_user, token_id, token_secret, set_up_at`
 
 func scanTC(row pgx.Row) (*TenantCluster, error) {
 	tc := &TenantCluster{}
-	err := row.Scan(&tc.TenantID, &tc.ClusterID, &tc.Pool, &tc.Storages, &tc.Bridges, &tc.Templates, &tc.PVEUser, &tc.TokenID, &tc.Sealed, &tc.SetUpAt)
+	err := row.Scan(&tc.TenantID, &tc.ClusterID, &tc.Pool, &tc.Storages, &tc.Bridges, &tc.VLANs, &tc.Templates, &tc.PVEUser, &tc.TokenID, &tc.Sealed, &tc.SetUpAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -148,11 +149,12 @@ func (s *Store) ListTenantClusters(ctx context.Context, tenantID int64) ([]*Tena
 }
 
 func (s *Store) SaveTenantCluster(ctx context.Context, tc *TenantCluster) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO tenant_clusters (tenant_id, cluster_id, pool, storages, bridges, templates, pve_user, token_id, token_secret, set_up_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	_, err := s.db.Exec(ctx, `INSERT INTO tenant_clusters (tenant_id, cluster_id, pool, storages, bridges, templates, pve_user, token_id, token_secret, set_up_at, vlans)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 		ON CONFLICT (tenant_id, cluster_id) DO UPDATE SET pool = $3, storages = $4, bridges = $5, templates = $6,
-			pve_user = $7, token_id = $8, token_secret = $9, set_up_at = $10`,
-		tc.TenantID, tc.ClusterID, tc.Pool, orEmptyStr(tc.Storages), orEmptyStr(tc.Bridges), orEmptyInt(tc.Templates), tc.PVEUser, tc.TokenID, tc.Sealed, tc.SetUpAt)
+			pve_user = $7, token_id = $8, token_secret = $9, set_up_at = $10, vlans = $11`,
+		tc.TenantID, tc.ClusterID, tc.Pool, orEmptyStr(tc.Storages), orEmptyStr(tc.Bridges), orEmptyInt(tc.Templates), tc.PVEUser, tc.TokenID, tc.Sealed, tc.SetUpAt,
+		orEmptyInt(tc.VLANs))
 	switch {
 	case isUnique(err):
 		return ErrExists

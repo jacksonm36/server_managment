@@ -24,6 +24,7 @@ import { Select } from "@/components/ui/select";
 import { FlavorPicker, useFlavors } from "@/components/Flavors";
 import { CloudInitFields, ciOpts, emptyCI, type CIForm } from "@/components/CloudInitFields";
 import { PVEOverview } from "@/components/PVEOverview";
+import { VLANInput, vlanNum } from "@/components/VLANField";
 import { ComputeTree } from "@/components/ComputeTree";
 import { PVENodeView } from "@/components/PVENodeView";
 import { CreateGuestDialog } from "@/components/PVEForms";
@@ -740,6 +741,7 @@ export function ProvisionDialog({
     enroll: true,
     storage: tenant?.storages.length === 1 ? tenant.storages[0] : "",
     bridge: tenant?.bridges.length === 1 ? tenant.bridges[0] : "",
+    vlan: "",
   });
   const storageChoices = tenant ? tenant.storages : storages;
   const flavors = useFlavors();
@@ -783,6 +785,7 @@ export function ProvisionDialog({
                 enroll: win ? false : f.enroll,
                 storage: f.storage,
                 bridge: f.bridge.trim(),
+                vlan: vlanNum(f.vlan),
                 ...(win ? { cipassword: ci.cipassword, nameserver: ci.nameserver.trim(), tags: ciOpts(ci).tags } : ciOpts(ci)),
               });
               onStarted();
@@ -849,6 +852,10 @@ export function ProvisionDialog({
               ) : (
                 <Input id="pp-bridge" value={f.bridge} onChange={(e) => setF({ ...f, bridge: e.target.value })} placeholder="Same as the template (e.g. vmbr0)" />
               )}
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="pp-vlan">VLAN</Label>
+              <VLANInput id="pp-vlan" value={f.vlan} onChange={(v) => setF({ ...f, vlan: v })} allowed={tenant ? (tenant.vlans ?? []) : undefined} />
             </div>
           </div>
           <FlavorPicker

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { VLANInput, vlanNum } from "@/components/VLANField";
 import { Rocket } from "lucide-react";
 import { api, type PVEGuest, type PVEImage, type PVETemplateTargets } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -33,7 +34,7 @@ export function DeployDialog({
   const [t, setT] = useState<PVETemplateTargets | null>(null);
   // undefined until picked: then the second flavor (usually "medium").
   const [flavorPick, setFlavor] = useState<number | null>();
-  const [f, setF] = useState({ name: "", cores: 2, memory_mb: 2048, disk_gb: 20, image_storage: "", disk_storage: "", bridge: "", ipMode: "dhcp", ip: "", gateway: "", enroll: true });
+  const [f, setF] = useState({ name: "", cores: 2, memory_mb: 2048, disk_gb: 20, image_storage: "", disk_storage: "", bridge: "", vlan: "", ipMode: "dhcp", ip: "", gateway: "", enroll: true });
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -90,6 +91,7 @@ export function DeployDialog({
                 image_storage: f.image_storage,
                 disk_storage: f.disk_storage,
                 bridge: f.bridge,
+                vlan: vlanNum(f.vlan),
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
                 enroll: f.enroll,
@@ -160,11 +162,16 @@ export function DeployDialog({
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="dp-bridge">Network</Label>
-              <Select id="dp-bridge" value={f.bridge} onChange={(e) => setF({ ...f, bridge: e.target.value })}>
-                {t?.bridges.map((b) => (
-                  <option key={b}>{b}</option>
-                ))}
-              </Select>
+              <div className="flex gap-2">
+                <Select id="dp-bridge" value={f.bridge} onChange={(e) => setF({ ...f, bridge: e.target.value })}>
+                  {t?.bridges.map((b) => (
+                    <option key={b}>{b}</option>
+                  ))}
+                </Select>
+                <div className="w-28 shrink-0">
+                  <VLANInput value={f.vlan} onChange={(v) => setF({ ...f, vlan: v })} />
+                </div>
+              </div>
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="dp-dstore">Disk storage</Label>

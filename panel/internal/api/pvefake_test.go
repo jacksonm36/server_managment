@@ -47,6 +47,7 @@ type fakePVE struct {
 	uploads    map[string][]byte // volid -> uploaded file
 	sendkeys   int
 	zfs        map[string]url.Values // pool -> create request
+	noProp     map[fakeACL]bool      // ACLs set with propagate=0
 }
 
 type fakeConsole struct {
@@ -303,7 +304,11 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			if g, ok := strings.CutPrefix(a.user, "group:"); ok {
 				typ, ugid = "group", g
 			}
-			out = append(out, map[string]any{"path": a.path, "roleid": a.role, "type": typ, "ugid": ugid, "propagate": 1})
+			prop := 1
+			if f.noProp[a] {
+				prop = 0
+			}
+			out = append(out, map[string]any{"path": a.path, "roleid": a.role, "type": typ, "ugid": ugid, "propagate": prop})
 		}
 		f.reply(w, 200, out, "")
 	case p == "/access/acl" && r.Method == "PUT":
@@ -312,10 +317,17 @@ func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		e := fakeACL{r.Form.Get("path"), r.Form.Get("roles"), r.Form.Get("users")}
+		if f.noProp == nil {
+			f.noProp = map[fakeACL]bool{}
+		}
 		if r.Form.Get("delete") == "1" {
 			f.acls = slices.DeleteFunc(f.acls, func(a fakeACL) bool { return a == e })
-		} else if !slices.Contains(f.acls, e) {
-			f.acls = append(f.acls, e)
+			delete(f.noProp, e)
+		} else {
+			if !slices.Contains(f.acls, e) {
+				f.acls = append(f.acls, e)
+			}
+			f.noProp[e] = r.Form.Get("propagate") == "0"
 		}
 		f.reply(w, 200, nil, "")
 	case len(parts) == 3 && parts[0] == "nodes" && parts[2] == "status" && root:

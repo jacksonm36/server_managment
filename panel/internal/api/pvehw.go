@@ -64,7 +64,34 @@ func checkGuestValue(s *pveScope, key, val string) error {
 	if m := pveBridgeOpt.FindStringSubmatch(val); m != nil && strings.HasPrefix(key, "net") && !slices.Contains(s.TC.Bridges, m[1]) {
 		return fmt.Errorf("%s: bridge %q is not available to you", key, m[1])
 	}
+	if m := pveTagOpt.FindStringSubmatch(val); m != nil && strings.HasPrefix(key, "net") {
+		if tag, err := strconv.Atoi(m[1]); err != nil || !vlanAllowed(s, tag) {
+			return fmt.Errorf("%s: VLAN %s is not available to you", key, m[1])
+		}
+	}
+	if strings.HasPrefix(key, "net") && strings.Contains(val, "trunks=") {
+		return fmt.Errorf("%s: VLAN trunks are not available to you", key)
+	}
 	return nil
+}
+
+// vlanAllowed reports whether the caller may put a NIC on VLAN tag (0 =
+// untagged): platform users any, a tenant's users only its own.
+func vlanAllowed(s *pveScope, tag int) bool {
+	if tag < 0 || tag > 4094 {
+		return false
+	}
+	return tag == 0 || s.TC == nil || slices.Contains(s.TC.VLANs, tag)
+}
+
+var pveTagOpt = regexp.MustCompile(`(?:^|,)tag=([^,]*)`)
+
+// vlanOpt is a NIC's ",tag=N" option, or nothing for untagged.
+func vlanOpt(tag int) string {
+	if tag <= 0 {
+		return ""
+	}
+	return ",tag=" + strconv.Itoa(tag)
 }
 
 // auditForm is form for the audit log, without passwords.

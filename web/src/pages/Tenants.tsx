@@ -14,6 +14,20 @@ type Act = (f: () => Promise<unknown>) => Promise<boolean>;
 
 const limit = (n: number, unit = "") => (n > 0 ? `${n}${unit}` : "no limit");
 
+// parseVLANs reads "20, 30-35" into [20, 30, 31, …, 35]; anything that is
+// not a tag 1-4094 is an error.
+function parseVLANs(text: string): number[] {
+  const out = new Set<number>();
+  for (const part of text.split(/[\s,;]+/).filter(Boolean)) {
+    const m = /^(\d{1,4})(?:-(\d{1,4}))?$/.exec(part);
+    const a = m ? Number(m[1]) : NaN;
+    const b = m?.[2] ? Number(m[2]) : a;
+    if (!m || a < 1 || b > 4094 || b < a || b - a > 255) throw new Error(`VLAN "${part}": use tags 1-4094, like 20 or 30-35`);
+    for (let v = a; v <= b; v++) out.add(v);
+  }
+  return [...out].sort((x, y) => x - y);
+}
+
 /** Tenants: customers or teams kept apart, each with its own Proxmox pool and token. */
 export function TenantsTab({ tenants, serverGroups, act }: { tenants: Tenant[]; serverGroups: ServerGroup[]; act: Act }) {
   const [clusters, setClusters] = useState<PVECluster[]>([]);
@@ -266,6 +280,7 @@ function IsolationDialog({
   const [pool, setPool] = useState(current?.pool ?? `tenant-${tenant.slug}`);
   const [storages, setStorages] = useState<string[]>(current?.storages ?? []);
   const [bridges, setBridges] = useState<string[]>(current?.bridges ?? []);
+  const [vlans, setVlans] = useState((current?.vlans ?? []).join(", "));
   const [templates, setTemplates] = useState<number[]>(current?.templates ?? []);
   const [steps, setSteps] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -279,7 +294,7 @@ function IsolationDialog({
     setError("");
     setSteps([]);
     try {
-      const r = await api.setupTenantCluster(tenant.id, cluster.id, { pool: pool.trim(), storages, bridges, templates, rotate });
+      const r = await api.setupTenantCluster(tenant.id, cluster.id, { pool: pool.trim(), storages, bridges, vlans: parseVLANs(vlans), templates, rotate });
       setSteps(r.steps);
       await act(async () => {});
     } catch (e) {
@@ -324,6 +339,14 @@ function IsolationDialog({
             selected={bridges}
             onToggle={(v) => toggle(bridges, setBridges, v)}
           />
+          <div className="grid gap-1.5">
+            <Label htmlFor="iso-vlans">VLAN tags it may use on those bridges</Label>
+            <Input id="iso-vlans" value={vlans} onChange={(e) => setVlans(e.target.value)} placeholder="none: untagged only (e.g. 20, 30-35)" />
+            <p className="text-xs text-muted-foreground">
+              Proxmox enforces it too: the bridges are granted for untagged NICs only, and each tag gets its own permission, so the tenant cannot reach
+              other VLANs.
+            </p>
+          </div>
           <CheckList
             label="Templates it may create VMs from"
             items={(opts?.templates ?? []).map((t) => ({ key: t.vmid, label: `${t.name} (${t.vmid})` }))}

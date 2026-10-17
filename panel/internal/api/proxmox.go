@@ -380,7 +380,7 @@ func (a *API) handlePVEResources(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"cluster": view, "version": ver, "nodes": nodes, "guests": guests, "storage": storage}
 	if s.TC != nil {
 		out["tenant"] = map[string]any{
-			"name": ac.Tenant.Name, "pool": s.TC.Pool, "storages": s.TC.Storages, "bridges": s.TC.Bridges,
+			"name": ac.Tenant.Name, "pool": s.TC.Pool, "storages": s.TC.Storages, "bridges": s.TC.Bridges, "vlans": s.TC.VLANs,
 			"usage": poolUsage(res, s.TC.Pool),
 			"quota": tenantUsage{Guests: ac.Tenant.MaxGuests, Cores: ac.Tenant.MaxCores, MemoryMB: ac.Tenant.MaxMemoryMB, DiskGB: ac.Tenant.MaxDiskGB},
 		}
@@ -551,6 +551,7 @@ type pveProvisionReq struct {
 	Enroll       bool   `json:"enroll"`
 	Storage      string `json:"storage"` // full clone target storage ("" = template's)
 	Bridge       string `json:"bridge"`  // network bridge for net0 ("" = template's)
+	VLAN         int    `json:"vlan"`    // VLAN tag for net0 (0 = untagged); needs a bridge
 	pveCIOpts
 	windows bool // the template is Windows (Cloudbase-Init)
 }
@@ -716,6 +717,10 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 		bad("invalid storage or bridge")
 		return
 	}
+	if req.VLAN < 0 || req.VLAN > 4094 || (req.VLAN > 0 && req.Bridge == "") {
+		bad("VLAN: 1-4094, with a network bridge picked")
+		return
+	}
 	if msg := a.checkCIOpts(r.Context(), accessFrom(r.Context()), &req.pveCIOpts); msg != "" {
 		bad(msg)
 		return
@@ -799,6 +804,9 @@ func (a *API) tenantProvisionCheck(r *http.Request, s *pveScope, req *pveProvisi
 	}
 	if !slices.Contains(tc.Bridges, req.Bridge) {
 		return tenantUsage{}, "pick one of your networks"
+	}
+	if req.VLAN != 0 && !slices.Contains(tc.VLANs, req.VLAN) {
+		return tenantUsage{}, fmt.Sprintf("VLAN %d is not available to you", req.VLAN)
 	}
 	// A linked clone would live on the template's storage.
 	req.FullClone = true
@@ -974,7 +982,7 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 		cfg.Set("memory", strconv.Itoa(req.MemoryMB))
 	}
 	if req.Bridge != "" {
-		cfg.Set("net0", "virtio,bridge="+req.Bridge)
+		cfg.Set("net0", "virtio,bridge="+req.Bridge+vlanOpt(req.VLAN))
 	}
 	extra := ""
 	if n := len(req.keyLines); n > 0 {

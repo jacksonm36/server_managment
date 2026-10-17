@@ -199,6 +199,7 @@ type tenantClusterReq struct {
 	Pool      string   `json:"pool"`
 	Storages  []string `json:"storages"`
 	Bridges   []string `json:"bridges"`
+	VLANs     []int    `json:"vlans"` // VLAN tags allowed on the bridges
 	Templates []int    `json:"templates"`
 	// Rotate replaces the tenant's Proxmox token.
 	Rotate bool `json:"rotate"`
@@ -246,6 +247,16 @@ func (a *API) handleSetupTenantCluster(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if len(req.VLANs) > 256 {
+		writeErr(w, http.StatusBadRequest, "at most 256 VLAN tags")
+		return
+	}
+	for _, v := range req.VLANs {
+		if v < 1 || v > 4094 {
+			writeErr(w, http.StatusBadRequest, "VLAN tags are 1-4094")
+			return
+		}
+	}
 	for _, v := range req.Templates {
 		if v < 100 || v > 999999999 {
 			writeErr(w, http.StatusBadRequest, "invalid template id")
@@ -255,6 +266,7 @@ func (a *API) handleSetupTenantCluster(w http.ResponseWriter, r *http.Request) {
 	slices.Sort(req.Storages)
 	slices.Sort(req.Bridges)
 	slices.Sort(req.Templates)
+	slices.Sort(req.VLANs)
 	tc, err := a.Store.GetTenantCluster(r.Context(), t.ID, c.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		tc = &store.TenantCluster{TenantID: t.ID, ClusterID: c.ID}
@@ -263,6 +275,7 @@ func (a *API) handleSetupTenantCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tc.Pool, tc.Storages, tc.Bridges, tc.Templates = req.Pool, slices.Compact(req.Storages), slices.Compact(req.Bridges), slices.Compact(req.Templates)
+	tc.VLANs = slices.Compact(req.VLANs)
 	tc.PVEUser = pveTenantUser(t.Slug)
 
 	steps, err := a.setupTenantCluster(r.Context(), cl, t, tc, req.Rotate)
@@ -280,13 +293,17 @@ func (a *API) handleSetupTenantCluster(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.audit(r, "", "tenant.isolation", t.Name+" on "+c.Name, map[string]any{
-		"pool": tc.Pool, "storages": tc.Storages, "bridges": tc.Bridges, "templates": tc.Templates, "pve_user": tc.PVEUser, "rotated": req.Rotate,
+		"pool": tc.Pool, "storages": tc.Storages, "bridges": tc.Bridges, "vlans": tc.VLANs, "templates": tc.Templates, "pve_user": tc.PVEUser, "rotated": req.Rotate,
 	}, true)
 	writeJSON(w, http.StatusOK, map[string]any{"cluster": tc, "steps": steps})
 }
 
-// pveACL is one Proxmox ACL entry for the tenant's user.
-type pveACL struct{ Path, Role string }
+// pveACL is one Proxmox ACL entry for the tenant's user. NoPropagate
+// grants the path only, not what lies below it.
+type pveACL struct {
+	Path, Role  string
+	NoPropagate bool
+}
 
 // pveACLEntry is an entry of GET /access/acl.
 type pveACLEntry struct {
@@ -294,6 +311,12 @@ type pveACLEntry struct {
 	RoleID string `json:"roleid"`
 	Type   string `json:"type"`
 	UGID   string `json:"ugid"`
+	// Propagate is 0 or 1; Proxmox leaves it out when it is the default (1).
+	Propagate *int `json:"propagate"`
+}
+
+func (e pveACLEntry) acl() pveACL {
+	return pveACL{e.Path, e.RoleID, e.Propagate != nil && *e.Propagate == 0}
 }
 
 type pvePool struct {
@@ -305,15 +328,21 @@ type pvePool struct {
 // adding other guests to the pool would also need rights on those guests,
 // which the user does not have.
 func tenantACLs(tc *store.TenantCluster) []pveACL {
-	want := []pveACL{{"/pool/" + tc.Pool, "PVEVMAdmin"}, {"/pool/" + tc.Pool, "PVEPoolAdmin"}}
+	want := []pveACL{{"/pool/" + tc.Pool, "PVEVMAdmin", false}, {"/pool/" + tc.Pool, "PVEPoolAdmin", false}}
 	for _, s := range tc.Storages {
-		want = append(want, pveACL{"/storage/" + s, "PVEDatastoreUser"})
+		want = append(want, pveACL{"/storage/" + s, "PVEDatastoreUser", false})
 	}
+	// On a bridge without propagation the user may only attach untagged
+	// NICs; Proxmox checks a tagged NIC against /…/<bridge>/<vlan>, so
+	// each allowed VLAN gets its own grant.
 	for _, b := range tc.Bridges {
-		want = append(want, pveACL{"/sdn/zones/localnetwork/" + b, "PVESDNUser"})
+		want = append(want, pveACL{"/sdn/zones/localnetwork/" + b, "PVESDNUser", true})
+		for _, v := range tc.VLANs {
+			want = append(want, pveACL{"/sdn/zones/localnetwork/" + b + "/" + strconv.Itoa(v), "PVESDNUser", false})
+		}
 	}
 	for _, v := range tc.Templates {
-		want = append(want, pveACL{"/vms/" + strconv.Itoa(v), "PVETemplateUser"})
+		want = append(want, pveACL{"/vms/" + strconv.Itoa(v), "PVETemplateUser", false})
 	}
 	return want
 }
@@ -372,7 +401,7 @@ func (a *API) setupTenantCluster(ctx context.Context, cl *proxmox.Client, t *sto
 	}
 	want := tenantACLs(tc)
 	for _, e := range acls {
-		if e.Type != "user" || e.UGID != tc.PVEUser || slices.Contains(want, pveACL{e.Path, e.RoleID}) {
+		if e.Type != "user" || e.UGID != tc.PVEUser || slices.Contains(want, e.acl()) {
 			continue
 		}
 		if err := cl.Do(ctx, http.MethodPut, "/access/acl", url.Values{"path": {e.Path}, "roles": {e.RoleID}, "users": {tc.PVEUser}, "delete": {"1"}}, nil); err != nil {
@@ -382,11 +411,15 @@ func (a *API) setupTenantCluster(ctx context.Context, cl *proxmox.Client, t *sto
 	}
 	for _, p := range want {
 		if slices.ContainsFunc(acls, func(e pveACLEntry) bool {
-			return e.Type == "user" && e.UGID == tc.PVEUser && e.Path == p.Path && e.RoleID == p.Role
+			return e.Type == "user" && e.UGID == tc.PVEUser && e.acl() == p
 		}) {
 			continue
 		}
-		if err := cl.Do(ctx, http.MethodPut, "/access/acl", url.Values{"path": {p.Path}, "roles": {p.Role}, "users": {tc.PVEUser}, "propagate": {"1"}}, nil); err != nil {
+		prop := "1"
+		if p.NoPropagate {
+			prop = "0"
+		}
+		if err := cl.Do(ctx, http.MethodPut, "/access/acl", url.Values{"path": {p.Path}, "roles": {p.Role}, "users": {tc.PVEUser}, "propagate": {prop}}, nil); err != nil {
 			return steps, hint(err)
 		}
 		step("granted %s on %s", p.Role, p.Path)

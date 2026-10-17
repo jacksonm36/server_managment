@@ -49,7 +49,7 @@ func TestTenantIsolation(t *testing.T) {
 		c, b, _ := call(root, "PUT", fmt.Sprintf("/api/v1/tenants/%d/clusters/%s", id(tenant), cid), body)
 		return c, b
 	}
-	code, out := setup(acme, map[string]any{"storages": []string{"local-lvm"}, "bridges": []string{"vmbr1"}, "templates": []int{9000}})
+	code, out := setup(acme, map[string]any{"storages": []string{"local-lvm"}, "bridges": []string{"vmbr1"}, "vlans": []int{20}, "templates": []int{9000}})
 	expect("set up acme", code, 200)
 	if code != 200 {
 		t.Fatalf("setup: %v", out)
@@ -67,9 +67,13 @@ func TestTenantIsolation(t *testing.T) {
 			acmeACL = append(acmeACL, a.role+" "+a.path)
 		}
 	}
+	// The bridge itself only allows untagged NICs; VLAN 20 has its own grant.
+	if !pve.noProp[fakeACL{"/sdn/zones/localnetwork/vmbr1", "PVESDNUser", "sm-acme@pve"}] || pve.noProp[fakeACL{"/sdn/zones/localnetwork/vmbr1/20", "PVESDNUser", "sm-acme@pve"}] {
+		t.Error("bridge ACL must not propagate, the VLAN ACL must")
+	}
 	pve.mu.Unlock()
 	slices.Sort(acmeACL)
-	want := []string{"PVEDatastoreUser /storage/local-lvm", "PVEPoolAdmin /pool/tenant-acme", "PVESDNUser /sdn/zones/localnetwork/vmbr1", "PVETemplateUser /vms/9000", "PVEVMAdmin /pool/tenant-acme"}
+	want := []string{"PVEDatastoreUser /storage/local-lvm", "PVEPoolAdmin /pool/tenant-acme", "PVESDNUser /sdn/zones/localnetwork/vmbr1", "PVESDNUser /sdn/zones/localnetwork/vmbr1/20", "PVETemplateUser /vms/9000", "PVEVMAdmin /pool/tenant-acme"}
 	if !slices.Equal(acmeACL, want) {
 		t.Errorf("acme ACLs = %v, want %v", acmeACL, want)
 	}
@@ -395,6 +399,7 @@ func TestTenantIsolation(t *testing.T) {
 	expect("template not hers", first2(prov(al, map[string]any{"template_vmid": 9001})), 400)
 	expect("storage not hers", first2(prov(al, map[string]any{"storage": "ceph"})), 400)
 	expect("bridge not hers", first2(prov(al, map[string]any{"bridge": "vmbr0"})), 400)
+	expect("VLAN not hers", first2(prov(al, map[string]any{"bridge": "vmbr1", "vlan": 30})), 400)
 	expect("other node", first2(prov(al, map[string]any{"target": "pve2"})), 400)
 	expect("over the vCPU quota", first2(prov(al, map[string]any{"cores": 5})), 400)
 	code, pv := prov(al, nil)
@@ -482,6 +487,7 @@ func TestTenantIsolation(t *testing.T) {
 		t.Errorf("scsi0 survived: %q", cfg(100, "scsi0"))
 	}
 	expect("alice: NIC on globex bridge", first(call(al, "PUT", hw+"/nics/net0", map[string]any{"model": "virtio", "bridge": "vmbr0"})), 400)
+	expect("alice: NIC on another VLAN", first(call(al, "PUT", hw+"/nics/net0", map[string]any{"model": "virtio", "bridge": "vmbr1", "vlan": 30})), 400)
 	expect("alice: NIC", first(call(al, "PUT", hw+"/nics/net0", map[string]any{"model": "virtio", "bridge": "vmbr1", "vlan": 20, "firewall": true})), 204)
 	if cfg(100, "net0") != "virtio,bridge=vmbr1,tag=20,firewall=1" {
 		t.Errorf("net0 = %q", cfg(100, "net0"))

@@ -539,6 +539,10 @@ func (a *API) handlePVENIC(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "VLAN 0-4094, rate 0-100000 MB/s")
 		return
 	}
+	if !vlanAllowed(s, req.VLAN) {
+		writeErr(w, http.StatusBadRequest, fmt.Sprintf("VLAN %d is not available to you", req.VLAN))
+		return
+	}
 	if req.MAC != "" {
 		if hw, err := net.ParseMAC(req.MAC); err != nil || len(hw) != 6 {
 			writeErr(w, http.StatusBadRequest, "bad MAC address")

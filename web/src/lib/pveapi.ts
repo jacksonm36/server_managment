@@ -45,6 +45,7 @@ export type WinBuildReq = {
   drivers_iso: string;
   disk_storage: string;
   bridge: string;
+  vlan?: number;
   cores: number;
   memory_mb: number;
   disk_gb: number;

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { VLANInput, vlanNum } from "@/components/VLANField";
 import { Field, FormDialog, StorageSelect, downloadVirtio, storagesFor, useChoices } from "@/components/PVEForms";
 
 // Windows cloud-init templates. A build installs Windows unattended from
@@ -89,6 +90,7 @@ export function WindowsBuildDialog({
     drivers: "",
     storage: "",
     bridge: "",
+    vlan: "",
     prefix: edition.id,
     cores: 2,
     memory: 4096,
@@ -135,6 +137,7 @@ export function WindowsBuildDialog({
           drivers_iso: f.drivers,
           disk_storage: f.storage,
           bridge: f.bridge,
+          vlan: vlanNum(f.vlan),
           cores: f.cores,
           memory_mb: f.memory,
           disk_gb: f.disk,
@@ -189,12 +192,17 @@ export function WindowsBuildDialog({
         <Field label="Template name prefix">
           <Input value={f.prefix} onChange={(e) => up("prefix")(e.target.value.toLowerCase())} pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" required />
         </Field>
-        <Field label="Network bridge">
-          <Select value={f.bridge} onChange={(e) => up("bridge")(e.target.value)} required>
-            {(c?.bridges ?? []).map((b) => (
-              <option key={b}>{b}</option>
-            ))}
-          </Select>
+        <Field label="Network bridge · VLAN" hint="VLAN tag for the build VM and the templates' NIC; empty = untagged.">
+          <div className="flex gap-2">
+            <Select value={f.bridge} onChange={(e) => up("bridge")(e.target.value)} required>
+              {(c?.bridges ?? []).map((b) => (
+                <option key={b}>{b}</option>
+              ))}
+            </Select>
+            <div className="w-28 shrink-0">
+              <VLANInput value={f.vlan} onChange={(v) => up("vlan")(v)} />
+            </div>
+          </div>
         </Field>
       </div>
       <div className="grid gap-3 sm:grid-cols-2">

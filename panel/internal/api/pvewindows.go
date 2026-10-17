@@ -275,6 +275,7 @@ type pveWinBuildReq struct {
 	DriversISO   string   `json:"drivers_iso"` // virtio-win
 	DiskStorage  string   `json:"disk_storage"`
 	Bridge       string   `json:"bridge"`
+	VLAN         int      `json:"vlan"` // 0 = untagged
 	Cores        int      `json:"cores"`
 	MemoryMB     int      `json:"memory_mb"`
 	DiskGB       int      `json:"disk_gb"`
@@ -327,6 +328,8 @@ func (r *pveWinBuildReq) check(ed *winEdition) string {
 		return "the drivers ISO is not the Windows installer"
 	case !pveStorage.MatchString(r.DiskStorage) || !pveBridge.MatchString(r.Bridge):
 		return "pick a disk storage and a network bridge"
+	case r.VLAN < 0 || r.VLAN > 4094:
+		return "VLAN: 1-4094, or 0 for untagged"
 	case r.Cores < 1 || r.Cores > 64 || r.MemoryMB < 2048 || r.MemoryMB > 1<<20 || r.DiskGB < 32 || r.DiskGB > 10000:
 		return "resources: 1-64 cores, at least 2048 MB memory and a 32 GB disk"
 	case r.ImageIndex < 1 || r.ImageIndex > 32:
@@ -531,7 +534,7 @@ func (a *API) winBuild(ctx context.Context, cl *proxmox.Client, ed *winEdition, 
 			"ide0":      {req.DriversISO + ",media=cdrom"},
 			"ide3":      {answer + ",media=cdrom"},
 			"boot":      {"order=scsi0;ide2"},
-			"net0":      {"virtio,bridge=" + req.Bridge + ",firewall=1"},
+			"net0":      {"virtio,bridge=" + req.Bridge + vlanOpt(req.VLAN) + ",firewall=1"},
 			"agent":     {"enabled=1"},
 			"vga":       {"std"},
 			"tags":      {"servermgr;windows;win-" + profile + ";" + ed.ID},

@@ -101,6 +101,7 @@ type pveDeployReq struct {
 	ImageStorage string `json:"image_storage"`
 	DiskStorage  string `json:"disk_storage"`
 	Bridge       string `json:"bridge"`
+	VLAN         int    `json:"vlan"` // 0 = untagged
 	IP           string `json:"ip"`
 	Gateway      string `json:"gateway"`
 	Enroll       bool   `json:"enroll"`
@@ -211,6 +212,9 @@ func (a *API) handlePVEDeploy(w http.ResponseWriter, r *http.Request) {
 	case !slices.Contains(t.Bridges, req.Bridge):
 		bad("pick a network bridge")
 		return
+	case req.VLAN < 0 || req.VLAN > 4094:
+		bad("VLAN: 1-4094, or 0 for untagged")
+		return
 	case tpl == 0 && slices.Contains(t.FileStorages, req.ImageStorage):
 		bad(fmt.Sprintf(`storage %s cannot hold images yet: enable the "Import" content type on it in Proxmox (Datacenter, Storage)`, req.ImageStorage))
 		return
@@ -259,7 +263,7 @@ func (a *API) runDeploy(who Who, s *pveScope, ps []*store.ProxmoxProvision, img 
 			var err error
 			tpl, err = a.makeTemplate(ctx, s.Cl, img, pveTemplateReq{
 				Image: img.ID, Node: req.Node, Name: strings.ReplaceAll(img.ID, ".", "-") + "-template",
-				ImageStorage: req.ImageStorage, DiskStorage: req.DiskStorage, Bridge: req.Bridge, Cores: 2, MemoryMB: 2048,
+				ImageStorage: req.ImageStorage, DiskStorage: req.DiskStorage, Bridge: req.Bridge, VLAN: req.VLAN, Cores: 2, MemoryMB: 2048,
 			}, logf)
 			if err != nil {
 				return fmt.Errorf("building the template: %w", err)
@@ -276,7 +280,7 @@ func (a *API) runDeploy(who Who, s *pveScope, ps []*store.ProxmoxProvision, img 
 		if err == nil {
 			err2 := a.provisionVM(ctx, who, s, q, pveProvisionReq{
 				TemplateVMID: tpl, Node: req.Node, Name: q.Name, Cores: req.Cores, MemoryMB: req.MemoryMB, DiskGB: req.DiskGB,
-				Disk: "scsi0", FullClone: true, Storage: req.DiskStorage, Bridge: req.Bridge, IP: req.IP, Gateway: req.Gateway, Enroll: req.Enroll,
+				Disk: "scsi0", FullClone: true, Storage: req.DiskStorage, Bridge: req.Bridge, VLAN: req.VLAN, IP: req.IP, Gateway: req.Gateway, Enroll: req.Enroll,
 				pveCIOpts: req.pveCIOpts,
 			}, func() {}, ql)
 			a.finishProvision(q, err2, ql)

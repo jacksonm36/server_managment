@@ -131,6 +131,7 @@ type pveTemplateReq struct {
 	ImageStorage string `json:"image_storage"`
 	DiskStorage  string `json:"disk_storage"`
 	Bridge       string `json:"bridge"`
+	VLAN         int    `json:"vlan"` // 0 = untagged
 	Cores        int    `json:"cores"`
 	MemoryMB     int    `json:"memory_mb"`
 	DiskGB       int    `json:"disk_gb"` // 0 keeps the image's size
@@ -183,6 +184,9 @@ func (a *API) handlePVETemplateCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	case !slices.Contains(t.Bridges, req.Bridge):
 		bad("pick a network bridge")
+		return
+	case req.VLAN < 0 || req.VLAN > 4094:
+		bad("VLAN: 1-4094, or 0 for untagged")
 		return
 	}
 	who := whoFrom(r)
@@ -286,7 +290,7 @@ func (a *API) makeTemplate(ctx context.Context, cl *proxmox.Client, img *proxmox
 			"serial0":     {"socket"},
 			"vga":         {"serial0"},
 			"agent":       {"enabled=1"},
-			"net0":        {"virtio,bridge=" + req.Bridge + ",firewall=1"},
+			"net0":        {"virtio,bridge=" + req.Bridge + vlanOpt(req.VLAN) + ",firewall=1"},
 			"ciuser":      {img.User},
 			"ipconfig0":   {"ip=dhcp"},
 			"tags":        {"servermgr;" + img.ID},

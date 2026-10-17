@@ -269,12 +269,13 @@ export type TenantCluster = {
   pool: string;
   storages: string[];
   bridges: string[];
+  vlans?: number[];
   templates: number[];
   pve_user: string;
   token_id: string;
   set_up_at: string | null;
 };
-export type TenantClusterBody = { pool: string; storages: string[]; bridges: string[]; templates: number[]; rotate?: boolean };
+export type TenantClusterBody = { pool: string; storages: string[]; bridges: string[]; vlans: number[]; templates: number[]; rotate?: boolean };
 export type TenantOptions = { storages: string[]; bridges: string[]; templates: { vmid: number; name: string; node: string }[]; pools: string[] };
 export type TenantUsage = { guests: number; cores: number; memory_mb: number; disk_gb: number };
 
@@ -360,7 +361,7 @@ export type PVEResource = {
   shared?: number;
 };
 export type PVEGuest = PVEResource & { server_id?: string; server_name?: string; tenant?: string };
-export type PVETenantInfo = { name: string; pool: string; storages: string[]; bridges: string[]; usage: TenantUsage; quota: TenantUsage };
+export type PVETenantInfo = { name: string; pool: string; storages: string[]; bridges: string[]; vlans?: number[]; usage: TenantUsage; quota: TenantUsage };
 // What the panel knows a guest runs: OS and detected software, and how it found them.
 // An ISO from the built-in library, resolved to the vendor's newest file.
 export type PVEISO = {
@@ -447,6 +448,7 @@ export type PVEDeployReq = {
   image_storage: string;
   disk_storage: string;
   bridge: string;
+  vlan?: number;
   ip: string;
   gateway: string;
   enroll: boolean;
@@ -473,6 +475,7 @@ export type PVETemplateReq = {
   image_storage: string;
   disk_storage: string;
   bridge: string;
+  vlan?: number;
   cores: number;
   memory_mb: number;
   disk_gb: number;
@@ -929,6 +932,7 @@ export const api = {
       enroll: boolean;
       storage?: string;
       bridge?: string;
+      vlan?: number;
     } & PVECIOpts,
   ) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/provision`, b),
   pveFlavors: () => request<PVEFlavor[]>("GET", "/api/v1/proxmox-flavors"),
