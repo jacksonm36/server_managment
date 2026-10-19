@@ -187,16 +187,16 @@ export function WindowsBuildDialog({
       </div>
       <p className="text-xs text-muted-foreground">{winTuning}</p>
       {catalog.length > 0 && (
-        <details className="rounded-lg border px-3 py-2" open={apps.length > 0}>
-          <summary className="cursor-pointer text-sm font-medium select-none">
+        <div className="rounded-lg border px-3 py-2">
+          <p className="text-sm font-medium">
             Applications to preinstall {apps.length > 0 && <span className="text-muted-foreground">({apps.length})</span>}
-          </summary>
-          <p className="mt-2 mb-2 text-xs text-muted-foreground">
+          </p>
+          <p className="mt-1 mb-2 text-xs text-muted-foreground">
             Installed during the build from each vendor&apos;s own download, after Windows checks the publisher&apos;s signature. Every VM from the template has
             them.
           </p>
           <AppPicker apps={catalog} picked={apps} onChange={setApps} />
-        </details>
+        </div>
       )}
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Node">
