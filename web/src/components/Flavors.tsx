@@ -4,6 +4,7 @@ import { api, type PVEFlavor } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 
 // Flavors are named VM sizes (vCPUs, memory, disk) offered when creating
 // a VM.
@@ -120,15 +121,15 @@ export function FlavorsDialog({ onClose }: { onClose: () => void }) {
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="fl-cores">vCPUs</Label>
-                <Input id="fl-cores" type="number" min={1} max={128} value={edit.cores} onChange={(e) => setEdit({ ...edit, cores: Number(e.target.value) })} />
+                <NumberInput id="fl-cores" min={1} max={128} value={edit.cores} onValue={(n) => setEdit({ ...edit, cores: n })} />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="fl-mem">Memory (MB)</Label>
-                <Input id="fl-mem" type="number" min={256} step={256} value={edit.memory_mb} onChange={(e) => setEdit({ ...edit, memory_mb: Number(e.target.value) })} />
+                <NumberInput id="fl-mem" min={256} value={edit.memory_mb} onValue={(n) => setEdit({ ...edit, memory_mb: n })} />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="fl-disk">Disk (GB)</Label>
-                <Input id="fl-disk" type="number" min={0} value={edit.disk_gb} onChange={(e) => setEdit({ ...edit, disk_gb: Number(e.target.value) })} />
+                <NumberInput id="fl-disk" min={0} value={edit.disk_gb} onValue={(n) => setEdit({ ...edit, disk_gb: n })} />
               </div>
             </div>
             <div className="grid gap-1.5">

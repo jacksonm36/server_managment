@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { FlavorPicker, useFlavors } from "@/components/Flavors";
 import { CloudInitFields, ciOpts, emptyCI, type CIForm } from "@/components/CloudInitFields";
@@ -871,7 +872,7 @@ export function ProvisionDialog({
               setFlavor(null);
               setF({ ...f, cores: v });
             }} />
-            <Num id="pp-mem" label="Memory (MB)" value={f.memory_mb} min={256} max={1048576} step={256} onChange={(v) => {
+            <Num id="pp-mem" label="Memory (MB)" value={f.memory_mb} min={256} max={1048576} onChange={(v) => {
               setFlavor(null);
               setF({ ...f, memory_mb: v });
             }} />
@@ -965,7 +966,7 @@ function Num(p: { id: string; label: string; value: number; min: number; max: nu
       <Label htmlFor={p.id} className="text-xs">
         {p.label}
       </Label>
-      <Input id={p.id} type="number" value={p.value} min={p.min} max={p.max} step={p.step ?? 1} onChange={(e) => p.onChange(Number(e.target.value))} />
+      <NumberInput id={p.id} value={p.value} min={p.min} max={p.max} step={p.step ?? 1} onValue={(n) => p.onChange(n)} />
     </div>
   );
 }

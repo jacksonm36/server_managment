@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { VLANInput, vlanNum } from "@/components/VLANField";
 import { AppPicker, useWinApps } from "@/components/WindowsManage";
@@ -334,13 +335,13 @@ export function WindowsBuildDialog({
         <div className="mt-3 grid gap-3">
           <div className="grid gap-3 sm:grid-cols-3">
             <Field label="vCPUs">
-              <Input type="number" min={1} max={64} value={f.cores} onChange={(e) => up("cores")(Number(e.target.value))} />
+              <NumberInput min={1} max={64} value={f.cores} onValue={(n) => up("cores")(n)} />
             </Field>
             <Field label="Memory (MB)">
-              <Input type="number" min={2048} step={512} value={f.memory} onChange={(e) => up("memory")(Number(e.target.value))} />
+              <NumberInput min={2048} value={f.memory} onValue={(n) => up("memory")(n)} />
             </Field>
             <Field label="Disk (GB)" hint="Deploys can grow it; Windows extends itself.">
-              <Input type="number" min={32} value={f.disk} onChange={(e) => up("disk")(Number(e.target.value))} />
+              <NumberInput min={32} value={f.disk} onValue={(n) => up("disk")(n)} />
             </Field>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -352,7 +353,7 @@ export function WindowsBuildDialog({
                   : "Evaluation ISOs: 1 Standard Core, 2 Standard (Desktop Experience), 3 Datacenter Core, 4 Datacenter."
               }
             >
-              <Input type="number" min={1} max={32} value={f.index} onChange={(e) => up("index")(Number(e.target.value))} />
+              <NumberInput min={1} max={32} value={f.index} onValue={(n) => up("index")(n)} />
             </Field>
             <Field label="Product key" hint="Leave empty for evaluation ISOs.">
               <Input value={f.key} onChange={(e) => up("key")(e.target.value.toUpperCase())} placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" />

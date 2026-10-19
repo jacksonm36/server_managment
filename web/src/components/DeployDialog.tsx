@@ -5,6 +5,7 @@ import { api, type PVEGuest, type PVEImage, type PVETemplateTargets } from "@/li
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { FlavorPicker, useFlavors } from "@/components/Flavors";
 import { CloudInitFields, ciOpts, emptyCI, type CIForm } from "@/components/CloudInitFields";
@@ -134,15 +135,15 @@ export function DeployDialog({
             <div className="grid grid-cols-3 gap-3">
               <div className="grid gap-1.5">
                 <Label htmlFor="dp-cores">vCPUs</Label>
-                <Input id="dp-cores" type="number" min={1} max={128} value={f.cores} onChange={(e) => setF({ ...f, cores: Number(e.target.value) })} />
+                <NumberInput id="dp-cores" min={1} max={128} value={f.cores} onValue={(n) => setF({ ...f, cores: n })} />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="dp-mem">Memory (MB)</Label>
-                <Input id="dp-mem" type="number" min={256} step={256} value={f.memory_mb} onChange={(e) => setF({ ...f, memory_mb: Number(e.target.value) })} />
+                <NumberInput id="dp-mem" min={256} value={f.memory_mb} onValue={(n) => setF({ ...f, memory_mb: n })} />
               </div>
               <div className="grid gap-1.5">
                 <Label htmlFor="dp-disk">Disk (GB)</Label>
-                <Input id="dp-disk" type="number" min={0} value={f.disk_gb} onChange={(e) => setF({ ...f, disk_gb: Number(e.target.value) })} />
+                <NumberInput id="dp-disk" min={0} value={f.disk_gb} onValue={(n) => setF({ ...f, disk_gb: n })} />
               </div>
             </div>
           )}
@@ -230,7 +231,7 @@ export function DeployDialog({
           </details>
           <div className="grid gap-1.5 sm:w-48">
             <Label htmlFor="dp-count">How many</Label>
-            <Input id="dp-count" type="number" min={1} max={10} value={count} onChange={(e) => setCount(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} />
+            <NumberInput id="dp-count" min={1} max={10} value={count} onValue={(n) => setCount(Math.max(1, Math.min(10, n || 1)))} />
             {count > 1 && <span className="text-xs text-muted-foreground">Named {f.name || "name"}-1 to -{count}; needs DHCP.</span>}
           </div>
           <label className="flex items-start gap-2 text-sm">

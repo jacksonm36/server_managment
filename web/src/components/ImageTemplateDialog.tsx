@@ -4,6 +4,7 @@ import { api, type PVEImage, type PVETemplateTargets } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 
 // ImageTemplateDialog turns an official cloud image into a VM template:
@@ -145,15 +146,15 @@ export function ImageTemplateDialog({ cluster, onClose, onStarted }: { cluster: 
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="it-cores">vCPU</Label>
-              <Input id="it-cores" type="number" min={1} max={128} value={form.cores} onChange={(e) => set("cores", Number(e.target.value))} />
+              <NumberInput id="it-cores" min={1} max={128} value={form.cores} onValue={(n) => set("cores", n)} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="it-mem">Memory (MB)</Label>
-              <Input id="it-mem" type="number" min={256} step={256} value={form.memory_mb} onChange={(e) => set("memory_mb", Number(e.target.value))} />
+              <NumberInput id="it-mem" min={256} value={form.memory_mb} onValue={(n) => set("memory_mb", n)} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="it-disk">Disk (GB)</Label>
-              <Input id="it-disk" type="number" min={0} value={form.disk_gb} onChange={(e) => set("disk_gb", Number(e.target.value))} />
+              <NumberInput id="it-disk" min={0} value={form.disk_gb} onValue={(n) => set("disk_gb", n)} />
             </div>
           </div>
           {t && t.image_storages.length === 0 && (

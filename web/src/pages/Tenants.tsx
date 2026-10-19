@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -258,7 +259,7 @@ function NumField({ label, value, onChange }: { label: string; value: number; on
   return (
     <label className="grid gap-1 text-xs text-muted-foreground">
       {label}
-      <Input type="number" min={0} value={value} onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))} />
+      <NumberInput min={0} value={value} onValue={(n) => onChange(Math.max(0, n || 0))} />
     </label>
   );
 }
