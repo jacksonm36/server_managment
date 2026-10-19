@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { AppWindow, ArrowLeft, Camera, Copy, ExternalLink, LayoutTemplate, Loader2, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square, Trash2 } from "lucide-react";
+import { AppWindow, ArrowLeft, Camera, Copy, ExternalLink, KeyRound, LayoutTemplate, Loader2, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square, Trash2 } from "lucide-react";
 import { api, type PVEGuestDetail, type PVEGuestRef, type PVERRDPoint, type PVETask, type PVETimeframe } from "@/lib/api";
 import { useAccess } from "@/lib/access";
 import { setPending, usePending } from "@/lib/pending";
@@ -18,7 +18,7 @@ import { DeleteDialog, SnapshotsDialog } from "@/pages/Proxmox";
 import { BackupsTab, CloudInitTab, FirewallTab } from "@/pages/ProxmoxGuestTabs";
 import { GuestMoveDialog, HardwareTab } from "@/pages/ProxmoxGuestHardware";
 import { ConfigTab } from "@/pages/ProxmoxGuestConfig";
-import { WindowsTemplateDialog } from "@/components/WindowsTemplates";
+import { WindowsAdminDialog, WindowsTemplateDialog } from "@/components/WindowsTemplates";
 
 type Tab = "overview" | "hardware" | "config" | "backups" | "cloudinit" | "firewall" | "tasks";
 
@@ -82,6 +82,7 @@ export function ProxmoxGuest({
   const [tab, setTab] = useState<Tab>("overview");
   const [move, setMove] = useState<"clone" | "migrate" | null>(null);
   const [winTpl, setWinTpl] = useState(false);
+  const [winAdmin, setWinAdmin] = useState(false);
 
   const load = useCallback(
     () =>
@@ -310,6 +311,11 @@ export function ProxmoxGuest({
             {ac.can("proxmox.manage") && g.type === "qemu" && String(g.config.ostype ?? "").startsWith("w") && !g.config.template && (
               <Button size="sm" variant="ghost" onClick={() => setWinTpl(true)}>
                 <AppWindow /> Windows template
+              </Button>
+            )}
+            {ac.can("proxmox.guests") && g.type === "qemu" && String(g.config.ostype ?? "").startsWith("w") && !g.config.template && st.status === "running" && (
+              <Button size="sm" variant="ghost" onClick={() => setWinAdmin(true)}>
+                <KeyRound /> Reset Administrator
               </Button>
             )}
             {ac.can("proxmox.guests") && st.status === "stopped" && (
@@ -573,6 +579,16 @@ export function ProxmoxGuest({
             setMsg({ ok: true, text: "Made a Windows cloud-init template; deploy it from the Deploy page." });
             void load();
           }}
+        />
+      )}
+      {winAdmin && (
+        <WindowsAdminDialog
+          cluster={cluster}
+          node={node}
+          vmid={g.vmid}
+          name={name}
+          onClose={() => setWinAdmin(false)}
+          onDone={() => setMsg({ ok: true, text: "Administrator is enabled, unlocked and has the new password." })}
         />
       )}
       {snaps && <SnapshotsDialog cluster={{ id: cluster, name: "" }} guest={{ ...ref, name }} ac={ac} onClose={() => setSnaps(false)} />}

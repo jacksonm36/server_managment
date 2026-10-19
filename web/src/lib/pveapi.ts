@@ -78,6 +78,8 @@ export const pve = {
   // language straight from Microsoft.
   windowsISO: (id: string, node: string, body: { edition: string; locale: string; storage: string }) =>
     request<{ volid: string; file: string; index: number; upid?: string }>("POST", `/api/v1/proxmox/${id}/nodes/${enc(node)}/windows-iso`, body),
+  windowsAdmin: (id: string, node: string, vmid: number, password: string) =>
+    request<void>("POST", `/api/v1/proxmox/${id}/guests/${enc(node)}/qemu/${vmid}/windows-admin`, { password }),
   windowsBuild: (id: string, req: WinBuildReq) => request<{ id: string; name: string }[]>("POST", `/api/v1/proxmox/${id}/windows-templates`, req),
   windowsPrep: (id: string, node: string, vmid: number, storage: string) =>
     request<{ volid: string; slot: string; pending: boolean }>("POST", `/api/v1/proxmox/${id}/guests/${enc(node)}/qemu/${vmid}/windows-prep`, { storage }),

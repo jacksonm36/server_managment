@@ -851,3 +851,93 @@ func (a *API) handlePVEWindowsTemplate(w http.ResponseWriter, r *http.Request) {
 }
 
 var errWinEnroll = errors.New("the servermgr agent runs on Linux; deploy Windows without enrolling")
+
+// winUnlockAdmin enables the built-in Administrator (Sysprep disables it
+// on Windows 10/11) and clears a lockout. It runs through the guest agent
+// as SYSTEM and takes no input.
+var winUnlockAdmin = []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+	`$a = Get-LocalUser | Where-Object { $_.SID -like '*-500' }; Enable-LocalUser -SID $a.SID; ` +
+		`$u = [ADSI]('WinNT://./' + $a.Name + ',user'); $u.IsAccountLocked = $false; $u.SetInfo()`}
+
+// POST /api/v1/proxmox/{id}/guests/{node}/qemu/{vmid}/windows-admin resets
+// a Windows VM's Administrator through the QEMU guest agent: enables the
+// account, clears a lockout and sets a new password. The password goes
+// through Proxmox's set-user-password, never onto a command line.
+func (a *API) handlePVEWindowsAdmin(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Password string `json:"password"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if msg := winPasswordProblem(req.Password); msg != "" {
+		writeErr(w, http.StatusBadRequest, msg)
+		return
+	}
+	s, node, typ, vmid, ok := a.pveGuest(w, r)
+	if !ok {
+		return
+	}
+	if typ != "qemu" {
+		writeErr(w, http.StatusBadRequest, "only Windows VMs have an Administrator")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	cfg, err := guestConfig(ctx, s, node, typ, vmid)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if !isWindowsConfig(cfg) {
+		writeErr(w, http.StatusBadRequest, "this VM's OS type is not Windows")
+		return
+	}
+	target := fmt.Sprintf("%s/%s/%d", s.C.Name, node, vmid)
+	fail := func(step string, err error) {
+		a.audit(r, "", "proxmox.windows_admin_reset", target, map[string]string{"error": step + ": " + err.Error()}, false)
+		var ae *proxmox.APIError
+		if errors.As(err, &ae) && strings.Contains(strings.ToLower(ae.Msg), "not running") {
+			err = errors.New("the guest agent is not running; start the VM and wait until Windows has booted")
+		}
+		writeErr(w, http.StatusBadGateway, step+": "+err.Error())
+	}
+	gp := proxmox.GuestPath(node, typ, vmid)
+	var ex struct {
+		PID int `json:"pid"`
+	}
+	if err := s.Cl.Do(ctx, http.MethodPost, gp+"/agent/exec", url.Values{"command": winUnlockAdmin}, &ex); err != nil {
+		fail("unlocking Administrator", err)
+		return
+	}
+	for {
+		var st struct {
+			Exited   int    `json:"exited"`
+			ExitCode int    `json:"exitcode"`
+			ErrData  string `json:"err-data"`
+		}
+		if err := s.Cl.Do(ctx, http.MethodGet, gp+"/agent/exec-status", url.Values{"pid": {strconv.Itoa(ex.PID)}}, &st); err != nil {
+			fail("unlocking Administrator", err)
+			return
+		}
+		if st.Exited == 1 {
+			if st.ExitCode != 0 {
+				fail("unlocking Administrator", fmt.Errorf("exit code %d: %s", st.ExitCode, cleanText(st.ErrData, 200)))
+				return
+			}
+			break
+		}
+		select {
+		case <-ctx.Done():
+			fail("unlocking Administrator", ctx.Err())
+			return
+		case <-time.After(time.Second):
+		}
+	}
+	if err := s.Cl.Do(ctx, http.MethodPost, gp+"/agent/set-user-password", url.Values{"username": {"Administrator"}, "password": {req.Password}}, nil); err != nil {
+		fail("setting the password", err)
+		return
+	}
+	a.audit(r, "", "proxmox.windows_admin_reset", target, nil, true)
+	w.WriteHeader(http.StatusNoContent)
+}

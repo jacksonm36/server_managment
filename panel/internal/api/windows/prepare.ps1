@@ -349,6 +349,23 @@ $unattend = "[DEFAULT]`r`n$common`r`nlog_file=cloudbase-init-unattend.log`r`nall
 Set-Content -Path "$CloudbaseDir\conf\cloudbase-init.conf" -Value $conf -Encoding ASCII
 Set-Content -Path "$CloudbaseDir\conf\cloudbase-init-unattend.conf" -Value $unattend -Encoding ASCII
 New-Item -ItemType Directory -Path "$CloudbaseDir\LocalScripts" -Force | Out-Null
+# Sysprep disables the built-in Administrator on Windows 10/11, and
+# Cloudbase-Init sets its password without enabling it. This runs once on
+# a deployed VM's first boot, after the password plugin.
+Set-Content -Path "$CloudbaseDir\LocalScripts\servermgr-enable-admin.ps1" -Encoding ASCII -Value @'
+Get-LocalUser | Where-Object { $_.SID -like '*-500' } | Enable-LocalUser
+'@
+
+# Administrator is a deployed VM's only account: a lockout after wrong
+# passwords would shut its owner out, so it is exempt (Windows 11 locks
+# it by default). Other accounts keep the lockout policy.
+Try-Step 'Administrator lockout exemption' {
+    $inf = Join-Path $env:TEMP 'servermgr-lockout.inf'
+    $sdb = Join-Path $env:TEMP 'servermgr-lockout.sdb'
+    Set-Content -Path $inf -Encoding Unicode -Value "[Unicode]`r`nUnicode=yes`r`n[System Access]`r`nAllowAdministratorLockout = 0`r`n[Version]`r`nsignature=`"`$CHICAGO`$`"`r`nRevision=1"
+    secedit /configure /db $sdb /cfg $inf /areas SECURITYPOLICY /quiet | Out-Null
+    Remove-Item $inf, $sdb -Force -ErrorAction SilentlyContinue
+}
 
 # ---- Updates after deployment ----
 Remove-ItemProperty -Path $wu -Name 'NoAutoUpdate' -ErrorAction SilentlyContinue

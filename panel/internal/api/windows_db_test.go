@@ -146,6 +146,23 @@ func TestWindowsTemplates(t *testing.T) {
 	}
 	pve.mu.Unlock()
 
+	// Resetting Administrator on a deployed Windows VM, through the agent.
+	pve.addGuest(302, &fakeGuest{typ: "qemu", node: "pve1", name: "win-vm", config: map[string]string{"ostype": "win10"}})
+	g302 := "/api/v1/proxmox/" + cid + "/guests/pve1/qemu/302/windows-admin"
+	expect("reset: weak password", first(call(root, "POST", g302, map[string]any{"password": "short"})), 400)
+	expect("reset: Linux VM", first(call(root, "POST", "/api/v1/proxmox/"+cid+"/guests/pve1/qemu/301/windows-admin", map[string]any{"password": "Str0ng-Passw0rd!"})), 400)
+	expect("reset: stopped VM", first(call(root, "POST", g302, map[string]any{"password": "Str0ng-Passw0rd!"})), 502)
+	pve.mu.Lock()
+	pve.guests[302].status = "running"
+	pve.mu.Unlock()
+	expect("reset", first(call(root, "POST", g302, map[string]any{"password": "Str0ng-Passw0rd!"})), 204)
+	pve.mu.Lock()
+	c = pve.guests[302].config
+	if !strings.Contains(c["_exec"], "Enable-LocalUser") || strings.Contains(c["_exec"], "Str0ng") || c["_password"] != "Administrator:Str0ng-Passw0rd!" {
+		t.Errorf("reset: exec %q, password %q", c["_exec"], c["_password"])
+	}
+	pve.mu.Unlock()
+
 	code, _, _ = call(root, "GET", "/api/v1/windows/prepare.ps1", nil)
 	expect("script", code, 200)
 }

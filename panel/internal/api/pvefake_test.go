@@ -572,6 +572,22 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 			g.status = "stopped"
 		}
 		f.reply(w, 200, map[string]any{"content": "\ufeff" + log}, "")
+	case strings.HasPrefix(sub, "agent/") && (sub == "agent/exec" || sub == "agent/exec-status" || sub == "agent/set-user-password"):
+		// A guest agent that runs anything: tests read _exec and _password.
+		if g.status != "running" {
+			f.reply(w, 500, nil, "QEMU guest agent is not running")
+			return
+		}
+		switch sub {
+		case "agent/exec":
+			g.config["_exec"] = strings.Join(r.Form["command"], "\x00")
+			f.reply(w, 200, map[string]int{"pid": 42}, "")
+		case "agent/exec-status":
+			f.reply(w, 200, map[string]int{"exited": 1, "exitcode": 0}, "")
+		default:
+			g.config["_password"] = r.Form.Get("username") + ":" + r.Form.Get("password")
+			f.reply(w, 200, nil, "")
+		}
 	case sub == "status/current" && r.Method == "GET":
 		f.reply(w, 200, map[string]any{"status": g.status, "vmid": vmid, "name": g.name, "cpus": g.cores, "maxmem": g.memMB << 20}, "")
 	case sub == "rrddata" && r.Method == "GET":

@@ -507,3 +507,44 @@ export function WindowsTemplateDialog({
     </Dialog>
   );
 }
+
+// WindowsAdminDialog resets a running Windows VM's Administrator through
+// the guest agent: enables it, clears a lockout and sets a new password.
+export function WindowsAdminDialog({
+  cluster,
+  node,
+  vmid,
+  name,
+  onClose,
+  onDone,
+}: {
+  cluster: string;
+  node: string;
+  vmid: number;
+  name: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [pw, setPw] = useState("");
+  const [again, setAgain] = useState("");
+  return (
+    <FormDialog
+      title={`Reset Administrator on ${name}`}
+      description="Enables the built-in Administrator, clears a lockout and sets this password, through the QEMU guest agent. The VM must be running with Windows booted."
+      submit="Reset Administrator"
+      onClose={onClose}
+      onSubmit={async () => {
+        if (pw !== again) throw new Error("The two passwords differ.");
+        await pve.windowsAdmin(cluster, node, vmid, pw);
+        onDone();
+      }}
+    >
+      <Field label="New password" hint="At least 12 characters, with three of: lower case, upper case, digits, symbols.">
+        <Input type="password" autoComplete="new-password" minLength={12} value={pw} onChange={(e) => setPw(e.target.value)} required />
+      </Field>
+      <Field label="Again">
+        <Input type="password" autoComplete="new-password" value={again} onChange={(e) => setAgain(e.target.value)} required />
+      </Field>
+    </FormDialog>
+  );
+}
