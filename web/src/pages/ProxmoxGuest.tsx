@@ -19,8 +19,9 @@ import { BackupsTab, CloudInitTab, FirewallTab } from "@/pages/ProxmoxGuestTabs"
 import { GuestMoveDialog, HardwareTab } from "@/pages/ProxmoxGuestHardware";
 import { ConfigTab } from "@/pages/ProxmoxGuestConfig";
 import { WindowsAdminDialog, WindowsTemplateDialog } from "@/components/WindowsTemplates";
+import { WindowsTab } from "@/components/WindowsManage";
 
-type Tab = "overview" | "hardware" | "config" | "backups" | "cloudinit" | "firewall" | "tasks";
+type Tab = "overview" | "hardware" | "config" | "windows" | "backups" | "cloudinit" | "firewall" | "tasks";
 
 const timeframes: { tf: PVETimeframe; label: string }[] = [
   { tf: "hour", label: "Hour" },
@@ -193,6 +194,7 @@ export function ProxmoxGuest({
     { id: "overview", label: "Overview" },
     { id: "hardware", label: "Hardware" },
     { id: "config", label: "Configuration" },
+    ...(g.type === "qemu" && String(g.config.ostype ?? "").startsWith("w") && ac.can("proxmox.guests") ? [{ id: "windows" as const, label: "Windows" }] : []),
     { id: "backups", label: "Backups" },
     ...(g.type === "qemu" ? [{ id: "cloudinit" as const, label: "Cloud-init" }] : []),
     { id: "firewall", label: "Firewall" },
@@ -521,6 +523,7 @@ export function ProxmoxGuest({
           }}
         />
       )}
+      {tab === "windows" && <WindowsTab cluster={cluster} guest={ref} running={running} />}
       {tab === "tasks" && (
         <>
           <Card>

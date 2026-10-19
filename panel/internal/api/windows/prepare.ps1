@@ -377,6 +377,15 @@ if ($Profile -eq 'Hardened') {
     Set-Reg $wu 'NoAutoRebootWithLoggedOnUsers' 1
 }
 
+# ---- Applications picked for the template ----
+# A build CD carries servermgr-apps.ps1 and the list next to this script.
+$appsList = Join-Path $PSScriptRoot 'servermgr-apps.json'
+$appsScript = Join-Path $PSScriptRoot 'servermgr-apps.ps1'
+if ($PSScriptRoot -and (Test-Path $appsList) -and (Test-Path $appsScript)) {
+    Log 'installing the applications picked for this template'
+    Try-Step 'applications' { & $appsScript -Json $appsList -LogFile $LogFile }
+}
+
 # ---- Clean-up so the template is small and Sysprep succeeds ----
 Log 'removing per-user Store app updates that would stop Sysprep'
 Try-Step 'Store apps' {

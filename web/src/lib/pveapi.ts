@@ -1,4 +1,4 @@
-import { ApiError, request } from "@/lib/api";
+import { ApiError, request, type PVEGuestRef } from "@/lib/api";
 
 // Proxmox management beyond the guest list: guest hardware and lifecycle,
 // nodes, storage and datacenter settings. Parameters go to Proxmox as they
@@ -56,13 +56,27 @@ export type WinBuildReq = {
   timezone: string;
   profiles: WinProfile[];
   name_prefix: string;
+  apps?: string[]; // installed during the build
 };
+export type WinUser = {
+  name: string;
+  full_name: string;
+  enabled: boolean;
+  admin: boolean;
+  locked: boolean;
+  builtin: boolean;
+  last_logon?: string;
+  password_set?: string;
+  password_never_expires: boolean;
+};
+export type WinAppInfo = { id: string; name: string; vendor: string; note?: string };
 export type Params = Record<string, string | number | boolean>;
 export type Row = Record<string, unknown>;
 
 const np = (id: string, node: string) => `/api/v1/proxmox/${id}/nodes/${encodeURIComponent(node)}`;
 const dp = (id: string, coll: string) => `/api/v1/proxmox/${id}/dc/${coll}`;
 const enc = encodeURIComponent;
+const gpw = (id: string, g: PVEGuestRef) => `/api/v1/proxmox/${id}/guests/${enc(g.node)}/${g.type}/${g.vmid}/windows`;
 
 export const pve = {
   // creating guests
@@ -80,6 +94,16 @@ export const pve = {
     request<{ volid: string; file: string; index: number; upid?: string }>("POST", `/api/v1/proxmox/${id}/nodes/${enc(node)}/windows-iso`, body),
   windowsAdmin: (id: string, node: string, vmid: number, password: string) =>
     request<void>("POST", `/api/v1/proxmox/${id}/guests/${enc(node)}/qemu/${vmid}/windows-admin`, { password }),
+  winApps: () => request<WinAppInfo[]>("GET", "/api/v1/windows/apps"),
+  winUsers: (id: string, g: PVEGuestRef) => request<WinUser[]>("GET", `${gpw(id, g)}/users`),
+  winUserCreate: (id: string, g: PVEGuestRef, b: { name: string; full_name: string; admin: boolean; password: string }) =>
+    request<void>("POST", `${gpw(id, g)}/users`, b),
+  winUserUpdate: (id: string, g: PVEGuestRef, name: string, b: { enabled?: boolean; admin?: boolean; full_name?: string; unlock?: boolean; password?: string }) =>
+    request<void>("PUT", `${gpw(id, g)}/users/${enc(name)}`, b),
+  winUserDelete: (id: string, g: PVEGuestRef, name: string) => request<void>("DELETE", `${gpw(id, g)}/users/${enc(name)}`),
+  winAppsInstall: (id: string, g: PVEGuestRef, apps: string[]) => request<{ pid: number }>("POST", `${gpw(id, g)}/apps`, { apps }),
+  winAppsStatus: (id: string, g: PVEGuestRef, pid: number) =>
+    request<{ done: boolean; exit_code: number; log: string[] }>("GET", `${gpw(id, g)}/apps/status?pid=${pid}`),
   windowsBuild: (id: string, req: WinBuildReq) => request<{ id: string; name: string }[]>("POST", `/api/v1/proxmox/${id}/windows-templates`, req),
   windowsPrep: (id: string, node: string, vmid: number, storage: string) =>
     request<{ volid: string; slot: string; pending: boolean }>("POST", `/api/v1/proxmox/${id}/guests/${enc(node)}/qemu/${vmid}/windows-prep`, { storage }),

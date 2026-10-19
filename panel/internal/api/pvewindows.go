@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"embed"
+	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
@@ -43,7 +44,7 @@ import (
 // Deploying from a Windows template sets the Administrator password,
 // hostname and network through cloud-init; see provisionVM.
 
-//go:embed windows/prepare.ps1 windows/autounattend.xml
+//go:embed windows/prepare.ps1 windows/autounattend.xml windows/apps.ps1
 var windowsFiles embed.FS
 
 var winUnattend = template.Must(template.New("autounattend.xml").Funcs(template.FuncMap{"inc": func(i int) int { return i + 1 }}).
@@ -185,10 +186,22 @@ func answerISO(ed *winEdition, req pveWinBuildReq, profile, password string) ([]
 	if err := winUnattend.Execute(&x, d); err != nil {
 		return nil, err
 	}
-	return isofs.Build("SMWINBUILD", []isofs.File{
+	files := []isofs.File{
 		{Name: "autounattend.xml", Short: "AUTOUNAT.XML", Data: crlf(x.Bytes())},
 		{Name: "servermgr-prepare.ps1", Short: "SMPREP.PS1", Data: crlf(prepareScript())},
-	}, time.Now())
+	}
+	// Applications to install: the prepare script runs servermgr-apps.ps1
+	// with this list when both are next to it.
+	if len(req.appJobs) > 0 {
+		jb, err := json.Marshal(req.appJobs)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files,
+			isofs.File{Name: "servermgr-apps.ps1", Short: "SMAPPS.PS1", Data: appsScript()},
+			isofs.File{Name: "servermgr-apps.json", Short: "SMAPPS.JSO", Data: jb})
+	}
+	return isofs.Build("SMWINBUILD", files, time.Now())
 }
 
 func prepISO() ([]byte, error) {
@@ -285,8 +298,10 @@ type pveWinBuildReq struct {
 	Keyboard     string   `json:"keyboard"`
 	TimeZone     string   `json:"timezone"`
 	Profiles     []string `json:"profiles"`
-	NamePrefix   string   `json:"name_prefix"`
-	answerTarget string   // storage for the answer CD: the installer ISO's
+	Apps         []string `json:"apps"` // ids from winApps, installed during the build
+	appJobs      []winAppJob
+	NamePrefix   string `json:"name_prefix"`
+	answerTarget string // storage for the answer CD: the installer ISO's
 }
 
 func (r *pveWinBuildReq) check(ed *winEdition) string {
@@ -340,6 +355,11 @@ func (r *pveWinBuildReq) check(ed *winEdition) string {
 		return "language, keyboard or time zone not valid (like en-US, hu-HU, Central Europe Standard Time)"
 	case len(r.Profiles) == 0:
 		return "pick Standard, Hardened or both"
+	}
+	for i, id := range r.Apps {
+		if winAppByID(id) == nil || slices.Contains(r.Apps[:i], id) {
+			return "unknown application " + strconv.Quote(id)
+		}
 	}
 	for i, p := range r.Profiles {
 		if !slices.Contains(winProfiles, p) || slices.Contains(r.Profiles[:i], p) {
@@ -433,6 +453,14 @@ func (a *API) handlePVEWindowsBuild(w http.ResponseWriter, r *http.Request) {
 			bad(v + " is not on " + req.Node)
 			return
 		}
+	}
+	if len(req.Apps) > 0 {
+		jobs, err := resolveWinApps(r.Context(), req.Apps)
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err.Error())
+			return
+		}
+		req.appJobs = jobs
 	}
 	who := whoFrom(r)
 	var runs []*store.ProxmoxProvision

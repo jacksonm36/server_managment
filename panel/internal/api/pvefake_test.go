@@ -564,6 +564,9 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		// A Windows build: the prepare script has run and Sysprep shuts
 		// the VM down once its last line was read.
 		log := g.config["_winlog"]
+		if r.Form.Get("file") == `C:\Windows\servermgr\apps.log` {
+			log = g.config["_applog"]
+		}
 		if g.status != "running" || log == "" {
 			f.reply(w, 500, nil, "QEMU guest agent is not running")
 			return
@@ -583,9 +586,10 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 			g.config["_exec"] = strings.Join(r.Form["command"], "\x00")
 			f.reply(w, 200, map[string]int{"pid": 42}, "")
 		case "agent/exec-status":
-			f.reply(w, 200, map[string]int{"exited": 1, "exitcode": 0}, "")
+			f.reply(w, 200, map[string]any{"exited": 1, "exitcode": 0, "out-data": g.config["_exec_out"]}, "")
 		default:
 			g.config["_password"] = r.Form.Get("username") + ":" + r.Form.Get("password")
+			g.config["_password_of"] = r.Form.Get("username")
 			f.reply(w, 200, nil, "")
 		}
 	case sub == "status/current" && r.Method == "GET":
@@ -678,11 +682,8 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		}
 		f.firewall[vmid] = slices.Delete(f.firewall[vmid], pos, pos+1)
 		f.reply(w, 200, nil, "")
-	case sub == "agent/set-user-password" && r.Method == "POST":
-		if g.config == nil {
-			g.config = map[string]string{}
-		}
-		g.config["_password_of"] = r.Form.Get("username")
+	case sub == "agent/file-write" && r.Method == "POST":
+		g.config["_wrote"] += r.Form.Get("file") + ";"
 		f.reply(w, 200, nil, "")
 	case sub == "template" && r.Method == "POST":
 		g.template = 1

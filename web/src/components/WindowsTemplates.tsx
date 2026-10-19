@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { VLANInput, vlanNum } from "@/components/VLANField";
+import { AppPicker, useWinApps } from "@/components/WindowsManage";
 import { Field, FormDialog, StorageSelect, downloadVirtio, storagesFor, useChoices } from "@/components/PVEForms";
 
 // Windows cloud-init templates. A build installs Windows unattended from
@@ -102,6 +103,8 @@ export function WindowsBuildDialog({
     timezone: "UTC",
   });
   const [profiles, setProfiles] = useState<WinProfile[]>(["standard", "hardened"]);
+  const catalog = useWinApps();
+  const [apps, setApps] = useState<string[]>([]);
   const up = <K extends keyof typeof f>(k: K) => (v: (typeof f)[K]) => setF((x) => ({ ...x, [k]: v }));
   useEffect(() => {
     if (!c) return;
@@ -148,6 +151,7 @@ export function WindowsBuildDialog({
           timezone: f.timezone.trim(),
           profiles,
           name_prefix: f.prefix.trim(),
+          apps,
         });
         onStarted();
       }}
@@ -181,6 +185,18 @@ export function WindowsBuildDialog({
         })}
       </div>
       <p className="text-xs text-muted-foreground">{winTuning}</p>
+      {catalog.length > 0 && (
+        <details className="rounded-lg border px-3 py-2" open={apps.length > 0}>
+          <summary className="cursor-pointer text-sm font-medium select-none">
+            Applications to preinstall {apps.length > 0 && <span className="text-muted-foreground">({apps.length})</span>}
+          </summary>
+          <p className="mt-2 mb-2 text-xs text-muted-foreground">
+            Installed during the build from each vendor&apos;s own download, after Windows checks the publisher&apos;s signature. Every VM from the template has
+            them.
+          </p>
+          <AppPicker apps={catalog} picked={apps} onChange={setApps} />
+        </details>
+      )}
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Node">
           <Select value={node} onChange={(e) => setNode(e.target.value)}>
