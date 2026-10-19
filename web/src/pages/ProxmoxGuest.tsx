@@ -282,7 +282,7 @@ export function ProxmoxGuest({
                 </Button>
               </>
             )}
-            {ac.can("proxmox.guests") && g.type === "qemu" && running && (
+            {ac.can("proxmox.guests") && g.type === "qemu" && running && !String(g.config.ostype ?? "").startsWith("w") && (
               <Button size="sm" variant="secondary" onClick={() => setPwDlg(true)} title="Set a user's password through the QEMU guest agent">
                 <KeyRound /> Set password
               </Button>
