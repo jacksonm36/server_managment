@@ -80,3 +80,14 @@ func TestWindowsISOStaysOnMicrosoft(t *testing.T) {
 		}
 	}
 }
+
+// A DNS filter that blocks Microsoft's check hosts: the steps are skipped
+// and Microsoft's refusal names the hosts to allow.
+func TestWindowsISOBlockedCheckHost(t *testing.T) {
+	fakeMicrosoft(t, true)
+	msTags = "https://127.0.0.1:1/tags"
+	_, err := RetailWindowsISO(context.Background(), "win11", "en-US")
+	if err == nil || !strings.Contains(err.Error(), "cannot reach 127.0.0.1") || !strings.Contains(err.Error(), "allow vlscppe.microsoft.com") {
+		t.Fatalf("got %v", err)
+	}
+}

@@ -194,12 +194,12 @@ export function WindowsBuildDialog({
         </Field>
         <Field label="Network bridge · VLAN" hint="VLAN tag for the build VM and the templates' NIC; empty = untagged.">
           <div className="flex gap-2">
-            <Select value={f.bridge} onChange={(e) => up("bridge")(e.target.value)} required>
+            <Select className="min-w-0 flex-1" value={f.bridge} onChange={(e) => up("bridge")(e.target.value)} required>
               {(c?.bridges ?? []).map((b) => (
                 <option key={b}>{b}</option>
               ))}
             </Select>
-            <div className="w-28 shrink-0">
+            <div className="w-24 shrink-0">
               <VLANInput value={f.vlan} onChange={(v) => up("vlan")(v)} />
             </div>
           </div>

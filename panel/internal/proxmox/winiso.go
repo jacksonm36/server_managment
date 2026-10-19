@@ -116,6 +116,13 @@ var (
 	mdtTicksRe = regexp.MustCompile(`rticks="\+?(\d+)`)
 )
 
+func hostOf(u string) string {
+	if pu, err := url.Parse(u); err == nil {
+		return pu.Hostname()
+	}
+	return u
+}
+
 func newSessionID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:])
@@ -129,11 +136,16 @@ type msErrors []struct {
 	Type  int    `json:"Type"`
 }
 
-func (e msErrors) err() error {
+// err reports Microsoft's errors. unreached are the check hosts this
+// server could not reach, the usual reason Microsoft refuses a session.
+func (e msErrors) err(unreached []string) error {
 	if len(e) == 0 {
 		return nil
 	}
 	if e[0].Type == 9 || strings.Contains(e[0].Value, "Sentinel") {
+		if len(unreached) > 0 {
+			return fmt.Errorf("Microsoft refused the download because this server cannot reach %s. DNS filters (Pi-hole, AdGuard, router blocklists) often block these as tracking: allow vlscppe.microsoft.com, ov-df.microsoft.com, h-microsoft.online-metrix.net and fpt.dfp.microsoft.com, or pick the Enterprise evaluation", strings.Join(unreached, " and "))
+		}
 		return errors.New("Microsoft refused the download from this network (error 715-123130); try the evaluation ISO or again later")
 	}
 	return fmt.Errorf("Microsoft: %s", e[0].Value)
@@ -159,21 +171,20 @@ func retailISO(ctx context.Context, edition, locale string) (string, error) {
 	}
 	sid := newSessionID()
 	// Microsoft only serves sessions that went through its page scripts.
+	// DNS filters often block their hosts; the steps are tried anyway, and
+	// if Microsoft then refuses, the error names the hosts to allow.
+	var unreached []string
 	if _, _, err := msGet(ctx, msTags+"?org_id="+msOrgID+"&session_id="+sid, nil, 1<<20); err != nil {
-		return "", err
+		unreached = append(unreached, hostOf(msTags))
 	}
-	_, js, err := msGet(ctx, msOVDF+"mdt.js?instanceId="+msInstance+"&PageId=si&session_id="+sid, nil, 1<<20)
-	if err != nil {
-		return "", err
-	}
-	w, ticks := mdtWRe.FindSubmatch(js), mdtTicksRe.FindSubmatch(js)
-	if w == nil || ticks == nil {
-		return "", errors.New("Microsoft's download check changed; try the evaluation ISO")
-	}
-	q := url.Values{"session_id": {sid}, "CustomerId": {msInstance}, "PageId": {"si"}, "w": {string(w[1])},
-		"mdt": {strconv.FormatInt(time.Now().UnixMilli(), 10)}, "rticks": {string(ticks[1])}}
-	if _, _, err := msGet(ctx, msOVDF+"?"+q.Encode(), nil, 1<<20); err != nil {
-		return "", err
+	if _, js, err := msGet(ctx, msOVDF+"mdt.js?instanceId="+msInstance+"&PageId=si&session_id="+sid, nil, 1<<20); err != nil {
+		unreached = append(unreached, hostOf(msOVDF))
+	} else if w, ticks := mdtWRe.FindSubmatch(js), mdtTicksRe.FindSubmatch(js); w != nil && ticks != nil {
+		q := url.Values{"session_id": {sid}, "CustomerId": {msInstance}, "PageId": {"si"}, "w": {string(w[1])},
+			"mdt": {strconv.FormatInt(time.Now().UnixMilli(), 10)}, "rticks": {string(ticks[1])}}
+		if _, _, err := msGet(ctx, msOVDF+"?"+q.Encode(), nil, 1<<20); err != nil {
+			unreached = append(unreached, hostOf(msOVDF))
+		}
 	}
 	api := msWWW + "/software-download-connector/api/"
 	var skus struct {
@@ -183,11 +194,11 @@ func retailISO(ctx context.Context, edition, locale string) (string, error) {
 			Language string `json:"Language"`
 		} `json:"Skus"`
 	}
-	q = url.Values{"profile": {msProfile}, "productEditionId": {m[1]}, "SKU": {"undefined"}, "friendlyFileName": {"undefined"}, "Locale": {"en-US"}, "sessionID": {sid}}
+	q := url.Values{"profile": {msProfile}, "productEditionId": {m[1]}, "SKU": {"undefined"}, "friendlyFileName": {"undefined"}, "Locale": {"en-US"}, "sessionID": {sid}}
 	if err := msJSON(ctx, api+"getskuinformationbyproductedition?"+q.Encode(), nil, &skus); err != nil {
 		return "", err
 	}
-	if err := skus.Errors.err(); err != nil {
+	if err := skus.Errors.err(unreached); err != nil {
 		return "", err
 	}
 	sku := ""
@@ -212,7 +223,7 @@ func retailISO(ctx context.Context, edition, locale string) (string, error) {
 	if err := msJSON(ctx, api+"GetProductDownloadLinksBySku?"+q.Encode(), map[string]string{"Referer": msWWW + rp.page}, &links); err != nil {
 		return "", err
 	}
-	if err := links.Errors.err(); err != nil {
+	if err := links.Errors.err(unreached); err != nil {
 		return "", err
 	}
 	for _, o := range links.Options {
