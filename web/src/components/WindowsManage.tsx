@@ -259,31 +259,41 @@ export function useWinApps() {
   return apps;
 }
 
-// AppPicker is a checklist of the catalog.
+// AppPicker is a checklist of the catalog, by group.
 export function AppPicker({ apps, picked, onChange }: { apps: WinAppInfo[]; picked: string[]; onChange: (ids: string[]) => void }) {
+  const groups = [...new Set(apps.map((a) => a.group || "Other"))];
   return (
-    <div className="grid gap-1.5 sm:grid-cols-2">
-      {apps.map((a) => {
-        const on = picked.includes(a.id);
-        return (
-          <button
-            key={a.id}
-            type="button"
-            onClick={() => onChange(on ? picked.filter((x) => x !== a.id) : [...picked, a.id])}
-            className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-left text-sm ${on ? "border-brand bg-brand/5" : "hover:bg-accent/40"}`}
-            title={a.note}
-          >
-            <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${on ? "border-brand bg-brand text-white" : ""}`}>
-              {on && <CheckIcon className="size-3" />}
-            </span>
-            <span className="grid">
-              <span className="font-medium">{a.name}</span>
-              <span className="text-xs text-muted-foreground">{a.vendor}</span>
-              {a.note && on && <span className="text-xs text-warning">{a.note}</span>}
-            </span>
-          </button>
-        );
-      })}
+    <div className="grid gap-3">
+      {groups.map((g) => (
+        <div key={g} className="grid gap-1.5">
+          <div className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{g}</div>
+          <div className="grid gap-1.5 sm:grid-cols-2 2xl:grid-cols-3">
+            {apps
+              .filter((a) => (a.group || "Other") === g)
+              .map((a) => {
+                const on = picked.includes(a.id);
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => onChange(on ? picked.filter((x) => x !== a.id) : [...picked, a.id])}
+                    className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-left text-sm ${on ? "border-brand bg-brand/5" : "hover:bg-accent/40"}`}
+                    title={a.note}
+                  >
+                    <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${on ? "border-brand bg-brand text-white" : ""}`}>
+                      {on && <CheckIcon className="size-3" />}
+                    </span>
+                    <span className="grid">
+                      <span className="font-medium">{a.name}</span>
+                      <span className="text-xs text-muted-foreground">{a.vendor}</span>
+                      {a.note && on && <span className="text-xs text-warning">{a.note}</span>}
+                    </span>
+                  </button>
+                );
+              })}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

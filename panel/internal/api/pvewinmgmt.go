@@ -339,6 +339,7 @@ type winApp struct {
 	ID     string   `json:"id"`
 	Name   string   `json:"name"`
 	Vendor string   `json:"vendor"`
+	Group  string   `json:"group"` // for the picker: Browsers, Development, …
 	Note   string   `json:"note,omitempty"`
 	Kind   string   `json:"-"` // msi | exe
 	Args   []string `json:"-"`
@@ -353,27 +354,63 @@ type winApp struct {
 }
 
 var winApps = []winApp{
-	{ID: "firefox", Name: "Firefox", Vendor: "Mozilla", Kind: "msi", Signer: `CN="?Mozilla Corporation`,
+	// Browsers and mail
+	{ID: "firefox", Name: "Firefox", Vendor: "Mozilla", Group: "Browsers and mail", Kind: "msi", Signer: `CN="?Mozilla Corporation`,
 		URL: "https://download.mozilla.org/?product=firefox-msi-latest-ssl&os=win64&lang=en-US"},
-	{ID: "chrome", Name: "Google Chrome", Vendor: "Google", Kind: "msi", Signer: `CN="?Google LLC`,
+	{ID: "chrome", Name: "Google Chrome", Vendor: "Google", Group: "Browsers and mail", Kind: "msi", Signer: `CN="?Google LLC`,
 		URL: "https://dl.google.com/dl/chrome/install/googlechromestandaloneenterprise64.msi"},
-	{ID: "brave", Name: "Brave", Vendor: "Brave Software", Kind: "exe", Signer: `CN="?Brave Software`,
+	{ID: "brave", Name: "Brave", Vendor: "Brave Software", Group: "Browsers and mail", Kind: "exe", Signer: `CN="?Brave Software`,
 		URL: "https://github.com/brave/brave-browser/releases/latest/download/BraveBrowserStandaloneSilentSetup.exe"},
-	{ID: "vscode", Name: "Visual Studio Code", Vendor: "Microsoft", Kind: "exe", Signer: `CN="?Microsoft Corporation`,
+	{ID: "thunderbird", Name: "Thunderbird", Vendor: "Mozilla", Group: "Browsers and mail", Kind: "msi", Signer: `CN="?Mozilla Corporation`,
+		URL: "https://download.mozilla.org/?product=thunderbird-msi-latest-ssl&os=win64&lang=en-US"},
+
+	// Development
+	{ID: "vscode", Name: "Visual Studio Code", Vendor: "Microsoft", Group: "Development", Kind: "exe", Signer: `CN="?Microsoft Corporation`,
 		Args: []string{"/VERYSILENT", "/NORESTART", "/MERGETASKS=!runcode"}, URL: "https://update.code.visualstudio.com/latest/win32-x64/stable"},
-	{ID: "powershell", Name: "PowerShell 7", Vendor: "Microsoft", Kind: "msi", Signer: `CN="?Microsoft Corporation`,
+	{ID: "powershell", Name: "PowerShell 7", Vendor: "Microsoft", Group: "Development", Kind: "msi", Signer: `CN="?Microsoft Corporation`,
 		Args: []string{"ADD_PATH=1"}, Repo: "PowerShell/PowerShell", Match: `^PowerShell-\d+\.\d+\.\d+-win-x64\.msi$`},
-	{ID: "git", Name: "Git for Windows", Vendor: "Git for Windows", Kind: "exe", Signer: `CN="?Johannes Schindelin`,
+	{ID: "git", Name: "Git for Windows", Vendor: "Git for Windows", Group: "Development", Kind: "exe", Signer: `CN="?Johannes Schindelin`,
 		Args: []string{"/VERYSILENT", "/NORESTART", "/NOCANCEL", "/SP-"}, Repo: "git-for-windows/git", Match: `^Git-[\d.]+-64-bit\.exe$`},
-	{ID: "notepadpp", Name: "Notepad++", Vendor: "Notepad++", Kind: "exe", Signer: `CN="?NOTEPAD\+\+`,
+	{ID: "nodejs", Name: "Node.js 24 LTS", Vendor: "OpenJS Foundation", Group: "Development", Kind: "msi", Signer: `CN="?OpenJS Foundation`,
+		Dir: "https://nodejs.org/dist/latest-v24.x/", Match: `^node-v[\d.]+-x64\.msi$`},
+	{ID: "temurin", Name: "Java 21 (Eclipse Temurin JDK)", Vendor: "Eclipse Adoptium", Group: "Development", Kind: "msi", Signer: `CN="?Eclipse`,
+		Args: []string{"ADDLOCAL=FeatureMain,FeatureEnvironment,FeatureJarFileRunWith,FeatureJavaHome"},
+		URL:  "https://api.adoptium.net/v3/installer/latest/21/ga/windows/x64/jdk/hotspot/normal/eclipse"},
+	{ID: "dbeaver", Name: "DBeaver Community", Vendor: "DBeaver", Group: "Development", Kind: "exe", Signer: `CN="?DBeaver Corp`,
+		Args: []string{"/S", "/allusers"}, URL: "https://dbeaver.io/files/dbeaver-ce-latest-x86_64-setup.exe"},
+	{ID: "heidisql", Name: "HeidiSQL", Vendor: "Ansgar Becker", Group: "Development", Kind: "exe",
+		Args: []string{"/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"}, Repo: "HeidiSQL/HeidiSQL", Match: `^HeidiSQL_[\d.]+_Setup\.exe$`},
+	{ID: "notepadpp", Name: "Notepad++", Vendor: "Notepad++", Group: "Development", Kind: "exe", Signer: `CN="?NOTEPAD\+\+`,
 		Args: []string{"/S"}, Repo: "notepad-plus-plus/notepad-plus-plus", Match: `^npp\.[\d.]+\.Installer\.x64\.exe$`},
-	{ID: "7zip", Name: "7-Zip", Vendor: "Igor Pavlov", Kind: "msi",
-		Repo: "ip7z/7zip", Match: `^7z\d+-x64\.msi$`},
-	{ID: "vlc", Name: "VLC media player", Vendor: "VideoLAN", Kind: "msi", Signer: `CN="?VideoLAN`,
-		Dir: "https://get.videolan.org/vlc/last/win64/", Match: `^vlc-[\d.]+-win64\.msi$`},
-	{ID: "wireshark", Name: "Wireshark", Vendor: "Wireshark Foundation", Kind: "exe", Signer: `CN="?Wireshark Foundation`,
+
+	// Remote access and networking
+	{ID: "putty", Name: "PuTTY", Vendor: "Simon Tatham", Group: "Remote access and networking", Kind: "msi", Signer: `CN="?Simon Tatham`,
+		Dir: "https://the.earth.li/~sgtatham/putty/latest/w64/", Match: `^putty-64bit-[\d.]+-installer\.msi$`},
+	{ID: "rustdesk", Name: "RustDesk", Vendor: "RustDesk", Group: "Remote access and networking", Kind: "msi",
+		Repo: "rustdesk/rustdesk", Match: `^rustdesk-[\d.]+-x86_64\.msi$`},
+	{ID: "wireguard", Name: "WireGuard", Vendor: "WireGuard", Group: "Remote access and networking", Kind: "msi", Signer: `CN="?WireGuard LLC`,
+		Args: []string{"DO_NOT_LAUNCH=1"}, Dir: "https://download.wireguard.com/windows-client/", Match: `^wireguard-amd64-[\d.]+\.msi$`},
+	{ID: "tailscale", Name: "Tailscale", Vendor: "Tailscale", Group: "Remote access and networking", Kind: "msi", Signer: `CN="?Tailscale Inc`,
+		URL: "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi", Note: "Sign in once after the install: it joins your tailnet then."},
+	{ID: "wireshark", Name: "Wireshark", Vendor: "Wireshark Foundation", Group: "Remote access and networking", Kind: "exe", Signer: `CN="?Wireshark Foundation`,
 		Args: []string{"/S", "/desktopicon=no", "/quicklaunchicon=no"}, URL: "https://www.wireshark.org/download/win64/Wireshark-latest-x64.exe",
 		Note: "Capturing needs Npcap, which has no silent installer for free use: install it once from npcap.com."},
+
+	// Utilities and media
+	{ID: "7zip", Name: "7-Zip", Vendor: "Igor Pavlov", Group: "Utilities and media", Kind: "msi",
+		Repo: "ip7z/7zip", Match: `^7z\d+-x64\.msi$`},
+	{ID: "keepassxc", Name: "KeePassXC", Vendor: "KeePassXC", Group: "Utilities and media", Kind: "msi",
+		Repo: "keepassxreboot/keepassxc", Match: `^KeePassXC-[\d.]+-Win64\.msi$`},
+	{ID: "sharex", Name: "ShareX", Vendor: "ShareX", Group: "Utilities and media", Kind: "exe",
+		Args: []string{"/VERYSILENT", "/NORESTART"}, Repo: "ShareX/ShareX", Match: `^ShareX-[\d.]+-setup-x64\.exe$`},
+	{ID: "greenshot", Name: "Greenshot", Vendor: "Greenshot", Group: "Utilities and media", Kind: "exe",
+		Args: []string{"/VERYSILENT", "/NORESTART", "/SUPPRESSMSGBOXES"}, Repo: "greenshot/greenshot", Match: `^Greenshot-INSTALLER-[\d.]+-RELEASE\.exe$`},
+	{ID: "vlc", Name: "VLC media player", Vendor: "VideoLAN", Group: "Utilities and media", Kind: "msi", Signer: `CN="?VideoLAN`,
+		Dir: "https://get.videolan.org/vlc/last/win64/", Match: `^vlc-[\d.]+-win64\.msi$`},
+	{ID: "obs", Name: "OBS Studio", Vendor: "OBS Project", Group: "Utilities and media", Kind: "exe",
+		Args: []string{"/S"}, Repo: "obsproject/obs-studio", Match: `^OBS-Studio-[\d.]+-Windows-x64-Installer\.exe$`},
+	{ID: "vcredist", Name: "Visual C++ Redistributable (x64)", Vendor: "Microsoft", Group: "Utilities and media", Kind: "exe", Signer: `CN="?Microsoft Corporation`,
+		Args: []string{"/install", "/quiet", "/norestart"}, URL: "https://aka.ms/vs/17/release/vc_redist.x64.exe"},
 }
 
 func winAppByID(id string) *winApp {
@@ -420,7 +457,7 @@ func appGet(ctx context.Context, u string, max int64) ([]byte, error) {
 }
 
 var (
-	appHref = regexp.MustCompile(`href="([^"?#/]+)"`)
+	appHref = regexp.MustCompile(`href="([^"?#]+)"`) // a name, or a path ending in one
 	appSHA  = regexp.MustCompile(`^sha256:([0-9a-f]{64})$`)
 )
 
@@ -468,7 +505,7 @@ func (x *winApp) resolve(ctx context.Context) (*winAppJob, error) {
 		}
 		best := ""
 		for _, m := range appHref.FindAllSubmatch(b, -1) {
-			if n, err := url.PathUnescape(string(m[1])); err == nil && re.MatchString(n) && (best == "" || naturalAfter(n, best)) {
+			if n, err := url.PathUnescape(path.Base(string(m[1]))); err == nil && re.MatchString(n) && (best == "" || naturalAfter(n, best)) {
 				best = n
 			}
 		}

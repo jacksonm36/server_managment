@@ -69,7 +69,7 @@ export type WinUser = {
   password_set?: string;
   password_never_expires: boolean;
 };
-export type WinAppInfo = { id: string; name: string; vendor: string; note?: string };
+export type WinAppInfo = { id: string; name: string; vendor: string; group: string; note?: string };
 export type Params = Record<string, string | number | boolean>;
 export type Row = Record<string, unknown>;
 
