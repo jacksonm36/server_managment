@@ -182,6 +182,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows-template", need("proxmox.manage", a.handlePVEWindowsTemplate))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/provision", need("proxmox.guests", a.handlePVEProvision))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/power", need("proxmox.operate", a.handlePVEPower))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/password", need("proxmox.guests", a.handlePVEGuestPassword))
 	authed.HandleFunc("DELETE /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.guests", a.handlePVEDeleteGuest))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}", need("proxmox.view", a.handlePVEGuest))
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/rrd", need("proxmox.view", a.handlePVEGuestRRD))

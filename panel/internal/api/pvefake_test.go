@@ -678,6 +678,12 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		}
 		f.firewall[vmid] = slices.Delete(f.firewall[vmid], pos, pos+1)
 		f.reply(w, 200, nil, "")
+	case sub == "agent/set-user-password" && r.Method == "POST":
+		if g.config == nil {
+			g.config = map[string]string{}
+		}
+		g.config["_password_of"] = r.Form.Get("username")
+		f.reply(w, 200, nil, "")
 	case sub == "template" && r.Method == "POST":
 		g.template = 1
 		f.reply(w, 200, nil, "")

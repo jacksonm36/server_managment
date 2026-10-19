@@ -843,6 +843,8 @@ export const api = {
     request<PVETemplateTargets>("GET", `/api/v1/proxmox/${id}/template-targets?node=${encodeURIComponent(node)}`),
   pveTemplateCreate: (id: string, b: PVETemplateReq) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/templates`, b),
   pveProvisions: () => request<PVEProvision[]>("GET", "/api/v1/proxmox/provisions"),
+  pveSetPassword: (id: string, g: PVEGuestRef, username: string, password: string) =>
+    request<void>("POST", `${pveGuestURL(id, g)}/password`, { username, password }),
   pvePower: (id: string, g: PVEGuestRef, action: string) => request<void>("POST", `${pveGuestURL(id, g)}/power`, { action }),
   pveGuest: (id: string, g: PVEGuestRef) => request<PVEGuestDetail>("GET", pveGuestURL(id, g)),
   pveGuestRRD: (id: string, g: PVEGuestRef, tf: PVETimeframe) => request<PVERRDPoint[]>("GET", `${pveGuestURL(id, g)}/rrd?timeframe=${tf}`),

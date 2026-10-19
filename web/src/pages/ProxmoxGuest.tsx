@@ -81,6 +81,7 @@ export function ProxmoxGuest({
   const [console_, setConsole] = useState(false);
   const [tab, setTab] = useState<Tab>("overview");
   const [move, setMove] = useState<"clone" | "migrate" | null>(null);
+  const [pwDlg, setPwDlg] = useState(false);
   const [winTpl, setWinTpl] = useState(false);
   const [winAdmin, setWinAdmin] = useState(false);
 
@@ -280,6 +281,11 @@ export function ProxmoxGuest({
                   <Camera /> Snapshots
                 </Button>
               </>
+            )}
+            {ac.can("proxmox.guests") && g.type === "qemu" && running && (
+              <Button size="sm" variant="secondary" onClick={() => setPwDlg(true)} title="Set a user's password through the QEMU guest agent">
+                <KeyRound /> Set password
+              </Button>
             )}
             {ac.can("proxmox.guests") && (
               <Button size="sm" variant="secondary" onClick={() => setMove("clone")}>
@@ -592,6 +598,16 @@ export function ProxmoxGuest({
         />
       )}
       {snaps && <SnapshotsDialog cluster={{ id: cluster, name: "" }} guest={{ ...ref, name }} ac={ac} onClose={() => setSnaps(false)} />}
+      {pwDlg && (
+        <SetPasswordDialog
+          cluster={cluster}
+          guest={ref}
+          name={name}
+          windows={String(g.config.ostype ?? "").startsWith("w")}
+          onClose={() => setPwDlg(false)}
+          onDone={(t) => setMsg({ ok: true, text: t })}
+        />
+      )}
       {move && (
         <GuestMoveDialog
           mode={move}
@@ -655,6 +671,84 @@ function TaskLogDialog({ cluster, guest, task, onClose }: { cluster: string; gue
         </DialogHeader>
         {err && <p className="text-sm text-destructive">{err}</p>}
         <pre className="max-h-[60vh] overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap">{log ?? "Loading…"}</pre>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// SetPasswordDialog sets a user's password inside the VM through the QEMU
+// guest agent, so nothing is typed into the console and the keyboard
+// layout cannot get in the way.
+function SetPasswordDialog({
+  cluster,
+  guest,
+  name,
+  windows,
+  onClose,
+  onDone,
+}: {
+  cluster: string;
+  guest: PVEGuestRef;
+  name: string;
+  windows: boolean;
+  onClose: () => void;
+  onDone: (text: string) => void;
+}) {
+  const [user, setUser] = useState(windows ? "Administrator" : "root");
+  const [p1, setP1] = useState("");
+  const [p2, setP2] = useState("");
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Set a password in {name}</DialogTitle>
+        </DialogHeader>
+        <form
+          className="grid gap-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (p1 !== p2) return setErr("The passwords do not match.");
+            setBusy(true);
+            setErr("");
+            try {
+              await api.pveSetPassword(cluster, guest, user.trim(), p1);
+              onDone(`Password of ${user.trim()} set.${windows ? " A locked-out account unlocks by itself after the lockout time (Windows: 10-15 minutes)." : ""}`);
+              onClose();
+            } catch (x) {
+              setErr((x as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <p className="text-sm text-muted-foreground">
+            The QEMU guest agent sets it inside the running VM, so the console&apos;s keyboard layout does not matter. The password is not stored or
+            logged.{windows ? " Windows needs at least 12 characters with three of: lower case, upper case, digits, symbols." : ""}
+          </p>
+          <label className="grid gap-1.5 text-sm">
+            User
+            <input className="h-9 rounded-md border bg-transparent px-3" value={user} onChange={(e) => setUser(e.target.value)} required />
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            New password
+            <input className="h-9 rounded-md border bg-transparent px-3" type="password" autoComplete="new-password" minLength={8} value={p1} onChange={(e) => setP1(e.target.value)} required />
+          </label>
+          <label className="grid gap-1.5 text-sm">
+            Repeat it
+            <input className="h-9 rounded-md border bg-transparent px-3" type="password" autoComplete="new-password" value={p2} onChange={(e) => setP2(e.target.value)} required />
+          </label>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="brand" disabled={busy}>
+              {busy ? <Loader2 className="animate-spin" /> : <KeyRound />} Set password
+            </Button>
+          </div>
+        </form>
       </DialogContent>
     </Dialog>
   );
