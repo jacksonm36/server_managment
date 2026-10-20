@@ -167,6 +167,41 @@ func TestWindowsTemplates(t *testing.T) {
 	expect("script", code, 200)
 }
 
+// TestWinSetupKey: Setup only ever gets the image's own generic key, so an
+// edition mismatch cannot stop it; the admin's key goes on the CD.
+func TestWinSetupKey(t *testing.T) {
+	w10 := winEditionByID("win10")
+	retail := "local:iso/Win10_22H2_Hungarian_x64v1.iso"
+	eval := "local:iso/19045.2006.220908-0225.22h2_release_svc_refresh_CLIENTENTERPRISEEVAL_OEMRET_x64FRE_en-us.iso"
+	for _, c := range []struct {
+		iso, key   string
+		index      int
+		setup, own string
+	}{
+		{retail, "", 6, winGenericKeys[6], ""},
+		{retail, winGenericKeys[6], 1, winGenericKeys[1], ""},
+		{retail, "ABCDE-ABCDE-ABCDE-ABCDE-ABCDE", 1, winGenericKeys[1], "ABCDE-ABCDE-ABCDE-ABCDE-ABCDE"},
+		{eval, "", 1, "", ""},
+		{retail, "ABCDE-ABCDE-ABCDE-ABCDE-ABCDE", 20, "ABCDE-ABCDE-ABCDE-ABCDE-ABCDE", ""},
+	} {
+		s, o := winSetupKey(w10, pveWinBuildReq{ISO: c.iso, ProductKey: c.key, ImageIndex: c.index})
+		if s != c.setup || o != c.own {
+			t.Errorf("%+v: setup %q own %q", c, s, o)
+		}
+	}
+	iso, err := answerISO(w10, pveWinBuildReq{ISO: retail, Locale: "hu-HU", Keyboard: "hu-HU", TimeZone: "UTC", ImageIndex: 6, ProductKey: "ABCDE-ABCDE-ABCDE-ABCDE-ABCDE"}, "standard", "Pw-123456789abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(iso, []byte("<Key>"+winGenericKeys[6]+"</Key>")) || !bytes.Contains(iso, []byte("SMKEY.TXT")) {
+		t.Error("answer CD: generic key in the XML, own key in a file")
+	}
+	r := pveWinBuildReq{Node: "pve1", ISO: eval, DriversISO: "local:iso/virtio-win.iso", DiskStorage: "local-lvm", Bridge: "vmbr0", Profiles: []string{"standard"}, ProductKey: "ABCDE-ABCDE-ABCDE-ABCDE-ABCDE"}
+	if msg := r.check(w10); !strings.Contains(msg, "evaluation") {
+		t.Errorf("key with an evaluation ISO: %q", msg)
+	}
+}
+
 func TestWinPassword(t *testing.T) {
 	for pw, ok := range map[string]bool{"Correct-Horse-9": true, "short1A!": false, "alllowercase12": false, "ALLUPPER-1234": true, "Administrator-12": false} {
 		if (winPasswordProblem(pw) == "") != ok {

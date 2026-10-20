@@ -9,6 +9,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"net/http"
 	"net/url"
@@ -164,6 +165,45 @@ func prepareScript() []byte {
 
 func crlf(b []byte) []byte { return bytes.ReplaceAll(b, []byte("\n"), []byte("\r\n")) }
 
+// winGenericKeys are Microsoft's generic setup keys for the images of the
+// Windows 10/11 multi-edition ISO, by index. They pick the edition and
+// activate nothing. Setup refuses a key of another edition than the image
+// ("Windows cannot read the <ProductKey> setting"), so Setup always gets
+// the image's generic key and the admin's own key is installed afterwards.
+var winGenericKeys = map[int]string{
+	1:  "YTMG3-N6DKC-DKB77-7M9GH-8HVX7", // Home
+	2:  "4CPRK-NM3K3-X6XXQ-RXX86-WXCHW", // Home N
+	3:  "BT79Q-G7N6G-PGBYW-4YWX6-6F4BT", // Home Single Language
+	4:  "YNMGQ-8RYV3-4PGQ3-C8XTP-7CFBY", // Education
+	5:  "84NGF-MHBT6-FXBX8-QWJK7-DRR8H", // Education N
+	6:  "VK7JG-NPHTM-C97JM-9MPGT-3V66T", // Pro
+	7:  "2B87N-8KFHP-DKV6R-Y2C8J-PKCKT", // Pro N
+	8:  "8PTT6-RNW4C-6V7J2-C2D3X-MHBPB", // Pro Education
+	9:  "GJTYN-HDMQY-FRR76-HVGC7-QPF8P", // Pro Education N
+	10: "DXG7C-N36C4-C4HTG-X4T3X-2YV77", // Pro for Workstations
+	11: "WYPNQ-8C467-V2W6J-TX4WX-WT2RQ", // Pro for Workstations N
+}
+
+// winEvalISO: Microsoft's evaluation ISOs say so in their file name
+// (…CLIENTENTERPRISEEVAL…, …SERVER_EVAL…); they take no key at all.
+func winEvalISO(volid string) bool { return strings.Contains(strings.ToUpper(volid), "EVAL") }
+
+// winSetupKey splits the build's key into the one Setup gets and the
+// admin's own one, installed after Setup.
+func winSetupKey(ed *winEdition, req pveWinBuildReq) (setup, own string) {
+	if winEvalISO(req.ISO) {
+		return "", ""
+	}
+	g, ok := winGenericKeys[req.ImageIndex]
+	if !ed.Client || !ok {
+		return req.ProductKey, ""
+	}
+	if req.ProductKey == g || slices.Contains(slices.Collect(maps.Values(winGenericKeys)), req.ProductKey) {
+		return g, ""
+	}
+	return g, req.ProductKey
+}
+
 type winUnattendData struct {
 	Locale, Keyboard, TimeZone, ProductKey, Password, Profile string
 	Index                                                     int
@@ -172,8 +212,9 @@ type winUnattendData struct {
 
 // answerISO is the CD a build boots with: the answer file and the script.
 func answerISO(ed *winEdition, req pveWinBuildReq, profile, password string) ([]byte, error) {
+	setupKey, ownKey := winSetupKey(ed, req)
 	d := winUnattendData{
-		Locale: xmlText(req.Locale), Keyboard: xmlText(req.Keyboard), TimeZone: xmlText(req.TimeZone), ProductKey: xmlText(req.ProductKey),
+		Locale: xmlText(req.Locale), Keyboard: xmlText(req.Keyboard), TimeZone: xmlText(req.TimeZone), ProductKey: xmlText(setupKey),
 		Password: xmlText(password), Profile: map[string]string{"standard": "Standard", "hardened": "Hardened"}[profile], Index: req.ImageIndex,
 	}
 	// The virtio-win CD's letter depends on how many drives Setup sees.
@@ -189,6 +230,11 @@ func answerISO(ed *winEdition, req pveWinBuildReq, profile, password string) ([]
 	files := []isofs.File{
 		{Name: "autounattend.xml", Short: "AUTOUNAT.XML", Data: crlf(x.Bytes())},
 		{Name: "servermgr-prepare.ps1", Short: "SMPREP.PS1", Data: crlf(prepareScript())},
+	}
+	// The admin's own key goes in after Setup, where an edition mismatch
+	// cannot stop the install.
+	if ownKey != "" {
+		files = append(files, isofs.File{Name: "servermgr-key.txt", Short: "SMKEY.TXT", Data: []byte(ownKey)})
 	}
 	// Applications to install: the prepare script runs servermgr-apps.ps1
 	// with this list when both are next to it.
@@ -351,6 +397,8 @@ func (r *pveWinBuildReq) check(ed *winEdition) string {
 		return "image index: 1 to 32"
 	case r.ProductKey != "" && !winKey.MatchString(r.ProductKey):
 		return "product key: five groups of five letters or digits"
+	case r.ProductKey != "" && winEvalISO(r.ISO):
+		return "evaluation ISOs take no product key: leave it empty, or pick Microsoft's multi-edition ISO"
 	case !winLocale.MatchString(r.Locale) || !winKeyboard.MatchString(r.Keyboard) || !winTimeZone.MatchString(r.TimeZone):
 		return "language, keyboard or time zone not valid (like en-US, hu-HU, Central Europe Standard Time)"
 	case len(r.Profiles) == 0:

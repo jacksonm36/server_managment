@@ -378,6 +378,19 @@ if ($Profile -eq 'Hardened') {
 }
 
 # ---- Applications picked for the template ----
+# A build CD carries the admin's own product key when one was given: Setup
+# installed with the image's generic key, so an edition mismatch could not
+# stop it. The key is installed now; each VM activates it once online.
+$keyFile = Join-Path $PSScriptRoot 'servermgr-key.txt'
+if ($PSScriptRoot -and (Test-Path $keyFile)) {
+    Try-Step 'product key' {
+        $key = (Get-Content -Raw -Path $keyFile).Trim()
+        $sls = Get-CimInstance SoftwareLicensingService
+        Invoke-CimMethod -InputObject $sls -MethodName InstallProductKey -Arguments @{ ProductKey = $key } | Out-Null
+        Invoke-CimMethod -InputObject $sls -MethodName RefreshLicenseStatus | Out-Null
+    }
+}
+
 # A build CD carries servermgr-apps.ps1 and the list next to this script.
 $appsList = Join-Path $PSScriptRoot 'servermgr-apps.json'
 $appsScript = Join-Path $PSScriptRoot 'servermgr-apps.ps1'

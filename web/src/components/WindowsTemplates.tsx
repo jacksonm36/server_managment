@@ -60,6 +60,16 @@ async function waitDownload(cluster: string, node: string, upid: string) {
   throw new Error("The download is still running; reload in a while.");
 }
 
+// isoImage is what an ISO implies for the image: evaluation ISOs hold one
+// edition and take no key; Microsoft's multi-edition Windows 10/11 ISO
+// (Win11_25H2_Hungarian_x64.iso) has Pro at 6.
+function isoImage(edition: WinEditionCard, iso: string): { index?: number; key?: string } {
+  const file = iso.split("/").pop() ?? iso;
+  if (/eval/i.test(file)) return { index: edition.index, key: "" };
+  if (edition.client && /^Win1\d_/i.test(file)) return { index: 6 };
+  return {};
+}
+
 export type WinEditionCard = { id: string; name: string; iso: RegExp; index: number; client: boolean; disk: number };
 
 export function WindowsBuildDialog({
@@ -111,6 +121,7 @@ export function WindowsBuildDialog({
     if (!c) return;
     setF((x) => ({
       ...x,
+      ...(x.iso ? {} : isoImage(edition, c.isos.find((i) => edition.iso.test(base(i)) && !/virtio/i.test(i)) || "")),
       iso: x.iso || c.isos.find((i) => edition.iso.test(base(i)) && !/virtio/i.test(i)) || "",
       drivers: x.drivers || c.isos.find((i) => /virtio-win/i.test(i)) || "",
       storage: x.storage || (storagesFor(c, "images")[0]?.storage ?? ""),
@@ -118,6 +129,7 @@ export function WindowsBuildDialog({
     }));
   }, [c, edition]);
   const isoStorage = storagesFor(c, "iso")[0]?.storage ?? "";
+  const pickISO = (iso: string) => setF((x) => ({ ...x, ...isoImage(edition, iso), iso }));
   const toggle = (p: WinProfile) => setProfiles((l) => (l.includes(p) ? l.filter((x) => x !== p) : [...l, p]));
 
   return (
@@ -237,7 +249,7 @@ export function WindowsBuildDialog({
           }
         >
           <div className="flex flex-wrap gap-2">
-            <Select className={!f.iso && isoStorage && edition.client ? "basis-full" : "flex-1"} value={f.iso} onChange={(e) => up("iso")(e.target.value)} required>
+            <Select className={!f.iso && isoStorage && edition.client ? "basis-full" : "flex-1"} value={f.iso} onChange={(e) => pickISO(e.target.value)} required>
               <option value="">Pick the ISO…</option>
               {c?.isos
                 .filter((i) => !/virtio-win/i.test(i))
@@ -355,7 +367,10 @@ export function WindowsBuildDialog({
             >
               <NumberInput min={1} max={32} value={f.index} onValue={(n) => up("index")(n)} />
             </Field>
-            <Field label="Product key" hint="Leave empty for evaluation ISOs.">
+            <Field
+              label="Product key"
+              hint={edition.client ? "Optional: your own key, installed after Setup; the image index picks the edition. Evaluation ISOs take none." : "Leave empty for evaluation ISOs."}
+            >
               <Input value={f.key} onChange={(e) => up("key")(e.target.value.toUpperCase())} placeholder="XXXXX-XXXXX-XXXXX-XXXXX-XXXXX" />
             </Field>
           </div>
