@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -84,6 +85,30 @@ func TestWinAppResolve(t *testing.T) {
 	}
 	if _, err := resolveWinApps(context.Background(), []string{"ghidra", "ghidra"}); err == nil {
 		t.Error("repeated app accepted")
+	}
+}
+
+// A latest release without the file (source only, or no SHA-256): the
+// newest recent release that has it.
+func TestWinAppGitHubFallback(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		const a = `"https://github.com/VirusTotal/yara/releases/download/`
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/latest"):
+			w.Write([]byte(`{"assets":[]}`))
+		default:
+			w.Write([]byte(`[{"prerelease":true,"assets":[{"name":"yara-v5.0.0-win64.zip","browser_download_url":` + a + `v5/yara-v5.0.0-win64.zip","digest":"sha256:` + strings.Repeat("a", 64) + `"}]},
+				{"assets":[{"name":"yara-v4.5.5-win64.zip","browser_download_url":` + a + `v4.5.5/yara-v4.5.5-win64.zip"}]},
+				{"assets":[{"name":"yara-v4.5.4-2326-win64.zip","browser_download_url":` + a + `v4.5.4/yara-v4.5.4-2326-win64.zip","digest":"sha256:` + strings.Repeat("b", 64) + `"}]}]`))
+		}
+	}))
+	defer srv.Close()
+	savedHTTP, savedAPI := appHTTP, ghAPI
+	defer func() { appHTTP, ghAPI = savedHTTP, savedAPI }()
+	appHTTP, ghAPI = srv.Client(), srv.URL
+	j, err := winAppByID("yara").resolve(context.Background())
+	if err != nil || !strings.HasSuffix(j.URL, "v4.5.4-2326-win64.zip") || j.SHA256 != strings.Repeat("b", 64) {
+		t.Fatalf("got %+v %v", j, err)
 	}
 }
 

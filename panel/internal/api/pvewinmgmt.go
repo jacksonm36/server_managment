@@ -438,7 +438,7 @@ var winApps = []winApp{
 	// Penetration testing
 	{ID: "nmap", Name: "Nmap", Vendor: "Nmap Project", Group: appPentest, Kind: "zip", Signer: `CN="?Insecure\.Com`,
 		Exe: "nmap.exe", Dir: "https://nmap.org/dist/", Match: `^nmap-\d+\.\d+-win32\.zip$`,
-		Note: "Command line, on PATH. Raw scans need Npcap (install it once from npcap.com); -sT works without it."},
+		Note: "Nmap's newest portable build, command line, on PATH. Raw scans need Npcap (install it once from npcap.com); -sT works without it."},
 	{ID: "burp", Name: "Burp Suite Community", Vendor: "PortSwigger", Group: appPentest, Kind: "exe", Signer: `CN="?PortSwigger`,
 		Args: []string{"-q"}, URL: "https://portswigger.net/burp/releases/startdownload?product=community&type=WindowsX64"},
 	{ID: "zap", Name: "ZAP", Vendor: "ZAP by Checkmarx", Group: appPentest, Kind: "exe",
@@ -518,6 +518,19 @@ var (
 	appSHA  = regexp.MustCompile(`^sha256:([0-9a-f]{64})$`)
 )
 
+// ghAPI is GitHub's API; tests point it elsewhere.
+var ghAPI = "https://api.github.com"
+
+type ghRelease struct {
+	Draft      bool `json:"draft"`
+	Prerelease bool `json:"prerelease"`
+	Assets     []struct {
+		Name   string `json:"name"`
+		URL    string `json:"browser_download_url"`
+		Digest string `json:"digest"`
+	} `json:"assets"`
+}
+
 // resolve finds the app's current download.
 func (x *winApp) resolve(ctx context.Context) (*winAppJob, error) {
 	j := &winAppJob{ID: x.ID, Name: x.Name, Kind: x.Kind, Args: x.Args, Signer: x.Signer, Exe: x.Exe}
@@ -529,31 +542,47 @@ func (x *winApp) resolve(ctx context.Context) (*winAppJob, error) {
 	case x.URL != "":
 		j.URL = x.URL
 	case x.Repo != "":
-		b, err := appGet(ctx, "https://api.github.com/repos/"+x.Repo+"/releases/latest", 4<<20)
-		if err != nil {
-			return nil, err
-		}
-		var rel struct {
-			Assets []struct {
-				Name   string `json:"name"`
-				URL    string `json:"browser_download_url"`
-				Digest string `json:"digest"`
-			} `json:"assets"`
-		}
-		if err := json.Unmarshal(b, &rel); err != nil {
-			return nil, err
-		}
-		for _, as := range rel.Assets {
-			if re.MatchString(as.Name) && strings.HasPrefix(as.URL, "https://github.com/"+x.Repo+"/") {
-				j.URL = as.URL
-				if m := appSHA.FindStringSubmatch(as.Digest); m != nil {
-					j.SHA256 = m[1]
+		// The latest release first; some projects publish source-only
+		// releases, so then the newest of the recent ones with the file.
+		// Without a signer, only a file GitHub has a SHA-256 for will do.
+		api := ghAPI + "/repos/" + x.Repo + "/releases"
+		for _, u := range []string{api + "/latest", api + "?per_page=15"} {
+			b, err := appGet(ctx, u, 8<<20)
+			if err != nil {
+				return nil, err
+			}
+			var rels []ghRelease
+			if strings.HasSuffix(u, "/latest") {
+				var r ghRelease
+				err = json.Unmarshal(b, &r)
+				rels = []ghRelease{r}
+			} else {
+				err = json.Unmarshal(b, &rels)
+			}
+			if err != nil {
+				return nil, err
+			}
+			for _, rel := range rels {
+				if rel.Draft || rel.Prerelease || j.URL != "" {
+					continue
 				}
+				for _, as := range rel.Assets {
+					m := appSHA.FindStringSubmatch(as.Digest)
+					if re.MatchString(as.Name) && strings.HasPrefix(as.URL, "https://github.com/"+x.Repo+"/") && (m != nil || x.Signer != "") {
+						j.URL = as.URL
+						if m != nil {
+							j.SHA256 = m[1]
+						}
+						break
+					}
+				}
+			}
+			if j.URL != "" {
 				break
 			}
 		}
 		if j.URL == "" {
-			return nil, fmt.Errorf("no file matching %s in %s's latest release", x.Match, x.Repo)
+			return nil, fmt.Errorf("no file matching %s with a published SHA-256 in %s's recent releases", x.Match, x.Repo)
 		}
 	case x.Page != "":
 		b, err := appGet(ctx, x.Page, 4<<20)
