@@ -5,6 +5,8 @@
 #   Install:    curl -fsSLk --pinnedpubkey 'PIN' https://PANEL:8443/install.sh | sudo sh -s -- --token TOKEN --ca-sha256 SHA
 #   From git:   sudo sh install-agent.sh --panel https://PANEL:8443 --pin 'PIN' --token TOKEN --ca-sha256 SHA
 #   Update:     run it again without --token (keeps the enrollment)
+#   The token can come in SM_JOIN_TOKEN instead of --token, which keeps it
+#   out of the process list; it reaches the agent the same way.
 #   Uninstall:  sudo sh install-agent.sh --uninstall
 #
 # Get the token, CA fingerprint and key pin from the panel: Servers -> Add server.
@@ -14,7 +16,8 @@ set -eu
 
 PANEL_URL='__PANEL_URL__'
 PANEL_PIN='__PANEL_PIN__'
-TOKEN=""
+TOKEN="${SM_JOIN_TOKEN:-}"
+unset SM_JOIN_TOKEN
 CA_SHA256=""
 UNINSTALL=0
 STATE_DIR=/etc/servermgr-agent
@@ -98,7 +101,7 @@ curl -fsSL $CURL_TLS "$PANEL_URL/download/servermgr-agent-linux-$ARCH" -o "$TMP"
 install -m 0755 "$TMP" "$BIN"
 
 if [ -n "$TOKEN" ]; then
-  "$BIN" enroll --panel "$PANEL_URL" --token "$TOKEN" --ca-sha256 "$CA_SHA256"
+  SM_JOIN_TOKEN="$TOKEN" "$BIN" enroll --panel "$PANEL_URL" --ca-sha256 "$CA_SHA256"
 else
   # An agent enrolled over plain HTTP moves to this (HTTPS) address.
   sed -i "s#\"panel_url\": *\"[^\"]*\"#\"panel_url\": \"$PANEL_URL\"#" "$STATE_DIR/state.json"

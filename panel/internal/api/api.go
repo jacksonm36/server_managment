@@ -768,9 +768,12 @@ func (a *API) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// agentFiles are the agent builds /download serves.
+var agentFiles = []string{"servermgr-agent-linux-amd64", "servermgr-agent-linux-arm64", "servermgr-agent-windows-amd64.exe"}
+
 func (a *API) handleDownload(w http.ResponseWriter, r *http.Request) {
 	file := r.PathValue("file")
-	if file != "servermgr-agent-linux-amd64" && file != "servermgr-agent-linux-arm64" {
+	if !slices.Contains(agentFiles, file) {
 		http.NotFound(w, r)
 		return
 	}
@@ -813,5 +816,8 @@ func (a *API) installCommand(sh, token string) string {
 	if strings.HasPrefix(a.Cfg.PublicURL, "https://") && a.Cfg.TLSPin != "" {
 		fetch = "curl -fsSLk --pinnedpubkey '" + a.Cfg.TLSPin + "'"
 	}
-	return fmt.Sprintf("%s %s/install.sh | %s -s -- --token %s --ca-sha256 %s", fetch, a.Cfg.PublicURL, sh, token, a.CA.Fingerprint())
+	if token != "" {
+		token = "--token " + token + " "
+	}
+	return fmt.Sprintf("%s %s/install.sh | %s -s -- %s--ca-sha256 %s", fetch, a.Cfg.PublicURL, sh, token, a.CA.Fingerprint())
 }

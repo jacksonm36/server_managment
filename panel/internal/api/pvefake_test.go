@@ -584,6 +584,7 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		switch sub {
 		case "agent/exec":
 			g.config["_exec"] = strings.Join(r.Form["command"], "\x00")
+			g.config["_input"] = r.Form.Get("input-data")
 			f.reply(w, 200, map[string]int{"pid": 42}, "")
 		case "agent/exec-status":
 			f.reply(w, 200, map[string]any{"exited": 1, "exitcode": 0, "out-data": g.config["_exec_out"]}, "")
@@ -684,6 +685,7 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		f.reply(w, 200, nil, "")
 	case sub == "agent/file-write" && r.Method == "POST":
 		g.config["_wrote"] += r.Form.Get("file") + ";"
+		g.config["_wrote_content"] = r.Form.Get("content")
 		f.reply(w, 200, nil, "")
 	case sub == "template" && r.Method == "POST":
 		g.template = 1

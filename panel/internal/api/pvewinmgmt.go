@@ -59,10 +59,19 @@ type agentExecStatus struct {
 
 // agentExec starts command in the guest and returns its pid.
 func agentExec(ctx context.Context, cl *proxmox.Client, gp string, command []string) (int, error) {
+	return agentExecInput(ctx, cl, gp, command, "")
+}
+
+// agentExecInput is agentExec with input on the command's stdin.
+func agentExecInput(ctx context.Context, cl *proxmox.Client, gp string, command []string, input string) (int, error) {
 	var ex struct {
 		PID int `json:"pid"`
 	}
-	if err := cl.Do(ctx, http.MethodPost, gp+"/agent/exec", url.Values{"command": command}, &ex); err != nil {
+	form := url.Values{"command": command}
+	if input != "" {
+		form.Set("input-data", input)
+	}
+	if err := cl.Do(ctx, http.MethodPost, gp+"/agent/exec", form, &ex); err != nil {
 		return 0, agentErr(err)
 	}
 	return ex.PID, nil
@@ -71,7 +80,12 @@ func agentExec(ctx context.Context, cl *proxmox.Client, gp string, command []str
 // agentRun runs command in the guest and waits for it; a non-zero exit is
 // an error carrying (cleaned) output.
 func agentRun(ctx context.Context, cl *proxmox.Client, gp string, command []string) (string, error) {
-	pid, err := agentExec(ctx, cl, gp, command)
+	return agentRunInput(ctx, cl, gp, command, "")
+}
+
+// agentRunInput is agentRun with input on the command's stdin.
+func agentRunInput(ctx context.Context, cl *proxmox.Client, gp string, command []string, input string) (string, error) {
+	pid, err := agentExecInput(ctx, cl, gp, command, input)
 	if err != nil {
 		return "", err
 	}

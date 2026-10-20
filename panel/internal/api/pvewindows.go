@@ -926,8 +926,6 @@ func (a *API) handlePVEWindowsTemplate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"log": log})
 }
 
-var errWinEnroll = errors.New("the servermgr agent runs on Linux; deploy Windows without enrolling")
-
 // winUnlockAdmin enables the built-in Administrator (Sysprep disables it
 // on Windows 10/11) and clears a lockout. It runs through the guest agent
 // as SYSTEM and takes no input.

@@ -1,6 +1,8 @@
 package ops
 
 import (
+	"github.com/jacksonm36/servermgr/agent/internal/panelhttp"
+
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -48,7 +50,7 @@ func selfUpdate(ctx context.Context, p map[string]string, logf func(string, ...a
 	url := strings.TrimRight(base, "/") + "/download/servermgr-agent-linux-" + runtime.GOARCH
 	logf("downloading %s", url)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := PanelClient(PanelCA, 10*time.Minute).Do(req)
+	resp, err := panelhttp.PanelClient(PanelCA, 10*time.Minute).Do(req)
 	if err != nil {
 		return nil, err
 	}

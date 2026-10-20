@@ -751,7 +751,7 @@ export function ProvisionDialog({
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   // Windows templates use Cloudbase-Init: Administrator password, hostname
-  // and network; no SSH keys or agent enrollment.
+  // and network; no SSH keys. The agent goes in through the guest agent.
   const win = (template.tags ?? "").split(/[;, ]/).includes("windows");
   const [showPw, setShowPw] = useState(false);
   return (
@@ -783,7 +783,7 @@ export function ProvisionDialog({
                 full_clone: f.full_clone,
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
-                enroll: win ? false : f.enroll,
+                enroll: f.enroll,
                 storage: f.storage,
                 bridge: f.bridge.trim(),
                 vlan: vlanNum(f.vlan),
@@ -936,15 +936,19 @@ export function ProvisionDialog({
                   <CloudInitFields value={ci} onChange={setCI} idPrefix="pp-ci" />
                 </div>
               </details>
-              <label className="flex items-start gap-2 text-sm">
-                <input type="checkbox" className="mt-1" checked={f.enroll} onChange={(e) => setF({ ...f, enroll: e.target.checked })} />
-                <span>
-                  Enroll into servermgr
-                  <span className="block text-xs text-muted-foreground">Installs the agent, links the VM to its server and prepares it for Ansible.</span>
-                </span>
-              </label>
             </>
           )}
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={f.enroll} onChange={(e) => setF({ ...f, enroll: e.target.checked })} />
+            <span>
+              Enroll into servermgr
+              <span className="block text-xs text-muted-foreground">
+                {win
+                  ? "After the first boot, installs the agent as a Windows service through the guest agent and links the VM to its server. The panel needs its Windows agent build and HTTPS."
+                  : "Installs the agent, links the VM to its server and prepares it for Ansible."}
+              </span>
+            </span>
+          </label>
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>

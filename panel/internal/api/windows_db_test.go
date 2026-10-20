@@ -101,7 +101,6 @@ func TestWindowsTemplates(t *testing.T) {
 	expect("long name", first2(prov(map[string]any{"name": "a-very-long-windows-name"})), 400)
 	expect("no password", first2(prov(map[string]any{"cipassword": ""})), 400)
 	expect("weak password", first2(prov(map[string]any{"cipassword": "alllowercase12"})), 400)
-	expect("enroll", first2(prov(map[string]any{"enroll": true})), 400)
 	expect("ssh keys", first2(prov(map[string]any{"sshkeys": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGa4u5Lq8gq7d3X3z9q9n6wq8ZVb7kzQwq9sZ8m3Jv1x a@b"})), 400)
 	code, run := prov(nil)
 	expect("deploy windows", code, 202)

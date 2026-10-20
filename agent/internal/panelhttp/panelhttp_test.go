@@ -1,4 +1,4 @@
-package ops
+package panelhttp
 
 import (
 	"crypto/ecdsa"

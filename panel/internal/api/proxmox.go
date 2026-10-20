@@ -557,14 +557,11 @@ type pveProvisionReq struct {
 }
 
 // windowsCheck applies Windows rules to a deploy from a Windows template:
-// a NetBIOS-length name, a strong Administrator password, no SSH keys and
-// no agent enrollment.
+// a NetBIOS-length name, a strong Administrator password and no SSH keys.
 func (r *pveProvisionReq) windowsCheck() string {
 	switch {
 	case !winHost.MatchString(r.Name):
 		return "Windows computer names have at most 15 characters (lowercase letters, digits, dashes)"
-	case r.Enroll:
-		return errWinEnroll.Error()
 	case len(r.keyLines) > 0:
 		return "SSH keys are not used on Windows; set the Administrator password"
 	case r.CIPassword == "":
@@ -1026,6 +1023,21 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 		logf("done (not enrolling)")
 		return nil
 	}
+	if req.windows {
+		// No SSH on Windows: the agent service goes in through the
+		// guest agent once Cloudbase-Init has named and set up the VM.
+		if err := waitWindowsReady(ctx, cl, node, vmid, req.Name, logf); err != nil {
+			return err
+		}
+		serverID, err := a.enrollWindowsViaAgent(ctx, cl, node, vmid, req.Name, logf)
+		if err != nil {
+			return err
+		}
+		p.ServerID = &serverID
+		logf("enrolled as server %s", serverID)
+		a.linkEnrolled(ctx, who, s, vmid, serverID, "", logf)
+		return nil
+	}
 
 	// Address: the static IP, or what the guest agent reports.
 	addr := ""
@@ -1116,23 +1128,20 @@ func (a *API) enrollOverSSH(ctx context.Context, addr, user, name string, logf f
 	if err := a.Store.CreateJoinToken(ctx, hash, name, time.Now().Add(joinTokenTTL), nil); err != nil {
 		return "", err
 	}
-	// Cloud images give their default user passwordless sudo.
-	sh := "sh"
+	// Cloud images give their default user passwordless sudo. The token
+	// goes in on stdin, so it is never in the guest's process list.
+	cmd := "sh -c " + shellQuote(a.enrollScript())
 	if user != "root" {
-		sh = "sudo -n sh"
+		cmd = "sudo -n " + cmd
 	}
-	cmd := a.installCommand(sh, raw)
 	sess, err := conn.NewSession()
 	if err != nil {
 		return "", err
 	}
 	defer sess.Close()
+	sess.Stdin = strings.NewReader(raw + "\n")
 	out, err := sess.CombinedOutput(cmd)
-	tail := strings.TrimSpace(string(out))
-	if len(tail) > 300 {
-		tail = "…" + tail[len(tail)-300:]
-	}
-	logf("installer: %s", strings.ReplaceAll(tail, raw, "••••"))
+	logTail(logf, string(out), raw)
 	if err != nil {
 		return "", fmt.Errorf("agent installer failed: %v", err)
 	}

@@ -4,6 +4,7 @@ package ops
 import (
 	"bufio"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -292,3 +293,7 @@ func streamCmd(cmd *exec.Cmd, logf func(string, ...any)) error {
 	pr.Close()
 	return cmd.Wait()
 }
+
+// PanelCA is the panel CA saved at enrollment; HTTPS to the panel trusts
+// it and nothing else.
+var PanelCA *x509.CertPool

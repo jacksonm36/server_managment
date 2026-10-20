@@ -1,4 +1,5 @@
-package ops
+// Package panelhttp is HTTPS to the panel, trusting only its CA.
+package panelhttp
 
 import (
 	"crypto/sha256"
@@ -10,10 +11,6 @@ import (
 	"strings"
 	"time"
 )
-
-// PanelCA is the panel CA saved at enrollment; HTTPS to the panel trusts
-// it and nothing else.
-var PanelCA *x509.CertPool
 
 // PanelClient talks HTTPS to the panel, trusting only certificates the
 // panel CA issued, whatever address the panel is reached by.

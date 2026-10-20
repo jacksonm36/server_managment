@@ -11,7 +11,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 
-	"github.com/jacksonm36/servermgr/agent/internal/ops"
 	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
 	"github.com/jacksonm36/servermgr/agent/internal/term"
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
@@ -144,7 +143,7 @@ func (c *client) session(ctx context.Context) error {
 			continue
 		}
 		if job := msg.GetJob(); job != nil {
-			go ops.Run(ctx, job, func(u *agentv1.JobUpdate) {
+			go runJob(ctx, job, func(u *agentv1.JobUpdate) {
 				select {
 				case out <- &agentv1.AgentMessage{Msg: &agentv1.AgentMessage_JobUpdate{JobUpdate: u}}:
 				case <-ctx.Done():

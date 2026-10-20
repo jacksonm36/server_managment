@@ -305,7 +305,7 @@ export function ProxmoxGuest({
                 </Button>
               </>
             )}
-            {ac.can("proxmox.guests") && ac.can("servers.add") && g.type === "qemu" && running && !g.server_id && !String(g.config.ostype ?? "").startsWith("w") && (
+            {ac.can("proxmox.guests") && ac.can("servers.add") && g.type === "qemu" && running && !g.server_id && (
               <Button
                 size="sm"
                 variant="secondary"
