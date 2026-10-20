@@ -179,7 +179,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/windows-templates", need("proxmox.manage", a.handlePVEWindowsBuild))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows-prep", need("proxmox.manage", a.handlePVEWindowsPrep))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows-admin", need("proxmox.guests", a.handlePVEWindowsAdmin))
-	authed.HandleFunc("GET /api/v1/windows/apps", need("proxmox.view", a.handleWindowsApps))
+	authed.HandleFunc("GET /api/v1/windows/apps", a.handleWindowsApps) // the catalog: public knowledge
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows/users", need("proxmox.guests", a.handlePVEWinUsers))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows/users", need("proxmox.guests", a.handlePVEWinUserCreate))
 	authed.HandleFunc("PUT /api/v1/proxmox/{id}/guests/{node}/{type}/{vmid}/windows/users/{user}", need("proxmox.guests", a.handlePVEWinUserUpdate))
