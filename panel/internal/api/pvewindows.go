@@ -629,7 +629,7 @@ func (a *API) winBuild(ctx context.Context, cl *proxmox.Client, ed *winEdition, 
 	}
 	created(vmid)
 	gp := proxmox.GuestPath(node, "qemu", vmid)
-	logf("starting VM %d; Windows Setup runs unattended (watch it in the console)", vmid)
+	logf("starting VM %d; "+winSetupStarted+" (watch it in the console)", vmid)
 	if err := cl.Do(ctx, http.MethodPost, gp+"/status/start", nil, &upid); err != nil {
 		return vmid, err
 	}
@@ -646,23 +646,47 @@ func (a *API) winBuild(ctx context.Context, cl *proxmox.Client, ed *winEdition, 
 		}
 	}
 
-	seen, sysprep := 0, false
+	if err := a.winWatchAndFinish(ctx, cl, node, vmid, req.DiskStorage, profile, 0, false, logf); err != nil {
+		return vmid, err
+	}
+	return vmid, nil
+}
+
+// winSetupStarted marks, in a build's log, that the VM is installing on
+// its own; from there a panel restart can pick the build up again.
+const winSetupStarted = "Windows Setup runs unattended"
+
+// winStall is how long a build may show no new log line before the panel
+// says so.
+var winStall = 30 * time.Minute
+
+// winWatchAndFinish follows the prepare script's log through the guest
+// agent until Sysprep shuts the VM down, then makes it a template. seen
+// is how many log lines were already reported (after a panel restart).
+func (a *API) winWatchAndFinish(ctx context.Context, cl *proxmox.Client, node string, vmid int, diskStorage, profile string, seen int, sysprep bool,
+	logf func(string, ...any)) error {
+	gp := proxmox.GuestPath(node, "qemu", vmid)
 	var last []string
+	progress := time.Now()
 	for {
 		var fr struct {
 			Content string `json:"content"`
 		}
 		if err := cl.Do(ctx, http.MethodGet, gp+"/agent/file-read", url.Values{"file": {winBuildLog}}, &fr); err == nil {
-			lines := strings.Split(strings.TrimRight(strings.ReplaceAll(strings.TrimPrefix(fr.Content, "\ufeff"), "\r", ""), "\n"), "\n")
+			var lines []string
+			for _, l := range strings.Split(strings.ReplaceAll(strings.TrimPrefix(fr.Content, "\ufeff"), "\r", ""), "\n") {
+				if l = strings.TrimSpace(l); l != "" {
+					lines = append(lines, l)
+				}
+			}
 			if seen == 0 && len(lines) > 0 {
 				logf("Windows is installed; the prepare script is running")
 			}
 			for _, l := range lines[min(seen, len(lines)):] {
-				if l = strings.TrimSpace(l); l != "" {
-					logf("windows: %s", l)
-					sysprep = sysprep || strings.Contains(l, "SERVERMGR-SYSPREP")
-					last = append(last, l)
-				}
+				logf("windows: %s", l)
+				sysprep = sysprep || strings.Contains(l, "SERVERMGR-SYSPREP")
+				last = append(last, l)
+				progress = time.Now()
 			}
 			seen = max(seen, len(lines))
 		}
@@ -670,14 +694,18 @@ func (a *API) winBuild(ctx context.Context, cl *proxmox.Client, ed *winEdition, 
 			Status string `json:"status"`
 		}
 		if err := cl.Do(ctx, http.MethodGet, gp+"/status/current", nil, &st); err != nil {
-			return vmid, err
+			return err
 		}
 		if st.Status == "stopped" {
 			break
 		}
+		if time.Since(progress) >= winStall {
+			logf("no progress from Windows for %d minutes; open VM %d's console to see what it is waiting for", int(winStall.Minutes()), vmid)
+			progress = time.Now()
+		}
 		select {
 		case <-ctx.Done():
-			return vmid, fmt.Errorf("Windows did not finish in time; VM %d is left running to look at", vmid)
+			return fmt.Errorf("Windows did not finish in time; VM %d is left running to look at", vmid)
 		case <-time.After(winPoll):
 		}
 	}
@@ -685,10 +713,68 @@ func (a *API) winBuild(ctx context.Context, cl *proxmox.Client, ed *winEdition, 
 		if len(last) > 3 {
 			last = last[len(last)-3:]
 		}
-		return vmid, fmt.Errorf("VM %d stopped before Sysprep ran; it is kept to look at (last log lines: %s)", vmid, strings.Join(last, " | "))
+		return fmt.Errorf("VM %d stopped before Sysprep ran; it is kept to look at (last log lines: %s)", vmid, strings.Join(last, " | "))
 	}
 	logf("Sysprep finished and the VM shut down")
-	return vmid, winFinish(ctx, cl, node, vmid, req.DiskStorage, profile, logf)
+	return winFinish(ctx, cl, node, vmid, diskStorage, profile, logf)
+}
+
+// ResumeWindowsBuilds picks up the Windows template builds that were
+// running when the panel stopped. The VM goes on installing by itself, so
+// the panel only has to watch it again and finish the template.
+func (a *API) ResumeWindowsBuilds(ctx context.Context) {
+	ps, err := a.Store.ListProvisions(ctx, 500, nil)
+	if err != nil {
+		a.Log.Warn("windows builds: list", "err", err)
+		return
+	}
+	for _, p := range ps {
+		if store.ResumableWindowsBuild(p) {
+			go a.resumeWindowsBuild(p)
+		}
+	}
+}
+
+func (a *API) resumeWindowsBuild(p *store.ProxmoxProvision) {
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 6*time.Hour)
+	defer cancel()
+	logf := a.provisionLog(p)
+	vmid := *p.VMID
+	logf("the panel restarted; watching VM %d again", vmid)
+	err := func() error {
+		_, cl, err := a.pveClient(ctx, p.ClusterID)
+		if err != nil {
+			return err
+		}
+		res, err := cl.Resources(ctx)
+		if err != nil {
+			return err
+		}
+		i := slices.IndexFunc(res, func(x proxmox.Resource) bool { return x.Type == "qemu" && x.VMID == vmid })
+		if i < 0 {
+			return fmt.Errorf("VM %d no longer exists", vmid)
+		}
+		if res[i].Template == 1 {
+			logf("VM %d is already a template", vmid)
+			return nil
+		}
+		node := res[i].Node
+		var cfg map[string]any
+		if err := cl.Do(ctx, http.MethodGet, proxmox.GuestPath(node, "qemu", vmid)+"/config", nil, &cfg); err != nil {
+			return err
+		}
+		disk, _ := cfg["scsi0"].(string)
+		storage, _, _ := strings.Cut(disk, ":")
+		profile := "standard"
+		if strings.HasSuffix(p.Name, "-hardened") {
+			profile = "hardened"
+		}
+		return a.winWatchAndFinish(ctx, cl, node, vmid, storage, profile, strings.Count(p.Log, " windows: "), strings.Contains(p.Log, "SERVERMGR-SYSPREP"), logf)
+	}()
+	if err == nil {
+		logf("done: template %d is ready; deploy it from Deploy or New VM", vmid)
+	}
+	a.finishProvision(p, err, logf)
 }
 
 // winFinish turns a sysprepped, stopped Windows VM into a cloud-init

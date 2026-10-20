@@ -20,6 +20,18 @@ $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+# Start-Process -Wait also waits for everything an installer leaves running
+# (a tray app, an updater), which can be forever. Wait for the installer
+# process itself, with a time limit.
+function Invoke-Installer([string]$Path, [string[]]$Arguments, [int]$Minutes = 30) {
+    $sp = @{ FilePath = $Path; PassThru = $true }
+    if ($Arguments -and $Arguments.Count) { $sp.ArgumentList = $Arguments }
+    $p = Start-Process @sp
+    $null = $p.Handle  # keeps ExitCode readable after the wait (Windows PowerShell 5.1)
+    if (-not $p.WaitForExit($Minutes * 60000)) { throw "the installer was still running after $Minutes minutes" }
+    return $p.ExitCode
+}
+
 function CheckSigner([string]$path, $a) {
     $sig = Get-AuthenticodeSignature -FilePath $path
     if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch $a.signer) {
@@ -95,15 +107,15 @@ foreach ($a in $apps) {
         $extra = @($a.args | Where-Object { $_ })
         if ($a.kind -eq 'zip') {
             InstallZip $file $a
-            $p = @{ ExitCode = 0 }
+            $code = 0
         } elseif ($a.kind -eq 'msi') {
-            $p = Start-Process msiexec.exe -ArgumentList (@('/i', "`"$file`"", '/qn', '/norestart') + $extra) -Wait -PassThru
+            $code = Invoke-Installer msiexec.exe (@('/i', "`"$file`"", '/qn', '/norestart') + $extra)
         } elseif ($extra.Count) {
-            $p = Start-Process -FilePath $file -ArgumentList $extra -Wait -PassThru
+            $code = Invoke-Installer $file $extra
         } else {
-            $p = Start-Process -FilePath $file -Wait -PassThru
+            $code = Invoke-Installer $file @()
         }
-        if ($p.ExitCode -notin 0, 3010, 1641) { throw "the installer exited with code $($p.ExitCode)" }
+        if ($code -notin 0, 3010, 1641) { throw "the installer exited with code $code" }
         Log "$($a.name): installed"
     } catch {
         $failed++

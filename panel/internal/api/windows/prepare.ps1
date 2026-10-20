@@ -45,6 +45,18 @@ function Try-Step([string]$what, [scriptblock]$do) {
     try { & $do } catch { Log "warning: $what failed: $($_.Exception.Message)" }
 }
 
+# Start-Process -Wait also waits for everything an installer leaves running
+# (a tray app, an updater), which can be forever. Wait for the installer
+# process itself, with a time limit.
+function Invoke-Installer([string]$Path, [string[]]$Arguments, [int]$Minutes = 30) {
+    $sp = @{ FilePath = $Path; PassThru = $true }
+    if ($Arguments -and $Arguments.Count) { $sp.ArgumentList = $Arguments }
+    $p = Start-Process @sp
+    $null = $p.Handle  # keeps ExitCode readable after the wait (Windows PowerShell 5.1)
+    if (-not $p.WaitForExit($Minutes * 60000)) { throw "the installer was still running after $Minutes minutes" }
+    return $p.ExitCode
+}
+
 function Set-Reg([string]$path, [string]$name, $value, [string]$type = 'DWord') {
     if (-not (Test-Path $path)) { New-Item -Path $path -Force | Out-Null }
     New-ItemProperty -Path $path -Name $name -Value $value -PropertyType $type -Force | Out-Null
@@ -91,8 +103,12 @@ if ($virtio) {
             }
         }
     }
-    $p = Start-Process -FilePath (Join-Path $virtio 'virtio-win-guest-tools.exe') -ArgumentList '/install', '/quiet', '/norestart' -Wait -PassThru
-    Log "VirtIO guest tools: exit code $($p.ExitCode)"
+    # The guest tools leave the SPICE and guest agents running; waiting for
+    # those as well would hang the build here.
+    Try-Step 'VirtIO guest tools' {
+        $code = Invoke-Installer (Join-Path $virtio 'virtio-win-guest-tools.exe') @('/install', '/quiet', '/norestart') 20
+        Log "VirtIO guest tools: exit code $code"
+    }
     Try-Step 'starting the guest agent' { Set-Service QEMU-GA -StartupType Automatic; Start-Service QEMU-GA }
 } elseif (Get-Service QEMU-GA -ErrorAction SilentlyContinue) {
     Log 'VirtIO guest tools already installed'
@@ -311,9 +327,9 @@ if (-not (Test-Path "$CloudbaseDir\Python\Scripts\cloudbase-init.exe")) {
         throw "Cloudbase-Init installer signature is not valid ($($sig.Status), $($sig.SignerCertificate.Subject))"
     }
     Log "signature OK: $($sig.SignerCertificate.Subject)"
-    $p = Start-Process msiexec.exe -ArgumentList '/i', "`"$msi`"", '/qn', '/norestart', '/l*v', 'C:\Windows\Temp\cloudbase-init-install.log',
-        'LOGGINGSERIALPORTNAME=""', 'USERNAME=Administrator', 'RUN_SERVICE_AS_LOCAL_SYSTEM=1' -Wait -PassThru
-    if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw "Cloudbase-Init install failed with exit code $($p.ExitCode)" }
+    $code = Invoke-Installer msiexec.exe @('/i', "`"$msi`"", '/qn', '/norestart', '/l*v', 'C:\Windows\Temp\cloudbase-init-install.log',
+        'LOGGINGSERIALPORTNAME=""', 'USERNAME=Administrator', 'RUN_SERVICE_AS_LOCAL_SYSTEM=1') 20
+    if ($code -ne 0 -and $code -ne 3010) { throw "Cloudbase-Init install failed with exit code $code" }
     Remove-Item $msi -Force -ErrorAction SilentlyContinue
 }
 Log 'configuring Cloudbase-Init for Proxmox (config drive)'

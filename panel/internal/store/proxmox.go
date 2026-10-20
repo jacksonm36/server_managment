@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -163,9 +164,21 @@ func (s *Store) ListProvisions(ctx context.Context, limit int, tenant *int64) ([
 	return out, rows.Err()
 }
 
+// windowsBuildMark is what a Windows template build logs once the VM
+// installs by itself (api.winSetupStarted).
+const windowsBuildMark = "Windows Setup runs unattended"
+
+// ResumableWindowsBuild reports whether p is a running Windows template
+// build whose VM can be watched again after a panel restart.
+func ResumableWindowsBuild(p *ProxmoxProvision) bool {
+	return p.Status == "running" && p.VMID != nil && strings.Contains(p.Log, windowsBuildMark)
+}
+
+// FailStaleProvisions ends the runs a panel restart cut off, except the
+// Windows template builds that ResumeWindowsBuilds picks up again.
 func (s *Store) FailStaleProvisions(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, `UPDATE proxmox_provisions SET status = 'failed', log = log || E'interrupted: the panel restarted\n', finished_at = now()
-		WHERE status = 'running'`)
+		WHERE status = 'running' AND NOT (vmid IS NOT NULL AND position($1 in log) > 0)`, windowsBuildMark)
 	return err
 }
 

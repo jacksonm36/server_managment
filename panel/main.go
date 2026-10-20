@@ -181,6 +181,7 @@ func run(log *slog.Logger) error {
 	}
 	applyBaseline := a.ApplyBaseline
 	onConnect.Store(&applyBaseline)
+	go a.ResumeWindowsBuilds(ctx)
 	go a.RunScheduler(ctx)
 	go a.RunAlerts(ctx)
 	go a.RunCatalogRefresh(ctx)
