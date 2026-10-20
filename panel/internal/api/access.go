@@ -116,7 +116,7 @@ func opPerm(op string) string {
 	}
 	prefix, _, _ := strings.Cut(op, ".")
 	switch prefix {
-	case "system", "packages", "services", "cron", "agent", "logs":
+	case "system", "packages", "services", "cron", "agent", "logs", "software":
 		return "server.system"
 	case "ssh_keys":
 		return "server.ssh_keys"

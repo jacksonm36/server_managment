@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/http/httptest"
@@ -125,5 +126,20 @@ func TestWinAppsLive(t *testing.T) {
 			continue
 		}
 		t.Logf("%-12s %s sha256=%v", x.ID, j.URL, j.SHA256 != "")
+	}
+}
+
+// The Windows agent installs programs with its own copy of apps.ps1.
+func TestWinAppsScriptCopies(t *testing.T) {
+	agent, err := os.ReadFile("../../../agent/internal/winops/apps.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	panel, err := windowsFiles.ReadFile("windows/apps.ps1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(agent, panel) {
+		t.Fatal("agent/internal/winops/apps.ps1 and panel/internal/api/windows/apps.ps1 differ; copy one over the other")
 	}
 }

@@ -181,7 +181,7 @@ export function ServerDetail({ id }: { id: string }) {
       )}
       {tab === "terminal" && (
         <Suspense fallback={<p className="text-sm text-muted-foreground">Loading terminal…</p>}>
-          <Terminal serverId={id} online={server.online} />
+          <Terminal serverId={id} online={server.online} windows={server.os === "windows"} />
         </Suspense>
       )}
       {tab === "apps" && <Apps serverId={id} online={server.online} initialApp={pendingApp} onInitialAppUsed={() => setPendingApp("")} />}

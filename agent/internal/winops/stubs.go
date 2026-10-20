@@ -28,7 +28,3 @@ func firewallRuleAdd(context.Context, map[string]string, logFunc) (any, error) {
 func firewallRuleDelete(context.Context, map[string]string, logFunc) (any, error) {
 	return nil, errTODO
 }
-func winAppsList(context.Context) (any, error)                                 { return nil, errTODO }
-func winAppsInstall(context.Context, map[string]string, logFunc) (any, error)  { return nil, errTODO }
-func winAppUninstall(context.Context, map[string]string, logFunc) (any, error) { return nil, errTODO }
-func selfUpdate(context.Context, map[string]string, logFunc) (any, error)      { return nil, errTODO }

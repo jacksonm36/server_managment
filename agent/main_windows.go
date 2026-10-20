@@ -8,7 +8,6 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 
 	"github.com/jacksonm36/servermgr/agent/internal/winops"
@@ -27,20 +26,8 @@ func programData() string {
 }
 
 // secureStateDir gives the state directory (the agent's private key) to
-// SYSTEM and Administrators only, with no inherited access: ProgramData
-// lets every user read by default.
-func secureStateDir(dir string) error {
-	sd, err := windows.SecurityDescriptorFromString("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)")
-	if err != nil {
-		return err
-	}
-	dacl, _, err := sd.DACL()
-	if err != nil {
-		return err
-	}
-	return windows.SetNamedSecurityInfo(dir, windows.SE_FILE_OBJECT,
-		windows.DACL_SECURITY_INFORMATION|windows.PROTECTED_DACL_SECURITY_INFORMATION, nil, nil, dacl, nil)
-}
+// SYSTEM and Administrators only: ProgramData lets every user read.
+func secureStateDir(dir string) error { return winops.SecureDir(dir) }
 
 // prepareRun logs to agent.log in the state directory when the agent runs
 // as a service, which has no console.
@@ -52,11 +39,11 @@ func prepareRun(log *slog.Logger) *slog.Logger {
 	if fi, err := os.Stat(path); err == nil && fi.Size() > 10<<20 {
 		_ = os.Rename(path, path+".1")
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return log
+	if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+		log = slog.New(slog.NewTextHandler(f, nil))
 	}
-	return slog.New(slog.NewTextHandler(f, nil))
+	winops.Lockdown(log, defaultStateDir)
+	return log
 }
 
 type service struct {

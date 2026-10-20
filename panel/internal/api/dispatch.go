@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
+	"strconv"
+	"strings"
 
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 	"github.com/jacksonm36/servermgr/panel/internal/store"
@@ -55,7 +59,30 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 		params = map[string]string{}
 	}
 	var after func(jobID string)
+	storedApps := ""
 	switch op {
+	case "software.install":
+		// The agent gets the catalog entries (download URL, publisher or
+		// SHA-256 to verify), resolved here; ids are all a caller names.
+		if srv.OS != "windows" {
+			return nil, &DispatchError{http.StatusBadRequest, "software.install is for Windows servers"}
+		}
+		storedApps = params["apps"]
+		ids := strings.Fields(storedApps)
+		if len(ids) == 0 {
+			return nil, &DispatchError{http.StatusBadRequest, "pick at least one application"}
+		}
+		for i, id := range ids {
+			if winAppByID(id) == nil || slices.Contains(ids[:i], id) {
+				return nil, &DispatchError{http.StatusBadRequest, "unknown application " + strconv.Quote(id)}
+			}
+		}
+		jobs, err := resolveWinApps(ctx, ids)
+		if err != nil {
+			return nil, &DispatchError{http.StatusBadGateway, err.Error()}
+		}
+		b, _ := json.Marshal(jobs)
+		params = map[string]string{"apps": string(b)}
 	case "ansible.prepare":
 		var addr string
 		if params, addr, err = a.ansiblePrepareParams(srv.ID, params); err != nil {
@@ -74,6 +101,9 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 		a.deprovisionCrowdSec(ctx, srv)
 	}
 	stored := redact(params)
+	if storedApps != "" {
+		stored["apps"] = storedApps
+	}
 	if op == "ssh_keys.add" {
 		stored["key"] = storedKeyParam(params["key"])
 	}

@@ -1,14 +1,12 @@
-// Package term runs interactive shells on a PTY for the panel's web terminal.
+// Package term runs interactive shells for the panel's web terminal: on a
+// PTY on Linux (term_unix.go), on a pseudo console on Windows
+// (term_windows.go).
 package term
 
 import (
 	"errors"
-	"os"
-	"os/exec"
 	"sync"
 	"time"
-
-	"github.com/creack/pty"
 
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 )
@@ -20,8 +18,7 @@ const (
 )
 
 type session struct {
-	cmd      *exec.Cmd
-	pty      *os.File
+	sh       *shell
 	mu       sync.Mutex
 	lastSeen time.Time
 }
@@ -49,11 +46,12 @@ func (m *Manager) exit(id string, code int32, err error) {
 	m.send(&agentv1.AgentMessage{Msg: &agentv1.AgentMessage_TerminalExit{TerminalExit: e}})
 }
 
-func clampSize(cols, rows uint32) *pty.Winsize {
-	return &pty.Winsize{Cols: uint16(min(max(cols, 10), 500)), Rows: uint16(min(max(rows, 5), 200))}
+func clampSize(cols, rows uint32) (uint16, uint16) {
+	return uint16(min(max(cols, 10), 500)), uint16(min(max(rows, 5), 200))
 }
 
-// Open starts a login shell for root on a new PTY.
+// Open starts a shell for the server's administrator (root, or SYSTEM on
+// Windows).
 func (m *Manager) Open(o *agentv1.TerminalOpen) {
 	m.mu.Lock()
 	if _, dup := m.sessions[o.SessionId]; dup || len(m.sessions) >= maxSessions {
@@ -61,28 +59,19 @@ func (m *Manager) Open(o *agentv1.TerminalOpen) {
 		m.exit(o.SessionId, -1, errors.New("too many open terminals on this server (max 5)"))
 		return
 	}
-	shell := "/bin/bash"
-	if _, err := os.Stat(shell); err != nil {
-		shell = "/bin/sh"
-	}
-	cmd := exec.Command(shell, "-l")
-	cmd.Dir = "/root"
-	cmd.Env = []string{"TERM=xterm-256color", "HOME=/root", "USER=root", "LOGNAME=root", "SHELL=" + shell, "LANG=C.UTF-8",
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
-	f, err := pty.StartWithSize(cmd, clampSize(o.Cols, o.Rows))
+	sh, err := startShell(clampSize(o.Cols, o.Rows))
 	if err != nil {
 		m.mu.Unlock()
 		m.exit(o.SessionId, -1, err)
 		return
 	}
-	s := &session{cmd: cmd, pty: f, lastSeen: time.Now()}
-	m.sessions[o.SessionId] = s
+	m.sessions[o.SessionId] = &session{sh: sh, lastSeen: time.Now()}
 	m.mu.Unlock()
 
 	go func() {
 		buf := make([]byte, chunk)
 		for {
-			n, err := f.Read(buf)
+			n, err := sh.Read(buf)
 			if n > 0 {
 				data := append([]byte(nil), buf[:n]...)
 				m.send(&agentv1.AgentMessage{Msg: &agentv1.AgentMessage_TerminalOutput{TerminalOutput: &agentv1.TerminalOutput{SessionId: o.SessionId, Data: data}}})
@@ -91,17 +80,10 @@ func (m *Manager) Open(o *agentv1.TerminalOpen) {
 				break
 			}
 		}
-		werr := cmd.Wait()
-		code := int32(0)
-		var ee *exec.ExitError
-		if errors.As(werr, &ee) {
-			code = int32(ee.ExitCode())
-			werr = nil
-		}
+		code, werr := sh.wait()
 		m.mu.Lock()
 		delete(m.sessions, o.SessionId)
 		m.mu.Unlock()
-		f.Close()
 		m.exit(o.SessionId, code, werr)
 	}()
 }
@@ -117,21 +99,20 @@ func (m *Manager) Input(in *agentv1.TerminalInput) {
 		s.mu.Lock()
 		s.lastSeen = time.Now()
 		s.mu.Unlock()
-		_, _ = s.pty.Write(in.Data)
+		s.sh.Write(in.Data)
 	}
 }
 
 func (m *Manager) Resize(r *agentv1.TerminalResize) {
 	if s := m.get(r.SessionId); s != nil {
-		_ = pty.Setsize(s.pty, clampSize(r.Cols, r.Rows))
+		s.sh.resize(clampSize(r.Cols, r.Rows))
 	}
 }
 
 // Kill ends a session; the read loop then reports the exit.
 func (m *Manager) Kill(id string) {
-	if s := m.get(id); s != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-		_ = s.pty.Close()
+	if s := m.get(id); s != nil {
+		s.sh.kill()
 	}
 }
 
