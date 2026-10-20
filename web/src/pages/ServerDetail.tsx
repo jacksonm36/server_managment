@@ -189,7 +189,7 @@ export function ServerDetail({ id }: { id: string }) {
       )}
       {tab === "terminal" && (
         <Suspense fallback={<p className="text-sm text-muted-foreground">Loading terminal…</p>}>
-          <Terminal serverId={id} online={server.online} windows={server.os === "windows"} />
+          <Terminal serverId={id} online={server.online} windows={windows} />
         </Suspense>
       )}
       {tab === "software" && <Software serverId={id} online={server.online} />}
@@ -206,24 +206,24 @@ export function ServerDetail({ id }: { id: string }) {
           }}
         />
       )}
-      {tab === "files" && <Files serverId={id} online={server.online} windows={server.os === "windows"} />}
+      {tab === "files" && <Files serverId={id} online={server.online} windows={windows} />}
       {tab === "services" && (
         <Services
           serverId={id}
           online={server.online}
-          windows={server.os === "windows"}
+          windows={windows}
           onLogs={(u) => {
             setLogUnit(u);
             setTab("logs");
           }}
         />
       )}
-      {tab === "logs" && <Logs serverId={id} online={server.online} unit={logUnit} windows={server.os === "windows"} />}
+      {tab === "logs" && <Logs serverId={id} online={server.online} unit={logUnit} windows={windows} />}
       {tab === "cron" && <Cron serverId={id} online={server.online} />}
       {tab === "backups" && <Backups serverId={id} online={server.online} />}
-      {tab === "updates" && <Updates serverId={id} online={server.online} windows={server.os === "windows"} />}
+      {tab === "updates" && <Updates serverId={id} online={server.online} windows={windows} />}
       {tab === "ssh" && <SSHKeys serverId={id} online={server.online} />}
-      {tab === "firewall" && <Firewall serverId={id} online={server.online} windows={server.os === "windows"} />}
+      {tab === "firewall" && <Firewall serverId={id} online={server.online} windows={windows} />}
       {tab === "fail2ban" && <Fail2ban serverId={id} online={server.online} />}
       {tab === "crowdsec" && <ServerCrowdSec serverId={id} online={server.online} onOpenFail2ban={() => setTab("fail2ban")} />}
       {tab === "tasks" && <Jobs serverId={id} online={server.online} />}
