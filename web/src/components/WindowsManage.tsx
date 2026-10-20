@@ -259,7 +259,8 @@ export function useWinApps() {
   return apps;
 }
 
-// AppPicker is a checklist of the catalog, by group.
+// AppPicker is a checklist of the catalog, by group. Picking an app that
+// needs another (Ghidra needs Java) picks that one too.
 export function AppPicker({ apps, picked, onChange }: { apps: WinAppInfo[]; picked: string[]; onChange: (ids: string[]) => void }) {
   const groups = [...new Set(apps.map((a) => a.group || "Other"))];
   return (
@@ -276,7 +277,7 @@ export function AppPicker({ apps, picked, onChange }: { apps: WinAppInfo[]; pick
                   <button
                     key={a.id}
                     type="button"
-                    onClick={() => onChange(on ? picked.filter((x) => x !== a.id) : [...picked, a.id])}
+                    onClick={() => onChange(on ? picked.filter((x) => x !== a.id) : [...picked, ...(a.needs ?? []).filter((d) => !picked.includes(d)), a.id])}
                     className={`flex items-start gap-2 rounded-md border px-2.5 py-2 text-left text-sm ${on ? "border-brand bg-brand/5" : "hover:bg-accent/40"}`}
                     title={a.note}
                   >

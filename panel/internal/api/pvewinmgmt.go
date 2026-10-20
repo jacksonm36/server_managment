@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf16"
 
@@ -341,17 +342,29 @@ type winApp struct {
 	Vendor string   `json:"vendor"`
 	Group  string   `json:"group"` // for the picker: Browsers, Development, …
 	Note   string   `json:"note,omitempty"`
-	Kind   string   `json:"-"` // msi | exe
+	Needs  []string `json:"needs,omitempty"` // installed first, e.g. Java for Ghidra
+	Kind   string   `json:"-"`               // msi | exe | zip
 	Args   []string `json:"-"`
 	Signer string   `json:"-"`
+	// Exe is a zip's program: its Start menu shortcut, its folder on PATH,
+	// and the file whose signature Signer checks.
+	Exe string `json:"-"`
 	// Where it comes from: a fixed URL (often the vendor's "latest"
-	// redirect), a GitHub repo's latest release asset, or the newest file
-	// in a directory listing.
+	// redirect), a GitHub repo's latest release asset, the newest file in a
+	// directory listing, or the first link on a vendor page matching Match.
 	URL   string `json:"-"`
 	Repo  string `json:"-"`
 	Dir   string `json:"-"`
-	Match string `json:"-"` // asset or file name pattern
+	Page  string `json:"-"`
+	Match string `json:"-"` // asset or file name pattern; a full URL for Page
 }
+
+const (
+	appPentest = "Penetration testing"
+	appMalware = "Malware analysis and reversing"
+	// Defender quarantines some security tools; the note says so.
+	appDefender = "Microsoft Defender may flag or quarantine it; add an exclusion if it disappears."
+)
 
 var winApps = []winApp{
 	// Browsers and mail
@@ -411,6 +424,49 @@ var winApps = []winApp{
 		Args: []string{"/S"}, Repo: "obsproject/obs-studio", Match: `^OBS-Studio-[\d.]+-Windows-x64-Installer\.exe$`},
 	{ID: "vcredist", Name: "Visual C++ Redistributable (x64)", Vendor: "Microsoft", Group: "Utilities and media", Kind: "exe", Signer: `CN="?Microsoft Corporation`,
 		Args: []string{"/install", "/quiet", "/norestart"}, URL: "https://aka.ms/vs/17/release/vc_redist.x64.exe"},
+
+	// More utilities
+	{ID: "winmerge", Name: "WinMerge", Vendor: "WinMerge", Group: "Utilities and media", Kind: "exe",
+		Args: []string{"/VERYSILENT", "/SP-", "/NORESTART"}, Repo: "WinMerge/winmerge", Match: `^WinMerge-[\d.]+-x64-Setup\.exe$`},
+	{ID: "sysinternals", Name: "Sysinternals Suite", Vendor: "Microsoft", Group: "Utilities and media", Kind: "zip", Signer: `CN="?Microsoft Corporation`,
+		Exe: "procexp64.exe", URL: "https://download.sysinternals.com/files/SysinternalsSuite.zip",
+		Note: "Process Explorer, Process Monitor, Autoruns, TCPView and the rest, on PATH."},
+	{ID: "python", Name: "Python 3", Vendor: "Python Software Foundation", Group: "Development", Kind: "exe", Signer: `CN="?Python Software Foundation`,
+		Args: []string{"/quiet", "InstallAllUsers=1", "PrependPath=1", "Include_test=0"},
+		Page: "https://www.python.org/downloads/windows/", Match: `https://www\.python\.org/ftp/python/3\.\d+\.\d+/python-3\.\d+\.\d+-amd64\.exe`},
+
+	// Penetration testing
+	{ID: "nmap", Name: "Nmap", Vendor: "Nmap Project", Group: appPentest, Kind: "zip", Signer: `CN="?Insecure\.Com`,
+		Exe: "nmap.exe", Dir: "https://nmap.org/dist/", Match: `^nmap-\d+\.\d+-win32\.zip$`,
+		Note: "Command line, on PATH. Raw scans need Npcap (install it once from npcap.com); -sT works without it."},
+	{ID: "burp", Name: "Burp Suite Community", Vendor: "PortSwigger", Group: appPentest, Kind: "exe", Signer: `CN="?PortSwigger`,
+		Args: []string{"-q"}, URL: "https://portswigger.net/burp/releases/startdownload?product=community&type=WindowsX64"},
+	{ID: "zap", Name: "ZAP", Vendor: "ZAP by Checkmarx", Group: appPentest, Kind: "exe",
+		Args: []string{"-q"}, Repo: "zaproxy/zaproxy", Match: `^ZAP_[\d_]+_windows\.exe$`},
+	{ID: "metasploit", Name: "Metasploit Framework", Vendor: "Rapid7", Group: appPentest, Kind: "msi", Signer: `CN="?Rapid7`,
+		URL: "https://windows.metasploit.com/metasploitframework-latest.msi", Note: appDefender},
+
+	// Malware analysis and reversing
+	{ID: "ghidra", Name: "Ghidra", Vendor: "NSA", Group: appMalware, Kind: "zip", Needs: []string{"temurin"},
+		Exe: "ghidraRun.bat", Repo: "NationalSecurityAgency/ghidra", Match: `^ghidra_[\d.]+_PUBLIC_\d+\.zip$`, Note: "Installs Java 21 too."},
+	{ID: "x64dbg", Name: "x64dbg", Vendor: "x64dbg", Group: appMalware, Kind: "zip",
+		Exe: "x96dbg.exe", Repo: "x64dbg/x64dbg", Match: `^snapshot_[\d_-]+\.zip$`},
+	{ID: "die", Name: "Detect It Easy", Vendor: "horsicq", Group: appMalware, Kind: "zip",
+		Exe: "die.exe", Repo: "horsicq/DIE-engine", Match: `^die_win64_portable_[\w.]+\.zip$`},
+	{ID: "pebear", Name: "PE-bear", Vendor: "hasherezade", Group: appMalware, Kind: "zip",
+		Exe: "PE-bear.exe", Repo: "hasherezade/pe-bear", Match: `(?i)^PE-bear_[\d.]+_.*x64.*win.*\.zip$`},
+	{ID: "dnspy", Name: "dnSpyEx", Vendor: "dnSpyEx", Group: appMalware, Kind: "zip",
+		Exe: "dnSpy.exe", Repo: "dnSpyEx/dnSpy", Match: `^dnSpy-net-win64\.zip$`},
+	{ID: "imhex", Name: "ImHex", Vendor: "WerWolv", Group: appMalware, Kind: "msi",
+		Repo: "WerWolv/ImHex", Match: `^imhex-[\d.]+-Windows-x86_64\.msi$`},
+	{ID: "cyberchef", Name: "CyberChef", Vendor: "GCHQ", Group: appMalware, Kind: "zip",
+		Exe: "CyberChef_v*.html", Repo: "gchq/CyberChef", Match: `^CyberChef_v[\d.]+\.zip$`, Note: "Runs offline in the browser."},
+	{ID: "yara", Name: "YARA", Vendor: "VirusTotal", Group: appMalware, Kind: "zip",
+		Exe: "yara64.exe", Repo: "VirusTotal/yara", Match: `(?i)^yara-[\w.-]*win64\.zip$`},
+	{ID: "capa", Name: "capa", Vendor: "Mandiant", Group: appMalware, Kind: "zip",
+		Exe: "capa.exe", Repo: "mandiant/capa", Match: `^capa-v[\d.]+-windows\.zip$`},
+	{ID: "floss", Name: "FLOSS", Vendor: "Mandiant", Group: appMalware, Kind: "zip",
+		Exe: "floss.exe", Repo: "mandiant/flare-floss", Match: `^floss-v[\d.]+-windows\.zip$`},
 }
 
 func winAppByID(id string) *winApp {
@@ -430,6 +486,7 @@ type winAppJob struct {
 	Args   []string `json:"args"`
 	Signer string   `json:"signer,omitempty"`
 	SHA256 string   `json:"sha256,omitempty"`
+	Exe    string   `json:"exe,omitempty"`
 }
 
 var appHTTP = &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -463,7 +520,7 @@ var (
 
 // resolve finds the app's current download.
 func (x *winApp) resolve(ctx context.Context) (*winAppJob, error) {
-	j := &winAppJob{ID: x.ID, Name: x.Name, Kind: x.Kind, Args: x.Args, Signer: x.Signer}
+	j := &winAppJob{ID: x.ID, Name: x.Name, Kind: x.Kind, Args: x.Args, Signer: x.Signer, Exe: x.Exe}
 	if j.Args == nil {
 		j.Args = []string{}
 	}
@@ -498,6 +555,16 @@ func (x *winApp) resolve(ctx context.Context) (*winAppJob, error) {
 		if j.URL == "" {
 			return nil, fmt.Errorf("no file matching %s in %s's latest release", x.Match, x.Repo)
 		}
+	case x.Page != "":
+		b, err := appGet(ctx, x.Page, 4<<20)
+		if err != nil {
+			return nil, err
+		}
+		m := re.Find(b)
+		if m == nil {
+			return nil, fmt.Errorf("no download link on %s", x.Page)
+		}
+		j.URL = string(m)
 	case x.Dir != "":
 		b, err := appGet(ctx, x.Dir, 2<<20)
 		if err != nil {
@@ -539,24 +606,78 @@ func naturalAfter(a, b string) bool {
 	return len(pa) > len(pb)
 }
 
-// resolveWinApps checks ids against the catalog and resolves them.
+// resolveWinApps checks ids against the catalog and resolves them, each
+// app's dependencies first. Lookups run in parallel and are kept for a
+// while: GitHub allows 60 unauthenticated API calls an hour.
 func resolveWinApps(ctx context.Context, ids []string) ([]winAppJob, error) {
 	if len(ids) > len(winApps) {
 		return nil, errors.New("too many applications")
 	}
-	jobs := []winAppJob{}
+	var order []*winApp
 	for i, id := range ids {
 		x := winAppByID(id)
 		if x == nil || slices.Contains(ids[:i], id) {
 			return nil, fmt.Errorf("unknown application %q", id)
 		}
-		j, err := x.resolve(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", x.Name, err)
+		for _, d := range x.Needs {
+			if dx := winAppByID(d); dx != nil && !slices.Contains(order, dx) {
+				order = append(order, dx)
+			}
 		}
-		jobs = append(jobs, *j)
+		if !slices.Contains(order, x) {
+			order = append(order, x)
+		}
+	}
+	jobs := make([]winAppJob, len(order))
+	errs := make([]error, len(order))
+	var wg sync.WaitGroup
+	for i, x := range order {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			j, err := appResolveCached(ctx, x)
+			if err != nil {
+				errs[i] = fmt.Errorf("%s: %w", x.Name, err)
+				return
+			}
+			jobs[i] = *j
+		}()
+	}
+	wg.Wait()
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
 	}
 	return jobs, nil
+}
+
+var appCache = struct {
+	sync.Mutex
+	m map[string]appCached
+}{m: map[string]appCached{}}
+
+type appCached struct {
+	job *winAppJob
+	at  time.Time
+}
+
+// appCacheFor is how long a resolved download is reused.
+var appCacheFor = 30 * time.Minute
+
+func appResolveCached(ctx context.Context, x *winApp) (*winAppJob, error) {
+	appCache.Lock()
+	c, ok := appCache.m[x.ID]
+	appCache.Unlock()
+	if ok && time.Since(c.at) < appCacheFor {
+		return c.job, nil
+	}
+	j, err := x.resolve(ctx)
+	if err != nil {
+		return nil, err
+	}
+	appCache.Lock()
+	appCache.m[x.ID] = appCached{j, time.Now()}
+	appCache.Unlock()
+	return j, nil
 }
 
 func appsScript() []byte {
