@@ -28,9 +28,14 @@ type Opened = { path: string; text?: string; base64?: string; size: number };
 
 const MAX_UPLOAD = 2 << 20;
 
-export function Files({ serverId, online }: { serverId: string; online: boolean }) {
+// Windows paths: "" is "This PC" (the drives), then C:\, C:\Users…
+const winJoin = (dir: string, name: string) => (dir === "" ? `${name}\\` : `${dir.replace(/\\$/, "")}\\${name}`);
+const winParent = (p: string) => (/^[A-Za-z]:\\?$/.test(p) ? "" : p.replace(/\\[^\\]+\\?$/, "").replace(/^([A-Za-z]:)$/, "$1\\"));
+
+export function Files({ serverId, online, windows = false }: { serverId: string; online: boolean; windows?: boolean }) {
+  const home = windows ? "" : "/srv/sites";
   const [list, setList] = useState<Listing | null>(null);
-  const [path, setPath] = useState("/srv/sites");
+  const [path, setPath] = useState(home);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<Opened | null>(null);
@@ -61,13 +66,15 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
   }
 
   useEffect(() => {
-    if (online) void load("/srv/sites");
+    if (online) void load(home);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverId, online]);
 
-  const join = (name: string) => `${path.replace(/\/$/, "")}/${name}`;
+  const join = (name: string) => (windows ? winJoin(path, name) : `${path.replace(/\/$/, "")}/${name}`);
   const disabled = !online || busy;
   const atRoot = list ? path === list.root : true;
+  // On Windows, files can be created anywhere below a drive.
+  const canCreate = !atRoot;
 
   async function openFile(e: Entry) {
     const r = await op<Opened>("files.read", { path: join(e.name) });
@@ -82,7 +89,7 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
     const url = URL.createObjectURL(new Blob([bytes]));
     const a = document.createElement("a");
     a.href = url;
-    a.download = o.path.split("/").pop() ?? "file";
+    a.download = o.path.split(/[\\/]/).pop() ?? "file";
     a.click();
     URL.revokeObjectURL(url);
   }
@@ -105,7 +112,8 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
     await load();
   }
 
-  const crumbs = path.split("/").filter(Boolean);
+  const crumbs = windows ? path.split("\\").filter(Boolean) : path.split("/").filter(Boolean);
+  const crumbPath = (i: number) => (windows ? (i === 0 ? `${crumbs[0]}\\` : crumbs.slice(0, i + 1).join("\\")) : "/" + crumbs.slice(0, i + 1).join("/"));
 
   return (
     <div className="grid gap-4">
@@ -114,7 +122,7 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
           <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle>Files</CardTitle>
             <div className="flex flex-wrap gap-1">
-              <Button variant="ghost" size="sm" disabled={disabled || atRoot} onClick={() => load(path.replace(/\/[^/]+$/, "") || "/")}>
+              <Button variant="ghost" size="sm" disabled={disabled || atRoot} onClick={() => load(windows ? winParent(path) : path.replace(/\/[^/]+$/, "") || "/")}>
                 <ArrowUp /> Up
               </Button>
               <Button variant="ghost" size="sm" disabled={disabled} onClick={() => load()} aria-label="Refresh">
@@ -123,7 +131,7 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={disabled || atRoot}
+                disabled={disabled || !canCreate}
                 onClick={async () => {
                   const n = prompt("New folder name");
                   if (n && (await op("files.mkdir", { path: join(n) })) !== null) await load();
@@ -134,7 +142,7 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
               <Button
                 variant="secondary"
                 size="sm"
-                disabled={disabled || atRoot}
+                disabled={disabled || !canCreate}
                 onClick={async () => {
                   const n = prompt("New file name");
                   if (n && (await op("files.write", { path: join(n), content: "" })) !== null) {
@@ -146,19 +154,24 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
               >
                 <FilePlus /> File
               </Button>
-              <Button variant="brand" size="sm" disabled={disabled || atRoot} onClick={() => upload.current?.click()}>
+              <Button variant="brand" size="sm" disabled={disabled || !canCreate} onClick={() => upload.current?.click()}>
                 <Upload /> Upload
               </Button>
               <input ref={upload} type="file" multiple hidden onChange={(e) => onUpload(e.target.files)} />
             </div>
           </div>
           <nav className="flex flex-wrap items-center gap-0.5 font-mono text-xs text-muted-foreground" aria-label="Path">
+            {windows && (
+              <button disabled={disabled || path === ""} onClick={() => load("")} className="cursor-pointer rounded px-1 hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground">
+                This PC
+              </button>
+            )}
             {crumbs.map((c, i) => {
-              const p = "/" + crumbs.slice(0, i + 1).join("/");
+              const p = crumbPath(i);
               const clickable = list && p.length >= list.root.length;
               return (
                 <span key={p} className="flex items-center gap-0.5">
-                  {i > 0 && <ChevronRight className="size-3" />}
+                  {(i > 0 || windows) && <ChevronRight className="size-3" />}
                   <button disabled={!clickable || disabled} onClick={() => load(p)} className="cursor-pointer rounded px-1 hover:text-foreground disabled:cursor-default disabled:hover:text-muted-foreground">
                     {c}
                   </button>
@@ -170,7 +183,9 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
         <CardContent className="grid gap-3">
           {!online && <Offline />}
           {error && <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p>}
-          {atRoot && list && list.entries.length === 0 && <p className="text-sm text-muted-foreground">No sites yet. Create one on the Sites tab.</p>}
+          {atRoot && list && list.entries.length === 0 && (
+            <p className="text-sm text-muted-foreground">{windows ? "No drives found." : "No sites yet. Create one on the Sites tab."}</p>
+          )}
           {list && list.entries.length > 0 && (
             <div className="overflow-x-auto rounded-lg border">
               <table className="w-full text-sm">
@@ -180,7 +195,7 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
                     <th className="hidden px-3 py-2 font-medium sm:table-cell">Size</th>
                     <th className="hidden px-3 py-2 font-medium md:table-cell">Modified</th>
                     <th className="hidden px-3 py-2 font-medium md:table-cell">Owner</th>
-                    <th className="px-3 py-2 font-medium">Mode</th>
+                    <th className="px-3 py-2 font-medium">{windows ? "Attributes" : "Mode"}</th>
                     <th className="px-3 py-2" />
                   </tr>
                 </thead>
@@ -204,10 +219,15 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
                           {e.target && <span className="truncate text-xs text-muted-foreground">→ {e.target}</span>}
                         </button>
                       </td>
-                      <td className="hidden px-3 py-1.5 text-muted-foreground tabular sm:table-cell">{e.type === "file" ? formatBytes(e.size) : ""}</td>
-                      <td className="hidden px-3 py-1.5 text-muted-foreground md:table-cell">{timeAgo(new Date(e.mtime * 1000).toISOString())}</td>
+                      <td className="hidden px-3 py-1.5 text-muted-foreground tabular sm:table-cell">{e.type === "file" || (atRoot && windows) ? formatBytes(e.size) : ""}</td>
+                      <td className="hidden px-3 py-1.5 text-muted-foreground md:table-cell">{e.mtime ? timeAgo(new Date(e.mtime * 1000).toISOString()) : ""}</td>
                       <td className="hidden px-3 py-1.5 font-mono text-xs text-muted-foreground md:table-cell">{e.owner}</td>
                       <td className="px-3 py-1.5">
+                        {windows ? (
+                          <span className="font-mono text-xs text-muted-foreground" title="R read-only, H hidden, S system">
+                            {e.mode}
+                          </span>
+                        ) : (
                         <button
                           className="cursor-pointer font-mono text-xs text-muted-foreground hover:text-foreground disabled:cursor-default"
                           disabled={disabled || atRoot}
@@ -219,6 +239,7 @@ export function Files({ serverId, online }: { serverId: string; online: boolean 
                         >
                           {e.mode}
                         </button>
+                        )}
                       </td>
                       <td className="px-1 py-1 text-right whitespace-nowrap">
                         {!atRoot && (

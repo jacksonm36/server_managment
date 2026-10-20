@@ -206,7 +206,7 @@ export function ServerDetail({ id }: { id: string }) {
           }}
         />
       )}
-      {tab === "files" && <Files serverId={id} online={server.online} />}
+      {tab === "files" && <Files serverId={id} online={server.online} windows={server.os === "windows"} />}
       {tab === "services" && (
         <Services
           serverId={id}
@@ -222,7 +222,7 @@ export function ServerDetail({ id }: { id: string }) {
       {tab === "backups" && <Backups serverId={id} online={server.online} />}
       {tab === "updates" && <Updates serverId={id} online={server.online} />}
       {tab === "ssh" && <SSHKeys serverId={id} online={server.online} />}
-      {tab === "firewall" && <Firewall serverId={id} online={server.online} />}
+      {tab === "firewall" && <Firewall serverId={id} online={server.online} windows={server.os === "windows"} />}
       {tab === "fail2ban" && <Fail2ban serverId={id} online={server.online} />}
       {tab === "crowdsec" && <ServerCrowdSec serverId={id} online={server.online} onOpenFail2ban={() => setTab("fail2ban")} />}
       {tab === "tasks" && <Jobs serverId={id} online={server.online} />}
