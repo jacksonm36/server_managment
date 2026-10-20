@@ -205,6 +205,7 @@ export function CreateGuestDialog({
     nesting: true,
     agent: true,
     start: false,
+    enroll: ac.can("servers.add"),
   });
   const up = (k: keyof typeof f) => (v: string | boolean) => setF((x) => ({ ...x, [k]: v }));
   useEffect(() => {
@@ -286,8 +287,9 @@ export function CreateGuestDialog({
           if (f.password) p.password = f.password;
           if (f.sshkey.trim()) p["ssh-public-keys"] = f.sshkey.trim();
         }
-        if (f.start) p.start = "1";
-        const r = await pve.create(cluster, node, type, p);
+        const enroll = !qemu && f.enroll;
+        if (f.start || enroll) p.start = "1";
+        const r = await pve.create(cluster, node, type, p, enroll);
         nav(`/proxmox/${cluster}/${encodeURIComponent(r.node)}/${r.type}/${r.vmid}`);
       }}
     >
@@ -426,8 +428,15 @@ export function CreateGuestDialog({
       )}
       <div className="flex flex-wrap gap-4">
         {qemu ? <Check label="QEMU guest agent" v={f.agent} set={up("agent")} /> : <Check label="Nesting (Docker inside)" v={f.nesting} set={up("nesting")} />}
-        <Check label="Start after creating" v={f.start} set={up("start")} />
+        <Check label="Start after creating" v={f.start || (!qemu && f.enroll)} set={up("start")} />
+        {!qemu && ac.can("servers.add") && <Check label="Enroll in servermgr" v={f.enroll} set={up("enroll")} />}
       </div>
+      {!qemu && f.enroll && (
+        <p className="text-xs text-muted-foreground">
+          Starts the container and installs the servermgr agent over SSH as root with the panel&apos;s key; it shows up under Servers within a few minutes.
+          Needs a template with an SSH server (Proxmox&apos;s Debian and Ubuntu templates have one).
+        </p>
+      )}
     </FormDialog>
   );
 }

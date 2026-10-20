@@ -900,7 +900,7 @@ func (a *API) runProvision(who Who, s *pveScope, p *store.ProxmoxProvision, req 
 // provisionVM clones a template into a new VM, sets cloud-init, starts it
 // and, if asked, enrolls it.
 func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.ProxmoxProvision, req pveProvisionReq, cloned func(), logf func(string, ...any)) error {
-	c, cl := s.C, s.Cl
+	cl := s.Cl
 	var next flexString
 	if err := cl.Do(ctx, http.MethodGet, "/cluster/nextid", nil, &next); err != nil {
 		return err
@@ -1052,19 +1052,15 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 	logf("VM address %s; enrolling the agent over SSH", addr)
 	serverID, err := a.enrollOverSSH(ctx, addr, req.user(), req.Name, logf)
 	if err != nil {
-		return err
-	}
-	p.ServerID = &serverID
-	_ = a.Store.LinkProxmoxGuest(ctx, c.ID, vmid, serverID)
-	if t := who.Access.tenantGroup(); t != 0 {
-		if err := a.Store.AddServerToGroup(ctx, t, serverID); err != nil {
-			logf("warning: adding the server to your server group: %v", err)
+		// The panel may not reach the VM's network; the guest agent
+		// does not need to.
+		logf("SSH enrollment failed (%v); enrolling through the guest agent instead", err)
+		if serverID, err = a.enrollViaAgent(ctx, cl, node, vmid, req.Name, logf); err != nil {
+			return err
 		}
 	}
-	logf("enrolled as server %s; restricting the panel key and pinning host keys (Prepare for Ansible)", serverID)
-	if _, err := a.Dispatch(ctx, Who{Actor: who.Actor, IP: "panel"}, serverID, "ansible.prepare", map[string]string{"address": addr}); err != nil {
-		logf("warning: ansible.prepare: %v", err)
-	}
+	p.ServerID = &serverID
+	a.linkEnrolled(ctx, who, s, vmid, serverID, addr, logf)
 	return nil
 }
 
@@ -1140,14 +1136,5 @@ func (a *API) enrollOverSSH(ctx context.Context, addr, user, name string, logf f
 	if err != nil {
 		return "", fmt.Errorf("agent installer failed: %v", err)
 	}
-	for i := 0; i < 60; i++ {
-		if sid, err := a.Store.JoinTokenServer(ctx, hash); err == nil && sid != "" {
-			for j := 0; j < 30 && !a.Hub.Online(sid); j++ {
-				time.Sleep(time.Second)
-			}
-			return sid, nil
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return "", errors.New("the agent did not enroll within 2 minutes")
+	return a.waitEnrolled(ctx, hash)
 }

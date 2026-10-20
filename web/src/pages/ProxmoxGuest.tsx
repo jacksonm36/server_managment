@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { AppWindow, ArrowLeft, Camera, Copy, ExternalLink, KeyRound, LayoutTemplate, Loader2, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Square, Trash2 } from "lucide-react";
+import { AppWindow, ArrowLeft, Camera, Copy, ExternalLink, KeyRound, LayoutTemplate, Loader2, MonitorPlay, MoveRight, Pause, Play, Power, RefreshCw, RotateCw, Server as ServerIcon, Square, Trash2 } from "lucide-react";
 import { api, type PVEGuestDetail, type PVEGuestRef, type PVERRDPoint, type PVETask, type PVETimeframe } from "@/lib/api";
 import { useAccess } from "@/lib/access";
 import { setPending, usePending } from "@/lib/pending";
@@ -127,6 +127,20 @@ export function ProxmoxGuest({
     return () => clearInterval(t);
   }, [cluster, ref, tf]);
 
+  async function enroll() {
+    setBusy("enroll");
+    setMsg(null);
+    try {
+      const r = await api.pveEnroll(cluster, ref);
+      setMsg({ ok: true, text: `Enrolled as ${r.name}: it is now a servermgr server.` });
+      void load();
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy("");
+    }
+  }
+
   const pendingKey = `${node}/${vmid}`;
   const pending = usePending(pendingKey);
   const [pw, setPw] = useState<PowerState>(null);
@@ -213,6 +227,13 @@ export function ProxmoxGuest({
               <Badge variant="outline">
                 {g.type === "qemu" ? "VM" : "CT"} {g.vmid}
               </Badge>
+              {g.server_id && (
+                <Link href={`/servers/${g.server_id}`}>
+                  <Badge variant="outline" className="cursor-pointer gap-1 hover:bg-accent" title="Open it in servermgr">
+                    <ServerIcon className="size-3" /> {g.server_name}
+                  </Badge>
+                </Link>
+              )}
               {pending ? (
                 <Badge variant="warning" className="gap-1.5">
                   <span className="animate-ring size-1.5 rounded-full bg-current" />
@@ -283,6 +304,17 @@ export function ProxmoxGuest({
                   <Camera /> Snapshots
                 </Button>
               </>
+            )}
+            {ac.can("proxmox.guests") && ac.can("servers.add") && g.type === "qemu" && running && !g.server_id && !String(g.config.ostype ?? "").startsWith("w") && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={busy === "enroll"}
+                onClick={() => void enroll()}
+                title="Install the servermgr agent through the QEMU guest agent; no SSH needed"
+              >
+                {busy === "enroll" ? <Loader2 className="animate-spin" /> : <ServerIcon />} Enroll in servermgr
+              </Button>
             )}
             {ac.can("proxmox.guests") && g.type === "qemu" && running && !String(g.config.ostype ?? "").startsWith("w") && (
               <Button size="sm" variant="secondary" onClick={() => setPwDlg(true)} title="Set a user's password through the QEMU guest agent">

@@ -396,6 +396,8 @@ export type PVEGuestDetail = {
   config: Record<string, string | number>;
   ips: string[] | null;
   interfaces?: PVEGuestIface[] | null; // from the guest agent or the container
+  server_id?: string; // the servermgr server this guest is
+  server_name?: string;
 };
 export type PVEOption = { key: string; kind: "bool" | "enum" | "text"; values?: string[]; about: string; hint?: string; admin?: boolean; default?: string };
 export type PVEGuestIface = { name: string; mac?: string; addrs: string[] };
@@ -843,6 +845,7 @@ export const api = {
     request<PVETemplateTargets>("GET", `/api/v1/proxmox/${id}/template-targets?node=${encodeURIComponent(node)}`),
   pveTemplateCreate: (id: string, b: PVETemplateReq) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/templates`, b),
   pveProvisions: () => request<PVEProvision[]>("GET", "/api/v1/proxmox/provisions"),
+  pveEnroll: (id: string, g: PVEGuestRef) => request<{ server_id: string; name: string; log: string[] }>("POST", `${pveGuestURL(id, g)}/enroll`),
   pveSetPassword: (id: string, g: PVEGuestRef, username: string, password: string) =>
     request<void>("POST", `${pveGuestURL(id, g)}/password`, { username, password }),
   pvePower: (id: string, g: PVEGuestRef, action: string) => request<void>("POST", `${pveGuestURL(id, g)}/power`, { action }),

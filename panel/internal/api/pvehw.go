@@ -202,11 +202,20 @@ func (a *API) handlePVECreateGuest(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Type   string            `json:"type"`
 		Params map[string]string `json:"params"`
+		Enroll bool              `json:"enroll"` // containers: start and enroll as a servermgr server
 	}
 	if !readJSON(w, r, &req) {
 		return
 	}
 	node := r.PathValue("node")
+	if req.Enroll && req.Type != "lxc" {
+		writeErr(w, http.StatusBadRequest, "a new VM has no OS yet: enroll it from its page once it is installed")
+		return
+	}
+	if req.Enroll && !accessFrom(r.Context()).Can("servers.add") {
+		writeErr(w, http.StatusForbidden, "adding servers is not allowed for you")
+		return
+	}
 	if !pveNode.MatchString(node) || (req.Type != "qemu" && req.Type != "lxc") {
 		writeErr(w, http.StatusBadRequest, "pick a node and qemu or lxc")
 		return
@@ -273,6 +282,17 @@ func (a *API) handlePVECreateGuest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "pick a container template")
 		return
 	}
+	if req.Enroll {
+		// The panel logs in as root with its own key to install the agent.
+		_, pub, err := a.ansibleKey()
+		if err != nil {
+			a.internal(w, err)
+			return
+		}
+		keys := strings.TrimSpace(form.Get("ssh-public-keys"))
+		form.Set("ssh-public-keys", strings.TrimSpace(keys+"\n"+pub+" servermgr-ansible"))
+		form.Set("start", "1")
+	}
 	var raw json.RawMessage
 	path := "/nodes/" + url.PathEscape(node) + "/" + req.Type
 	target := guestTarget(s, vmid)
@@ -300,7 +320,14 @@ func (a *API) handlePVECreateGuest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	a.audit(r, "", "proxmox.create_guest", target, auditForm(form), true)
-	writeJSON(w, http.StatusOK, map[string]any{"upid": upid, "done": done, "vmid": vmid, "node": node, "type": req.Type})
+	if req.Enroll {
+		name := form.Get("hostname")
+		if name == "" {
+			name = fmt.Sprintf("ct-%d", vmid)
+		}
+		go a.enrollContainer(whoFrom(r), s, node, vmid, name, upid)
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"upid": upid, "done": done, "vmid": vmid, "node": node, "type": req.Type, "enrolling": req.Enroll})
 }
 
 type pveNodeStorage struct {

@@ -80,8 +80,8 @@ const gpw = (id: string, g: PVEGuestRef) => `/api/v1/proxmox/${id}/guests/${enc(
 
 export const pve = {
   // creating guests
-  create: (id: string, node: string, type: "qemu" | "lxc", params: Record<string, string>) =>
-    request<{ upid: string; vmid: number; node: string; type: string }>("POST", `${np(id, node)}/guests`, { type, params }),
+  create: (id: string, node: string, type: "qemu" | "lxc", params: Record<string, string>, enroll = false) =>
+    request<{ upid: string; vmid: number; node: string; type: string }>("POST", `${np(id, node)}/guests`, { type, params, enroll }),
   choices: (id: string, node: string) => request<PVEChoices>("GET", `${np(id, node)}/choices`),
   appliances: (id: string, node: string) => request<PVEAppliance[]>("GET", `${np(id, node)}/appliances`),
   applianceDownload: (id: string, node: string, storage: string, template: string) =>

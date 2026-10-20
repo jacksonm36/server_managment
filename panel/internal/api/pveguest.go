@@ -62,10 +62,17 @@ func (a *API) handlePVEGuest(w http.ResponseWriter, r *http.Request) {
 		ifaces, _ = s.Cl.GuestInterfaces(actx, node, typ, vmid)
 		acancel()
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	out := map[string]any{
 		"node": node, "type": typ, "vmid": vmid,
 		"status": status, "config": config, "ips": proxmox.IfaceIPs(ifaces), "interfaces": ifaces,
-	})
+	}
+	// The servermgr server this guest is, when the caller may see it.
+	if links, err := a.Store.ProxmoxLinks(ctx, s.C.ID); err == nil && links[vmid] != "" {
+		if sv, err := a.Store.GetServer(ctx, links[vmid]); err == nil && accessFrom(r.Context()).CanOn("server.view", sv.ID) {
+			out["server_id"], out["server_name"] = sv.ID, sv.Name
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // pveRRDKeys are the RRD columns the UI draws.
