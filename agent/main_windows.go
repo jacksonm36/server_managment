@@ -3,26 +3,19 @@ package main
 import (
 	"context"
 	"crypto/x509"
-	"encoding/json"
-	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
-	"time"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 
-	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
-	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
+	"github.com/jacksonm36/servermgr/agent/internal/winops"
 )
 
-// On Windows the agent runs as the servermgr-agent service (LocalSystem).
-// It reports the host and its metrics and takes the jobs below; the Linux
-// operations (packages, firewall, sites…) do not apply.
+// On Windows the agent runs as the servermgr-agent service (LocalSystem)
+// and takes the jobs in package winops.
 
 var defaultStateDir = filepath.Join(programData(), "servermgr-agent")
 
@@ -102,34 +95,12 @@ func runContext(log *slog.Logger) (context.Context, context.CancelFunc) {
 	return ctx, cancel
 }
 
-// startBackground: certificate renewal and site backups are Linux only.
-func startBackground(context.Context, *slog.Logger, string, *x509.CertPool) {}
+// startBackground tells the jobs where the panel is; certificate renewal
+// and site backups are Linux only.
+func startBackground(_ context.Context, _ *slog.Logger, panelURL string, pool *x509.CertPool) {
+	winops.PanelURL = panelURL
+	winops.PanelCA = pool
+}
 
 // runJob carries out the jobs a Windows server supports.
-func runJob(_ context.Context, job *agentv1.Job, send func(*agentv1.JobUpdate)) {
-	send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_RUNNING})
-	var result any
-	var err error
-	switch job.Op {
-	case agentv1.Op_OP_SYSTEM_INFO:
-		hn, _ := os.Hostname()
-		rel := sysinfo.OSRelease()
-		result = map[string]any{"hostname": hn, "os": "windows", "os_version": rel["VERSION"], "os_pretty": rel["PRETTY_NAME"],
-			"kernel": sysinfo.Kernel(), "arch": runtime.GOARCH, "cpu_count": runtime.NumCPU()}
-	case agentv1.Op_OP_SYSTEM_REBOOT:
-		send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_RUNNING, LogLines: []string{"rebooting in 5 seconds"}})
-		go func() {
-			time.Sleep(time.Second)
-			_ = exec.Command("shutdown.exe", "/r", "/t", "5", "/c", "servermgr").Run()
-		}()
-		result = map[string]any{"scheduled": true}
-	default:
-		err = fmt.Errorf("%s is not available on Windows servers yet", job.Op)
-	}
-	if err != nil {
-		send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_FAILED, Error: err.Error()})
-		return
-	}
-	b, _ := json.Marshal(result)
-	send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_SUCCEEDED, ResultJson: string(b)})
-}
+var runJob = winops.Run

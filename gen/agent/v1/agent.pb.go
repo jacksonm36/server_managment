@@ -146,6 +146,10 @@ const (
 	Op_OP_CROWDSEC_REMOVE        Op = 67
 	Op_OP_ANSIBLE_PREPARE        Op = 68 // params: pubkey, from
 	Op_OP_ANSIBLE_REVOKE         Op = 69
+	// Windows servers
+	Op_OP_WIN_APPS_LIST     Op = 70 // installed programs
+	Op_OP_WIN_APPS_INSTALL  Op = 71 // params: apps (JSON: resolved catalog entries from the panel)
+	Op_OP_WIN_APP_UNINSTALL Op = 72 // params: id (the program's uninstall registry key)
 )
 
 // Enum value maps for Op.
@@ -221,6 +225,9 @@ var (
 		67: "OP_CROWDSEC_REMOVE",
 		68: "OP_ANSIBLE_PREPARE",
 		69: "OP_ANSIBLE_REVOKE",
+		70: "OP_WIN_APPS_LIST",
+		71: "OP_WIN_APPS_INSTALL",
+		72: "OP_WIN_APP_UNINSTALL",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -293,6 +300,9 @@ var (
 		"OP_CROWDSEC_REMOVE":        67,
 		"OP_ANSIBLE_PREPARE":        68,
 		"OP_ANSIBLE_REVOKE":         69,
+		"OP_WIN_APPS_LIST":          70,
+		"OP_WIN_APPS_INSTALL":       71,
+		"OP_WIN_APP_UNINSTALL":      72,
 	}
 )
 
@@ -1353,7 +1363,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xf2\v\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xbb\f\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -1425,7 +1435,10 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x0fOP_CROWDSEC_HUB\x10B\x12\x16\n" +
 	"\x12OP_CROWDSEC_REMOVE\x10C\x12\x16\n" +
 	"\x12OP_ANSIBLE_PREPARE\x10D\x12\x15\n" +
-	"\x11OP_ANSIBLE_REVOKE\x10E2M\n" +
+	"\x11OP_ANSIBLE_REVOKE\x10E\x12\x14\n" +
+	"\x10OP_WIN_APPS_LIST\x10F\x12\x17\n" +
+	"\x13OP_WIN_APPS_INSTALL\x10G\x12\x18\n" +
+	"\x14OP_WIN_APP_UNINSTALL\x10H2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 
