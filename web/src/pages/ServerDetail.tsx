@@ -211,16 +211,17 @@ export function ServerDetail({ id }: { id: string }) {
         <Services
           serverId={id}
           online={server.online}
+          windows={server.os === "windows"}
           onLogs={(u) => {
             setLogUnit(u);
             setTab("logs");
           }}
         />
       )}
-      {tab === "logs" && <Logs serverId={id} online={server.online} unit={logUnit} />}
+      {tab === "logs" && <Logs serverId={id} online={server.online} unit={logUnit} windows={server.os === "windows"} />}
       {tab === "cron" && <Cron serverId={id} online={server.online} />}
       {tab === "backups" && <Backups serverId={id} online={server.online} />}
-      {tab === "updates" && <Updates serverId={id} online={server.online} />}
+      {tab === "updates" && <Updates serverId={id} online={server.online} windows={server.os === "windows"} />}
       {tab === "ssh" && <SSHKeys serverId={id} online={server.online} />}
       {tab === "firewall" && <Firewall serverId={id} online={server.online} windows={server.os === "windows"} />}
       {tab === "fail2ban" && <Fail2ban serverId={id} online={server.online} />}

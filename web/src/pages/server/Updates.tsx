@@ -11,9 +11,9 @@ import { OpStatus, Offline } from "@/components/OpStatus";
 type Pkg = { name: string; current: string; candidate: string; repository: string; security: boolean };
 type Check = { count: number; security_count: number; reboot_required: boolean; updates: Pkg[] };
 
-export function Updates({ serverId, online }: { serverId: string; online: boolean }) {
-  // Checking runs apt-get update, so it is not started automatically; the
-  // last result is loaded from job history instead.
+export function Updates({ serverId, online, windows = false }: { serverId: string; online: boolean; windows?: boolean }) {
+  // Checking runs apt-get update (or a Windows Update search), so it is not
+  // started automatically; the last result is loaded from job history instead.
   const { data, setData, busy, error, job, run } = useAgentState<Check>(serverId, "packages.check_updates", false);
   const [checkedAt, setCheckedAt] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -42,8 +42,16 @@ export function Updates({ serverId, online }: { serverId: string; online: boolea
   }
 
   async function upgrade(pkgs: string[]) {
-    const what = pkgs.length ? `${pkgs.length} selected package(s)` : dist ? "all packages (full-upgrade)" : "all packages";
-    if (!confirm(`Upgrade ${what}?`)) return;
+    const what = windows
+      ? pkgs.length
+        ? `${pkgs.length} selected update(s)`
+        : "all available updates"
+      : pkgs.length
+        ? `${pkgs.length} selected package(s)`
+        : dist
+          ? "all packages (full-upgrade)"
+          : "all packages";
+    if (!confirm(`${windows ? "Install" : "Upgrade"} ${what}?`)) return;
     const params: Record<string, string> = { dist: String(dist), autoremove: String(autoremove) };
     if (pkgs.length) params.packages = pkgs.join(" ");
     const j = await run("packages.upgrade", params);
@@ -73,9 +81,9 @@ export function Updates({ serverId, online }: { serverId: string; online: boolea
     <Card>
       <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
         <div>
-          <CardTitle>Package updates</CardTitle>
+          <CardTitle>{windows ? "Windows updates" : "Package updates"}</CardTitle>
           <CardDescription>
-            {checkedAt ? `Last checked ${timeAgo(checkedAt)}` : "Not checked yet"} · apt (Debian / Ubuntu)
+            {checkedAt ? `Last checked ${timeAgo(checkedAt)}` : "Not checked yet"} · {windows ? "Windows Update" : "apt (Debian / Ubuntu)"}
           </CardDescription>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -94,7 +102,7 @@ export function Updates({ serverId, online }: { serverId: string; online: boolea
         {data && (
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={data.count ? "warning" : "success"}>
-              {data.count ? `${data.count} upgradable` : "Up to date"}
+              {data.count ? `${data.count} ${windows ? "available" : "upgradable"}` : "Up to date"}
             </Badge>
             {data.security_count > 0 && (
               <Badge variant="destructive">
@@ -120,10 +128,10 @@ export function Updates({ serverId, online }: { serverId: string; online: boolea
                         onChange={() => setSelected(allSelected ? new Set() : new Set(pkgs.map((p) => p.name)))}
                       />
                     </th>
-                    <th className="px-3 py-2 font-medium">Package</th>
-                    <th className="px-3 py-2 font-medium">Installed</th>
-                    <th className="px-3 py-2 font-medium">Available</th>
-                    <th className="hidden px-3 py-2 font-medium md:table-cell">Repository</th>
+                    <th className="px-3 py-2 font-medium">{windows ? "Update" : "Package"}</th>
+                    <th className="px-3 py-2 font-medium">{windows ? "Severity" : "Installed"}</th>
+                    <th className="px-3 py-2 font-medium">{windows ? "Title" : "Available"}</th>
+                    <th className="hidden px-3 py-2 font-medium md:table-cell">{windows ? "Category" : "Repository"}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -143,7 +151,7 @@ export function Updates({ serverId, online }: { serverId: string; online: boolea
                         {p.name} {p.security && <Badge variant="destructive" className="ml-1 px-1 py-0">security</Badge>}
                       </td>
                       <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground">{p.current}</td>
-                      <td className="px-3 py-1.5 font-mono text-xs">{p.candidate}</td>
+                      <td className={windows ? "px-3 py-1.5 text-xs" : "px-3 py-1.5 font-mono text-xs"}>{p.candidate}</td>
                       <td className="hidden px-3 py-1.5 text-xs text-muted-foreground md:table-cell">{p.repository}</td>
                     </tr>
                   ))}
@@ -155,7 +163,7 @@ export function Updates({ serverId, online }: { serverId: string; online: boolea
 
         {data && (
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap gap-4 text-sm">
+            <div className={windows ? "hidden" : "flex flex-wrap gap-4 text-sm"}>
               <label className="flex cursor-pointer items-center gap-2">
                 <input type="checkbox" className="accent-[var(--color-brand)]" checked={dist} onChange={(e) => setDist(e.target.checked)} />
                 Full upgrade <span className="text-muted-foreground">(allow new/removed dependencies)</span>
@@ -173,11 +181,11 @@ export function Updates({ serverId, online }: { serverId: string; online: boolea
             <div className="flex flex-wrap gap-2">
               {selected.size > 0 && (
                 <Button variant="secondary" size="sm" disabled={!online || !!busy} onClick={() => upgrade([...selected])}>
-                  <ArrowUpCircle /> Upgrade selected ({selected.size})
+                  <ArrowUpCircle /> {windows ? "Install" : "Upgrade"} selected ({selected.size})
                 </Button>
               )}
               <Button variant="brand" size="sm" disabled={!online || !!busy} onClick={() => upgrade([])}>
-                <ArrowUpCircle /> Upgrade all
+                <ArrowUpCircle /> {windows ? "Install all" : "Upgrade all"}
               </Button>
             </div>
           </div>

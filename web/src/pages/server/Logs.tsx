@@ -10,7 +10,17 @@ import { Offline } from "@/components/OpStatus";
 
 type LogFile = { path: string; size: number; mtime: number };
 
-export function Logs({ serverId, online, unit: initialUnit = "" }: { serverId: string; online: boolean; unit?: string }) {
+export function Logs({
+  serverId,
+  online,
+  unit: initialUnit = "",
+  windows = false,
+}: {
+  serverId: string;
+  online: boolean;
+  unit?: string;
+  windows?: boolean;
+}) {
   const [source, setSource] = useState<"journal" | "file">("journal");
   const [unit, setUnit] = useState(initialUnit);
   const [priority, setPriority] = useState("");
@@ -31,7 +41,8 @@ export function Logs({ serverId, online, unit: initialUnit = "" }: { serverId: s
     const p: Record<string, string> = { source, lines };
     if (grep.trim()) p.grep = grep.trim();
     if (source === "journal") {
-      if (unit.trim()) p.unit = unit.trim().endsWith(".service") ? unit.trim() : `${unit.trim()}.service`;
+      // Windows: an event log (System, Application…) or a provider name.
+      if (unit.trim()) p.unit = windows || unit.trim().endsWith(".service") ? unit.trim() : `${unit.trim()}.service`;
       if (priority) p.priority = priority;
       if (since) p.since = since;
     } else {
@@ -50,7 +61,7 @@ export function Logs({ serverId, online, unit: initialUnit = "" }: { serverId: s
     } finally {
       setBusy(false);
     }
-  }, [serverId, source, unit, priority, since, grep, lines, path]);
+  }, [serverId, source, unit, priority, since, grep, lines, path, windows]);
 
   useEffect(() => {
     if (!online || source !== "file" || files.length) return;
@@ -98,12 +109,17 @@ export function Logs({ serverId, online, unit: initialUnit = "" }: { serverId: s
           }}
         >
           <Select className="w-32" value={source} onChange={(e) => setSource(e.target.value as "journal" | "file")} aria-label="Source">
-            <option value="journal">Journal</option>
+            <option value="journal">{windows ? "Event log" : "Journal"}</option>
             <option value="file">Log file</option>
           </Select>
           {source === "journal" ? (
             <>
-              <Input className="w-56 font-mono" placeholder="unit, e.g. nginx (all if empty)" value={unit} onChange={(e) => setUnit(e.target.value)} />
+              <Input
+                className="w-56 font-mono"
+                placeholder={windows ? "System, Application, Security or a source" : "unit, e.g. nginx (all if empty)"}
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+              />
               <Select className="w-32" value={priority} onChange={(e) => setPriority(e.target.value)} aria-label="Priority">
                 <option value="">Any level</option>
                 <option value="err">Errors+</option>

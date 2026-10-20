@@ -12,7 +12,17 @@ type Service = { name: string; description: string; load: string; active: string
 
 const SELF = "servermgr-agent.service";
 
-export function Services({ serverId, online, onLogs }: { serverId: string; online: boolean; onLogs: (unit: string) => void }) {
+export function Services({
+  serverId,
+  online,
+  windows = false,
+  onLogs,
+}: {
+  serverId: string;
+  online: boolean;
+  windows?: boolean;
+  onLogs: (unit: string) => void;
+}) {
   const { data, busy, error, job, run } = useAgentState<{ services: Service[] }>(serverId, "services.list", online);
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("running");
@@ -43,7 +53,7 @@ export function Services({ serverId, online, onLogs }: { serverId: string; onlin
           <CardTitle className="flex items-center gap-2">
             Services {failed > 0 && <Badge variant="destructive">{failed} failed</Badge>}
           </CardTitle>
-          <CardDescription>{data ? `${data.services.length} systemd services` : "Loading…"}</CardDescription>
+          <CardDescription>{data ? `${data.services.length} ${windows ? "Windows" : "systemd"} services` : "Loading…"}</CardDescription>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -78,7 +88,9 @@ export function Services({ serverId, online, onLogs }: { serverId: string; onlin
               <tbody>
                 {list.map((s) => {
                   const running = s.active === "active";
-                  const self = s.name === SELF;
+                  const self = s.name === SELF || (windows && s.name.toLowerCase() === "servermgr-agent");
+                  // Windows services set to start manually can be switched to automatic.
+                  const canEnable = s.enabled === "disabled" || (windows && s.enabled === "manual");
                   return (
                     <tr key={s.name} className="border-t">
                       <td className="px-3 py-1.5">
@@ -107,11 +119,11 @@ export function Services({ serverId, online, onLogs }: { serverId: string; onlin
                           </Button>
                         )}
                         {s.enabled === "enabled" ? (
-                          <Button variant="ghost" size="icon" className="size-8" title="Disable at boot" aria-label={`Disable ${s.name}`} disabled={disabled || self} onClick={() => act(s, "disable")}>
+                          <Button variant="ghost" size="icon" className="size-8" title={windows ? "Disable" : "Disable at boot"} aria-label={`Disable ${s.name}`} disabled={disabled || self} onClick={() => act(s, "disable")}>
                             <PowerOff />
                           </Button>
-                        ) : s.enabled === "disabled" ? (
-                          <Button variant="ghost" size="icon" className="size-8" title="Enable at boot" aria-label={`Enable ${s.name}`} disabled={disabled} onClick={() => act(s, "enable")}>
+                        ) : canEnable ? (
+                          <Button variant="ghost" size="icon" className="size-8" title={windows ? "Start automatically" : "Enable at boot"} aria-label={`Enable ${s.name}`} disabled={disabled} onClick={() => act(s, "enable")}>
                             <Power />
                           </Button>
                         ) : null}
