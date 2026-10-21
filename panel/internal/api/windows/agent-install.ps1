@@ -26,6 +26,9 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 public static class ServermgrPin {
     public static string CA;
+    // Set from C#: Windows PowerShell 5.1 cannot turn a method into a delegate.
+    public static void Install(string ca) { CA = ca; ServicePointManager.ServerCertificateValidationCallback = Check; }
+    public static void Remove() { ServicePointManager.ServerCertificateValidationCallback = null; }
     public static bool Check(object sender, X509Certificate cert, X509Chain chain, SslPolicyErrors errors) {
         if (chain == null || chain.ChainElements.Count < 2) return false;
         if ((errors & SslPolicyErrors.RemoteCertificateNotAvailable) != 0) return false;
@@ -40,7 +43,6 @@ public static class ServermgrPin {
     }
 }
 '@
-[ServermgrPin]::CA = [string]$P.ca
 
 # Program Files: only administrators can change the agent's binary.
 $bin = Join-Path $env:ProgramFiles 'servermgr-agent'
@@ -48,11 +50,11 @@ New-Item -ItemType Directory -Force -Path $bin | Out-Null
 $exe = Join-Path $bin 'servermgr-agent.exe'
 $tmp = Join-Path $work 'servermgr-agent.download'
 
-[Net.ServicePointManager]::ServerCertificateValidationCallback = [Net.Security.RemoteCertificateValidationCallback][ServermgrPin]::Check
+[ServermgrPin]::Install([string]$P.ca)
 try {
     Invoke-WebRequest -UseBasicParsing -Uri ($P.panel + '/download/servermgr-agent-windows-amd64.exe') -OutFile $tmp
 } finally {
-    [Net.ServicePointManager]::ServerCertificateValidationCallback = $null
+    [ServermgrPin]::Remove()
 }
 # And the file must be the very build the panel has.
 $hash = (Get-FileHash -Algorithm SHA256 -Path $tmp).Hash
