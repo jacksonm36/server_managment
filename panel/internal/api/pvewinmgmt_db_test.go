@@ -31,7 +31,7 @@ func TestPSDataCannotEscape(t *testing.T) {
 	if strings.Contains(got, "Remove-Item") || strings.Count(got, "'") != 2 {
 		t.Errorf("psData leaks text into code: %s", got)
 	}
-	if s := decodePS(t, strings.Join(psCommand("Write-Output 'é'"), " ")); s != "Write-Output 'é'" {
+	if s := decodePS(t, strings.Join(psCommand("Write-Output 'é'"), " ")); !strings.HasSuffix(s, "\nWrite-Output 'é'") {
 		t.Errorf("psCommand round trip: %q", s)
 	}
 	if !naturalAfter("vlc-3.0.10-win64.msi", "vlc-3.0.9-win64.msi") || naturalAfter("vlc-3.0.9-win64.msi", "vlc-3.0.10-win64.msi") {

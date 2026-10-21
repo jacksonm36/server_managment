@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
 	"net/url"
@@ -35,13 +36,38 @@ import (
 // psCommand is powershell.exe running script, encoded so no quoting of
 // the script text matters.
 func psCommand(script string) []string {
-	u := utf16.Encode([]rune(script))
+	// Progress records would otherwise fill standard error ("Preparing
+	// modules for first use") ahead of the real error.
+	u := utf16.Encode([]rune("$ProgressPreference = 'SilentlyContinue'\n" + script))
 	b := make([]byte, 2*len(u))
 	for i, c := range u {
 		binary.LittleEndian.PutUint16(b[2*i:], c)
 	}
 	return []string{"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", base64.StdEncoding.EncodeToString(b)}
 }
+
+// psErrors is the error text in PowerShell's standard error: a
+// -EncodedCommand run writes it as CLIXML, with progress records first.
+func psErrors(s string) string {
+	rest, ok := strings.CutPrefix(strings.TrimSpace(s), "#< CLIXML")
+	if !ok {
+		return s
+	}
+	var errs []string
+	for _, m := range clixmlError.FindAllStringSubmatch(rest, -1) {
+		t := html.UnescapeString(m[1])
+		t = strings.NewReplacer("_x000D_", "", "_x000A_", " ").Replace(t)
+		if t = strings.TrimSpace(t); t != "" {
+			errs = append(errs, t)
+		}
+	}
+	if len(errs) == 0 {
+		return "(no error text)"
+	}
+	return strings.Join(errs, " ")
+}
+
+var clixmlError = regexp.MustCompile(`(?s)<S S="Error">(.*?)</S>`)
 
 // psData is v as a PowerShell expression that yields it as an object: the
 // JSON is base64, so nothing in it can end the string or run.
@@ -96,7 +122,7 @@ func agentRunInput(ctx context.Context, cl *proxmox.Client, gp string, command [
 		}
 		if st.Exited == 1 {
 			if st.ExitCode != 0 {
-				msg := cleanText(st.ErrData, 300)
+				msg := cleanText(psErrors(st.ErrData), 500)
 				if msg == "" {
 					msg = cleanText(st.OutData, 300)
 				}

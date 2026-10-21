@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	_ "embed"
@@ -124,26 +125,42 @@ func (a *API) enrollWindowsViaAgent(ctx context.Context, cl *proxmox.Client, nod
 	return a.waitEnrolled(ctx, hash)
 }
 
-// waitWindowsReady waits until a new Windows VM has its name and
-// Cloudbase-Init is done (it reboots the VM while it works).
+// winSettle is how long a renamed Windows VM may still show Cloudbase-Init
+// running before enrollment goes ahead anyway (some versions keep the
+// service running after it is done); a var for tests.
+var winSettle = 3 * time.Minute
+
+// waitWindowsReady waits until a new Windows VM has its name (Cloudbase-Init
+// renames it and reboots) and Cloudbase-Init is done or has had winSettle.
 func waitWindowsReady(ctx context.Context, cl *proxmox.Client, node string, vmid int, name string, logf func(string, ...any)) error {
 	want := strings.ToUpper(name)
 	if len(want) > 15 {
 		want = want[:15]
 	}
 	gp := proxmox.GuestPath(node, "qemu", vmid)
-	logf("waiting for Windows to finish its first boot")
+	logf("waiting for Windows to finish its first boot (computer name %s)", want)
+	seen, last := time.Time{}, "the guest agent has not answered yet"
 	for {
 		out, err := agentRun(ctx, cl, gp, psCommand(`"$env:COMPUTERNAME|" + (Get-Service -Name cloudbase-init -ErrorAction SilentlyContinue).Status`))
 		if err == nil {
 			host, status, _ := strings.Cut(strings.TrimSpace(out), "|")
-			if strings.EqualFold(host, want) && (status == "" || status == "Stopped") {
-				return nil
+			now := fmt.Sprintf("computer name %s, Cloudbase-Init %s", host, cmp.Or(status, "not installed"))
+			if now != last {
+				logf("Windows: %s", now)
+				last = now
+			}
+			if strings.EqualFold(host, want) {
+				if seen.IsZero() {
+					seen = time.Now()
+				}
+				if status != "Running" || time.Since(seen) >= winSettle {
+					return nil
+				}
 			}
 		}
 		select {
 		case <-ctx.Done():
-			return errors.New("Windows did not finish its first boot in time")
+			return fmt.Errorf("Windows did not finish its first boot in time (last seen: %s)", last)
 		case <-time.After(winPoll):
 		}
 	}

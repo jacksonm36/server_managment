@@ -143,3 +143,14 @@ func TestWinAppsScriptCopies(t *testing.T) {
 		t.Fatal("agent/internal/winops/apps.ps1 and panel/internal/api/windows/apps.ps1 differ; copy one over the other")
 	}
 }
+
+func TestPSErrors(t *testing.T) {
+	in := `#< CLIXML
+<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><Obj S="progress" RefId="0"><TN RefId="0"><T>System.Management.Automation.PSCustomObject</T></TN><MS><PR N="Record"><AV>Preparing modules for first use.</AV></PR></MS></Obj><S S="Error">Unable to connect to the remote server_x000D__x000A_</S><S S="Error">At line:42 char:5_x000D__x000A_</S></Objs>`
+	if got := psErrors(in); got != "Unable to connect to the remote server At line:42 char:5" {
+		t.Errorf("psErrors = %q", got)
+	}
+	if got := psErrors("plain error"); got != "plain error" {
+		t.Errorf("plain = %q", got)
+	}
+}

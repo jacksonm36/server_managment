@@ -52,7 +52,11 @@ $tmp = Join-Path $work 'servermgr-agent.download'
 
 [ServermgrPin]::Install([string]$P.ca)
 try {
-    Invoke-WebRequest -UseBasicParsing -Uri ($P.panel + '/download/servermgr-agent-windows-amd64.exe') -OutFile $tmp
+    try {
+        Invoke-WebRequest -UseBasicParsing -Uri ($P.panel + '/download/servermgr-agent-windows-amd64.exe') -OutFile $tmp
+    } catch {
+        throw "this VM cannot download the agent from $($P.panel) (check its network or VLAN can reach the panel on ports 8443 and 9443): $($_.Exception.Message)"
+    }
 } finally {
     [ServermgrPin]::Remove()
 }

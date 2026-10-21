@@ -888,7 +888,8 @@ func (a *API) finishProvision(p *store.ProxmoxProvision, err error, logf func(st
 }
 
 func (a *API) runProvision(who Who, s *pveScope, p *store.ProxmoxProvision, req pveProvisionReq, cloned func()) {
-	ctx, cancel := context.WithTimeout(a.baseCtx(), 30*time.Minute)
+	// Windows' first boot (Sysprep specialize, Cloudbase-Init) is slow.
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 60*time.Minute)
 	defer cancel()
 	logf := a.provisionLog(p)
 	a.finishProvision(p, a.provisionVM(ctx, who, s, p, req, cloned, logf), logf)
