@@ -49,6 +49,12 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = checkUpdates(ctx, logf)
 	case agentv1.Op_OP_PACKAGES_UPGRADE:
 		result, err = upgradePackages(ctx, p, logf)
+	case agentv1.Op_OP_WIN_APPS_LIST:
+		result, err = listSoftware(ctx)
+	case agentv1.Op_OP_WIN_APPS_INSTALL:
+		result, err = installSoftware(ctx, p, logf)
+	case agentv1.Op_OP_WIN_APP_UNINSTALL:
+		result, err = uninstallSoftware(ctx, p, logf)
 	case agentv1.Op_OP_SYSTEM_REBOOT:
 		result, err = reboot(logf)
 	case agentv1.Op_OP_SSH_KEYS_LIST:

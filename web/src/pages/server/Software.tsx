@@ -2,30 +2,29 @@ import { useEffect, useMemo, useState } from "react";
 import { Download, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useAgentState } from "@/lib/ops";
 import { useAccess } from "@/lib/access";
-import { pve, type WinAppInfo } from "@/lib/pveapi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { OpStatus, Offline } from "@/components/OpStatus";
-import { AppPicker } from "@/components/WindowsManage";
+import { AppPicker, useWinApps } from "@/components/WindowsManage";
 
 type Program = { id: string; name: string; version: string; publisher: string; install_date?: string; size_kb?: number; can_uninstall: boolean };
 
-// Software on a Windows server: what is installed (removable when it has a
-// silent uninstaller) and programs from the panel's catalog, each checked
-// against its publisher's signature or a SHA-256 before it runs.
-export function Software({ serverId, online }: { serverId: string; online: boolean }) {
+// Software on a server. Windows: installed programs (removable when they
+// have a silent uninstaller) and catalog programs, each checked against
+// its publisher's signature or a SHA-256 before it runs. Linux: packages
+// installed on purpose plus tools under /opt/tools, and the same catalog
+// from the distribution, vendor repositories with pinned keys, or
+// checksummed releases.
+export function Software({ serverId, online, windows }: { serverId: string; online: boolean; windows: boolean }) {
   const { data, busy, error, job, run } = useAgentState<{ programs: Program[]; summary?: string }>(serverId, "software.list", online);
   const { can } = useAccess();
-  const [catalog, setCatalog] = useState<WinAppInfo[]>([]);
+  const catalog = useWinApps(windows ? "windows" : "linux");
   const [picked, setPicked] = useState<string[]>([]);
   const [q, setQ] = useState("");
   const [programs, setPrograms] = useState<Program[]>([]);
   const disabled = !online || !!busy || !can("server.system", serverId);
 
-  useEffect(() => {
-    pve.winApps().then(setCatalog, () => setCatalog([]));
-  }, []);
   // An install answers with a summary, not the list: keep the last list.
   useEffect(() => {
     if (data?.programs) setPrograms(data.programs);
@@ -47,8 +46,10 @@ export function Software({ serverId, online }: { serverId: string; online: boole
       <Card>
         <CardHeader className="flex-row flex-wrap items-start justify-between gap-3">
           <div>
-            <CardTitle>Installed programs</CardTitle>
-            <CardDescription>{data || programs.length ? `${programs.length} programs` : "Loading…"}</CardDescription>
+            <CardTitle>{windows ? "Installed programs" : "Installed software"}</CardTitle>
+            <CardDescription>
+              {data || programs.length ? `${programs.length} ${windows ? "programs" : "packages and tools installed on purpose (not dependencies)"}` : "Loading…"}
+            </CardDescription>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative">
@@ -68,8 +69,8 @@ export function Software({ serverId, online }: { serverId: string; online: boole
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-card text-left text-xs text-muted-foreground">
                   <tr>
-                    <th className="px-3 py-2 font-medium">Program</th>
-                    <th className="hidden px-3 py-2 font-medium md:table-cell">Publisher</th>
+                    <th className="px-3 py-2 font-medium">{windows ? "Program" : "Package or tool"}</th>
+                    <th className="hidden px-3 py-2 font-medium md:table-cell">{windows ? "Publisher" : "Maintainer / location"}</th>
                     <th className="px-3 py-2 font-medium">Version</th>
                     <th className="px-3 py-2" />
                   </tr>
@@ -85,7 +86,13 @@ export function Software({ serverId, online }: { serverId: string; online: boole
                           variant="ghost"
                           size="icon"
                           disabled={disabled || !p.can_uninstall}
-                          title={p.can_uninstall ? `Uninstall ${p.name}` : "No silent uninstaller: remove it in the terminal or over RDP"}
+                          title={
+                            p.can_uninstall
+                              ? `Uninstall ${p.name}`
+                              : windows
+                                ? "No silent uninstaller: remove it in the terminal or over RDP"
+                                : "The server needs it: not removable from the panel"
+                          }
                           aria-label={`Uninstall ${p.name}`}
                           onClick={() => confirm(`Uninstall ${p.name}?`) && void run("software.uninstall", { id: p.id })}
                         >
@@ -107,7 +114,9 @@ export function Software({ serverId, online }: { serverId: string; online: boole
             <div>
               <CardTitle>Install from the catalog</CardTitle>
               <CardDescription>
-                Downloaded from the vendor over HTTPS and installed silently, only if the publisher's signature (or the SHA-256) checks out.
+                {windows
+                  ? "Downloaded from the vendor over HTTPS and installed silently, only if the publisher's signature (or the SHA-256) checks out."
+                  : "From the distribution's packages, the vendor's repository (its signing key checked against a pinned fingerprint) or the project's release (checked against its SHA-256). Release tools go to /opt/tools, on PATH."}
               </CardDescription>
             </div>
             <Button disabled={disabled || picked.length === 0} onClick={() => void install()}>

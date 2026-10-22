@@ -9,6 +9,7 @@ import { NumberInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { FlavorPicker, useFlavors } from "@/components/Flavors";
 import { CloudInitFields, ciOpts, emptyCI, type CIForm } from "@/components/CloudInitFields";
+import { DeployApps } from "@/components/WindowsManage";
 
 // DeployDialog creates a VM from a catalog image in one step: servermgr
 // reuses the image's template on the node, or builds it first, then
@@ -27,6 +28,7 @@ export function DeployDialog({
   onStarted: () => void;
 }) {
   const [images, setImages] = useState<PVEImage[]>([]);
+  const [apps, setApps] = useState<string[]>([]);
   const flavors = useFlavors();
   const [image, setImage] = useState(preset);
   const [count, setCount] = useState(1);
@@ -96,6 +98,7 @@ export function DeployDialog({
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
                 enroll: f.enroll,
+                apps: f.enroll ? apps : [],
                 count,
                 ...ciOpts(ci),
               });
@@ -241,6 +244,7 @@ export function DeployDialog({
               <span className="block text-xs text-muted-foreground">Installs the agent, links the VM to its server and prepares it for Ansible.</span>
             </span>
           </label>
+          <DeployApps os="linux" enroll={f.enroll} picked={apps} onChange={setApps} />
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>

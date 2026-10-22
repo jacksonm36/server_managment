@@ -573,7 +573,8 @@ var opsByName = map[string]opSpec{
 	"backup.delete":          {op: agentv1.Op_OP_BACKUP_DELETE, params: []string{"domain", "file"}},
 	"backup.restore":         {op: agentv1.Op_OP_BACKUP_RESTORE, params: []string{"domain", "file", "files", "databases"}},
 	"backup.policy":          {op: agentv1.Op_OP_BACKUP_POLICY, params: []string{"domain", "enabled", "every", "hour", "keep", "databases"}},
-	// Windows servers: programs from the panel's catalog (apps = space-separated ids).
+	// Programs from the panel's catalog (apps = space-separated ids), on
+	// Windows and Linux servers.
 	"software.list":      {op: agentv1.Op_OP_WIN_APPS_LIST},
 	"software.install":   {op: agentv1.Op_OP_WIN_APPS_INSTALL, params: []string{"apps"}},
 	"software.uninstall": {op: agentv1.Op_OP_WIN_APP_UNINSTALL, params: []string{"id"}},

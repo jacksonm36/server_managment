@@ -29,6 +29,7 @@ import { VLANInput, vlanNum } from "@/components/VLANField";
 import { ComputeTree } from "@/components/ComputeTree";
 import { PVENodeView } from "@/components/PVENodeView";
 import { CreateGuestDialog } from "@/components/PVEForms";
+import { DeployApps } from "@/components/WindowsManage";
 import { DatacenterView, NodeAdmin } from "@/pages/ProxmoxAdmin";
 import { ProxmoxGuest } from "@/pages/ProxmoxGuest";
 
@@ -754,6 +755,7 @@ export function ProvisionDialog({
   // and network; no SSH keys. The agent goes in through the guest agent.
   const win = (template.tags ?? "").split(/[;, ]/).includes("windows");
   const [showPw, setShowPw] = useState(false);
+  const [apps, setApps] = useState<string[]>([]);
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[92vh] overflow-y-auto sm:max-w-2xl">
@@ -784,6 +786,7 @@ export function ProvisionDialog({
                 ip: f.ipMode === "dhcp" ? "dhcp" : f.ip.trim(),
                 gateway: f.ipMode === "dhcp" ? "" : f.gateway.trim(),
                 enroll: f.enroll,
+                apps: f.enroll ? apps : [],
                 storage: f.storage,
                 bridge: f.bridge.trim(),
                 vlan: vlanNum(f.vlan),
@@ -949,6 +952,7 @@ export function ProvisionDialog({
               </span>
             </span>
           </label>
+          <DeployApps os={win ? "windows" : "linux"} enroll={f.enroll} picked={apps} onChange={setApps} />
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2">
             <Button type="button" variant="ghost" onClick={onClose}>

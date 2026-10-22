@@ -22,6 +22,12 @@ func TestWinAppCatalog(t *testing.T) {
 			t.Errorf("%s: bad or repeated id", x.ID)
 		}
 		seen[x.ID] = true
+		if !x.OnWindows {
+			if x.Linux == nil || x.Group == "" {
+				t.Errorf("%s: installs nowhere", x.ID)
+			}
+			continue
+		}
 		if x.Group == "" || !slices.Contains([]string{"msi", "exe", "zip"}, x.Kind) {
 			t.Errorf("%s: category %q kind %q", x.ID, x.Group, x.Kind)
 		}
@@ -120,6 +126,9 @@ func TestWinAppsLive(t *testing.T) {
 		t.Skip("set SM_LIVE_APPS=1")
 	}
 	for _, x := range winApps {
+		if !x.OnWindows {
+			continue
+		}
 		j, err := x.resolve(context.Background())
 		if err != nil {
 			t.Errorf("%s: %v", x.ID, err)
@@ -152,5 +161,85 @@ func TestPSErrors(t *testing.T) {
 	}
 	if got := psErrors("plain error"); got != "plain error" {
 		t.Errorf("plain = %q", got)
+	}
+}
+
+// TestLinuxAppCatalog: each Linux entry installs some way, with valid
+// package names, verifiable repositories and patterns that compile.
+func TestLinuxAppCatalog(t *testing.T) {
+	fp := regexp.MustCompile(`^[0-9A-F]{40}$`)
+	for _, x := range winApps {
+		l := x.Linux
+		if l == nil {
+			continue
+		}
+		if len(l.Apt) == 0 && len(l.Dnf) == 0 && l.Deb == "" && l.Rpm == "" && l.Archive == "" {
+			t.Errorf("%s: no way to install on Linux", x.ID)
+		}
+		for _, p := range append(slices.Clone(l.Apt), l.Dnf...) {
+			if !linuxPkgName.MatchString(p) {
+				t.Errorf("%s: bad package %q", x.ID, p)
+			}
+		}
+		for _, r := range []*linuxRepo{l.AptRepo, l.DnfRepo} {
+			if r == nil {
+				continue
+			}
+			if !strings.HasPrefix(r.Key, "https://") || !strings.HasPrefix(r.Source, "https://") || len(r.Fingerprints) == 0 {
+				t.Errorf("%s: repository needs an https key, source and fingerprints", x.ID)
+			}
+			for _, f := range r.Fingerprints {
+				if !fp.MatchString(f) {
+					t.Errorf("%s: bad fingerprint %q", x.ID, f)
+				}
+			}
+		}
+		if (l.Deb != "" || l.Rpm != "" || l.Archive != "") && l.Repo == "" && x.Repo == "" {
+			t.Errorf("%s: release files without a GitHub repository", x.ID)
+		}
+		for _, m := range []string{l.Deb, l.Rpm, l.Archive} {
+			regexp.MustCompile(m)
+		}
+		if l.Archive != "" && !strings.Contains(l.Archive, `\.zip`) && !strings.Contains(l.Archive, `\.tar\.gz`) {
+			t.Errorf("%s: archives are .zip or .tar.gz", x.ID)
+		}
+		for _, d := range append(slices.Clone(x.Needs), l.Needs...) {
+			if dx := winAppByID(d); dx == nil || dx.Linux == nil {
+				t.Errorf("%s needs %s, which has no Linux install", x.ID, d)
+			}
+		}
+	}
+	// Java comes first for the tools that need it.
+	jobs, err := resolveLinuxApps(context.Background(), []string{"git", "htop"})
+	if err != nil || len(jobs) != 2 || jobs[0].ID != "git" {
+		t.Fatalf("resolveLinuxApps: %v %+v", err, jobs)
+	}
+	if _, err := resolveLinuxApps(context.Background(), []string{"notepadpp"}); err == nil {
+		t.Error("a Windows-only app resolved for Linux")
+	}
+	if _, err := resolveWinApps(context.Background(), []string{"htop"}); err == nil {
+		t.Error("a Linux-only app resolved for Windows")
+	}
+}
+
+// TestLinuxAppsLive resolves every Linux download for real (SM_LIVE_APPS=1).
+func TestLinuxAppsLive(t *testing.T) {
+	if os.Getenv("SM_LIVE_APPS") == "" {
+		t.Skip("set SM_LIVE_APPS=1")
+	}
+	for _, x := range winApps {
+		if x.Linux == nil || (x.Linux.Deb == "" && x.Linux.Rpm == "" && x.Linux.Archive == "") {
+			continue
+		}
+		j, err := x.Linux.resolve(context.Background(), &x)
+		if err != nil {
+			t.Errorf("%s: %v", x.ID, err)
+			continue
+		}
+		for _, f := range []*linuxFile{j.Deb, j.Rpm, j.Archive} {
+			if f != nil {
+				t.Logf("%-12s %s", x.ID, f.URL)
+			}
+		}
 	}
 }

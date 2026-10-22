@@ -247,16 +247,39 @@ function AccountDialog({
   );
 }
 
-// useWinApps loads the application catalog.
-export function useWinApps() {
+// useWinApps loads the application catalog: what installs on Windows, or
+// on Linux (with the Linux notes).
+export function useWinApps(os: "windows" | "linux" = "windows") {
   const [apps, setApps] = useState<WinAppInfo[]>([]);
   useEffect(() => {
     pve
       .winApps()
-      .then(setApps)
+      .then((list) => setApps(os === "linux" ? list.filter((a) => a.linux).map((a) => ({ ...a, note: a.linux_note })) : list.filter((a) => a.windows)))
       .catch(() => {});
-  }, []);
+  }, [os]);
   return apps;
+}
+
+// DeployApps picks catalog apps for a new VM; the agent installs them once
+// the VM is enrolled.
+export function DeployApps({ os, enroll, picked, onChange }: { os: "windows" | "linux"; enroll: boolean; picked: string[]; onChange: (ids: string[]) => void }) {
+  const apps = useWinApps(os);
+  if (apps.length === 0) return null;
+  return (
+    <details className="rounded-lg border px-3 py-2" open={picked.length > 0}>
+      <summary className="cursor-pointer text-sm font-medium select-none">
+        Applications to install {picked.length > 0 && <span className="text-muted-foreground">({picked.length})</span>}
+      </summary>
+      <p className="mt-2 mb-2 text-xs text-muted-foreground">
+        {enroll
+          ? os === "linux"
+            ? "Installed by the agent once the VM is enrolled: from the distribution's packages, the vendor's signed repository or a checksummed release. Follow it on the server's Software tab."
+            : "Installed by the agent once the VM is enrolled, each checked against its publisher's signature or a SHA-256. Follow it on the server's Software tab."
+          : "Tick Enroll below: the agent installs them."}
+      </p>
+      {enroll && <AppPicker apps={apps} picked={picked} onChange={onChange} />}
+    </details>
+  );
 }
 
 // AppPicker is a checklist of the catalog, by group. Picking an app that

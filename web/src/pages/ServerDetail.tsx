@@ -194,7 +194,7 @@ export function ServerDetail({ id }: { id: string }) {
           <Terminal serverId={id} online={server.online} windows={windows} />
         </Suspense>
       )}
-      {tab === "software" && <Software serverId={id} online={server.online} />}
+      {tab === "software" && <Software serverId={id} online={server.online} windows={windows} />}
       {tab === "zfs" && <ZFS serverId={id} online={server.online} />}
       {tab === "apps" && <Apps serverId={id} online={server.online} initialApp={pendingApp} onInitialAppUsed={() => setPendingApp("")} />}
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
@@ -246,7 +246,7 @@ const TABS = [
   { id: "databases", label: "Databases", icon: Database, group: "Web", on: "linux" },
   { id: "docker", label: "Docker", icon: Container, group: "Web", on: "linux" },
   { id: "files", label: "Files", icon: FolderOpen, group: "Web", on: "linux" },
-  { id: "software", label: "Software", icon: PackageSearch, group: "System", on: "windows" },
+  { id: "software", label: "Software", icon: PackageSearch, group: "System", on: "all" },
   { id: "files", label: "Files", icon: FolderOpen, group: "System", on: "windows" },
   { id: "services", label: "Services", icon: Cog, group: "System", on: "all" },
   { id: "logs", label: "Logs", icon: ScrollText, group: "System", on: "all" },

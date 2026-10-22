@@ -70,20 +70,26 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 	case "software.install":
 		// The agent gets the catalog entries (download URL, publisher or
 		// SHA-256 to verify), resolved here; ids are all a caller names.
-		if srv.OS != "windows" {
-			return nil, &DispatchError{http.StatusBadRequest, "software.install is for Windows servers"}
-		}
 		storedApps = params["apps"]
 		ids := strings.Fields(storedApps)
 		if len(ids) == 0 {
 			return nil, &DispatchError{http.StatusBadRequest, "pick at least one application"}
 		}
 		for i, id := range ids {
-			if winAppByID(id) == nil || slices.Contains(ids[:i], id) {
+			x := winAppByID(id)
+			if x == nil || slices.Contains(ids[:i], id) {
 				return nil, &DispatchError{http.StatusBadRequest, "unknown application " + strconv.Quote(id)}
 			}
+			if srv.OS == "windows" && !x.OnWindows || srv.OS != "windows" && !x.OnLinux {
+				return nil, &DispatchError{http.StatusBadRequest, x.Name + " is not available for " + srv.OS}
+			}
 		}
-		jobs, err := resolveWinApps(ctx, ids)
+		var jobs any
+		if srv.OS == "windows" {
+			jobs, err = resolveWinApps(ctx, ids)
+		} else {
+			jobs, err = resolveLinuxApps(ctx, ids)
+		}
 		if err != nil {
 			return nil, &DispatchError{http.StatusBadGateway, err.Error()}
 		}

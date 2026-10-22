@@ -91,21 +91,22 @@ func (a *API) handleDeleteFlavor(w http.ResponseWriter, r *http.Request) {
 // ---- one-step deploy ----
 
 type pveDeployReq struct {
-	Image        string `json:"image"`
-	Node         string `json:"node"`
-	Name         string `json:"name"`
-	FlavorID     int64  `json:"flavor_id"` // sets cores, memory and disk; 0 uses the fields below
-	Cores        int    `json:"cores"`
-	MemoryMB     int    `json:"memory_mb"`
-	DiskGB       int    `json:"disk_gb"`
-	ImageStorage string `json:"image_storage"`
-	DiskStorage  string `json:"disk_storage"`
-	Bridge       string `json:"bridge"`
-	VLAN         int    `json:"vlan"` // 0 = untagged
-	IP           string `json:"ip"`
-	Gateway      string `json:"gateway"`
-	Enroll       bool   `json:"enroll"`
-	Count        int    `json:"count"` // VMs to create: name, or name-1..name-N
+	Image        string   `json:"image"`
+	Node         string   `json:"node"`
+	Name         string   `json:"name"`
+	FlavorID     int64    `json:"flavor_id"` // sets cores, memory and disk; 0 uses the fields below
+	Cores        int      `json:"cores"`
+	MemoryMB     int      `json:"memory_mb"`
+	DiskGB       int      `json:"disk_gb"`
+	ImageStorage string   `json:"image_storage"`
+	DiskStorage  string   `json:"disk_storage"`
+	Bridge       string   `json:"bridge"`
+	VLAN         int      `json:"vlan"` // 0 = untagged
+	IP           string   `json:"ip"`
+	Gateway      string   `json:"gateway"`
+	Enroll       bool     `json:"enroll"`
+	Apps         []string `json:"apps"`  // catalog apps installed once enrolled
+	Count        int      `json:"count"` // VMs to create: name, or name-1..name-N
 	pveCIOpts
 }
 
@@ -171,6 +172,10 @@ func (a *API) handlePVEDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Count > 1 && len(req.Name) > 60 {
 		bad("name too long for numbered VMs")
+		return
+	}
+	if msg := checkDeployApps(req.Apps, req.Enroll); msg != "" {
+		bad(msg)
 		return
 	}
 	if msg := a.checkCIOpts(r.Context(), accessFrom(r.Context()), &req.pveCIOpts); msg != "" {
@@ -281,7 +286,7 @@ func (a *API) runDeploy(who Who, s *pveScope, ps []*store.ProxmoxProvision, img 
 			err2 := a.provisionVM(ctx, who, s, q, pveProvisionReq{
 				TemplateVMID: tpl, Node: req.Node, Name: q.Name, Cores: req.Cores, MemoryMB: req.MemoryMB, DiskGB: req.DiskGB,
 				Disk: "scsi0", FullClone: true, Storage: req.DiskStorage, Bridge: req.Bridge, VLAN: req.VLAN, IP: req.IP, Gateway: req.Gateway, Enroll: req.Enroll,
-				pveCIOpts: req.pveCIOpts,
+				Apps: req.Apps, pveCIOpts: req.pveCIOpts,
 			}, func() {}, ql)
 			a.finishProvision(q, err2, ql)
 			continue

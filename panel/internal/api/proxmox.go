@@ -536,22 +536,23 @@ func (a *API) handlePVEDeleteGuest(w http.ResponseWriter, r *http.Request) {
 // ---- provisioning ----
 
 type pveProvisionReq struct {
-	TemplateVMID int    `json:"template_vmid"`
-	Node         string `json:"node"`   // node holding the template
-	Target       string `json:"target"` // node for the new VM ("" = same)
-	Name         string `json:"name"`
-	Cores        int    `json:"cores"`
-	MemoryMB     int    `json:"memory_mb"`
-	DiskGrowGB   int    `json:"disk_grow_gb"`
-	DiskGB       int    `json:"disk_gb"` // disk size to set (0 = the template's); never shrinks
-	Disk         string `json:"disk"`
-	FullClone    bool   `json:"full_clone"`
-	IP           string `json:"ip"` // "dhcp" or CIDR
-	Gateway      string `json:"gateway"`
-	Enroll       bool   `json:"enroll"`
-	Storage      string `json:"storage"` // full clone target storage ("" = template's)
-	Bridge       string `json:"bridge"`  // network bridge for net0 ("" = template's)
-	VLAN         int    `json:"vlan"`    // VLAN tag for net0 (0 = untagged); needs a bridge
+	TemplateVMID int      `json:"template_vmid"`
+	Node         string   `json:"node"`   // node holding the template
+	Target       string   `json:"target"` // node for the new VM ("" = same)
+	Name         string   `json:"name"`
+	Cores        int      `json:"cores"`
+	MemoryMB     int      `json:"memory_mb"`
+	DiskGrowGB   int      `json:"disk_grow_gb"`
+	DiskGB       int      `json:"disk_gb"` // disk size to set (0 = the template's); never shrinks
+	Disk         string   `json:"disk"`
+	FullClone    bool     `json:"full_clone"`
+	IP           string   `json:"ip"` // "dhcp" or CIDR
+	Gateway      string   `json:"gateway"`
+	Enroll       bool     `json:"enroll"`
+	Storage      string   `json:"storage"` // full clone target storage ("" = template's)
+	Bridge       string   `json:"bridge"`  // network bridge for net0 ("" = template's)
+	VLAN         int      `json:"vlan"`    // VLAN tag for net0 (0 = untagged); needs a bridge
+	Apps         []string `json:"apps"`    // catalog apps installed once the VM is enrolled
 	pveCIOpts
 	windows bool // the template is Windows (Cloudbase-Init)
 }
@@ -719,6 +720,10 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if msg := a.checkCIOpts(r.Context(), accessFrom(r.Context()), &req.pveCIOpts); msg != "" {
+		bad(msg)
+		return
+	}
+	if msg := checkDeployApps(req.Apps, req.Enroll); msg != "" {
 		bad(msg)
 		return
 	}
@@ -1037,6 +1042,7 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 		p.ServerID = &serverID
 		logf("enrolled as server %s", serverID)
 		a.linkEnrolled(ctx, who, s, vmid, serverID, "", logf)
+		a.installDeployApps(ctx, who, serverID, req.Apps, logf)
 		return nil
 	}
 
@@ -1074,7 +1080,49 @@ func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.Pr
 	}
 	p.ServerID = &serverID
 	a.linkEnrolled(ctx, who, s, vmid, serverID, addr, logf)
+	a.installDeployApps(ctx, who, serverID, req.Apps, logf)
 	return nil
+}
+
+// checkDeployApps checks the apps picked for a new VM; they install
+// through the agent, so the VM has to be enrolled.
+func checkDeployApps(apps []string, enroll bool) string {
+	if len(apps) == 0 {
+		return ""
+	}
+	if !enroll {
+		return "applications are installed by the agent: tick Enroll"
+	}
+	if len(apps) > len(winApps) {
+		return "too many applications"
+	}
+	for i, id := range apps {
+		if winAppByID(id) == nil || slices.Contains(apps[:i], id) {
+			return "unknown application " + strconv.Quote(id)
+		}
+	}
+	return ""
+}
+
+// installDeployApps starts installing the apps picked for a new VM once
+// its agent is connected; the install is a job on the server's page.
+func (a *API) installDeployApps(ctx context.Context, who Who, serverID string, apps []string, logf func(string, ...any)) {
+	if len(apps) == 0 {
+		return
+	}
+	for i := 0; i < 24 && !a.Hub.Online(serverID); i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+	job, err := a.Dispatch(ctx, Who{Actor: who.Actor, IP: "panel"}, serverID, "software.install", map[string]string{"apps": strings.Join(apps, " ")})
+	if err != nil {
+		logf("warning: installing the applications: %v (install them from the server's Software tab)", err)
+		return
+	}
+	logf("installing %d applications as job %s (see the server's Software tab)", len(apps), job.ID)
 }
 
 // flexString decodes a JSON string or number (Proxmox returns nextid as a

@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"regexp"
 	"slices"
@@ -392,6 +393,11 @@ type winApp struct {
 	// Console marks a command-line tool: its shortcut opens a command
 	// prompt in the tool's folder instead of starting the program.
 	Console bool `json:"-"`
+	// Linux is how it installs on Linux (linuxapps.go); nil = Windows only.
+	Linux     *linuxApp `json:"-"`
+	OnWindows bool      `json:"windows"`
+	OnLinux   bool      `json:"linux"`
+	LinuxNote string    `json:"linux_note,omitempty"`
 	// Where it comes from: a fixed URL (often the vendor's "latest"
 	// redirect), a GitHub repo's latest release asset, the newest file in a
 	// directory listing, or the first link on a vendor page matching Match.
@@ -568,6 +574,11 @@ func appGet(ctx context.Context, u string, max int64) ([]byte, error) {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", "servermgr")
+	// GitHub allows 60 anonymous API calls an hour per address; with a
+	// token (SM_GITHUB_TOKEN, no scopes needed) it is 5,000.
+	if t := os.Getenv("SM_GITHUB_TOKEN"); t != "" && strings.HasPrefix(u, ghAPI+"/") {
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
 	res, err := appHTTP.Do(req)
 	if err != nil {
 		return nil, err
@@ -713,6 +724,9 @@ func resolveWinApps(ctx context.Context, ids []string) ([]winAppJob, error) {
 		x := winAppByID(id)
 		if x == nil || slices.Contains(ids[:i], id) {
 			return nil, fmt.Errorf("unknown application %q", id)
+		}
+		if !x.OnWindows {
+			return nil, fmt.Errorf("%s is for Linux only", x.Name)
 		}
 		for _, d := range x.Needs {
 			if dx := winAppByID(d); dx != nil && !slices.Contains(order, dx) {

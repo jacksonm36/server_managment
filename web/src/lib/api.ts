@@ -454,6 +454,7 @@ export type PVEDeployReq = {
   ip: string;
   gateway: string;
   enroll: boolean;
+  apps?: string[];
   count?: number;
 } & PVECIOpts;
 // Cloud-init and guest options for a new VM, on top of the panel's key.
@@ -965,6 +966,7 @@ export const api = {
       ip: string;
       gateway: string;
       enroll: boolean;
+      apps?: string[];
       storage?: string;
       bridge?: string;
       vlan?: number;
