@@ -115,7 +115,7 @@ var linuxSpecs = map[string]*linuxApp{
 		AptRepo: &linuxRepo{Key: "https://packages.adoptium.net/artifactory/api/gpg/key/public", Fingerprints: keyAdopt,
 			Source: "https://packages.adoptium.net/artifactory/deb ${CODENAME} main"},
 		DnfRepo: &linuxRepo{Key: "https://packages.adoptium.net/artifactory/api/gpg/key/public", Fingerprints: keyAdopt,
-			Source: "https://packages.adoptium.net/artifactory/rpm/${ID}/${MAJOR}/$basearch"}},
+			Source: "https://packages.adoptium.net/artifactory/rpm/fedora/${MAJOR}/$basearch", SourceRHEL: "https://packages.adoptium.net/artifactory/rpm/rhel/${MAJOR}/$basearch"}},
 	"dbeaver":   {Repo: "dbeaver/dbeaver", Deb: `^dbeaver-ce-[\d.]+-linux-x86_64\.deb$`, Rpm: `^dbeaver-ce-[\d.]+-linux-x86_64\.rpm$`, Note: noteDesktop},
 	"putty":     {Apt: []string{"putty"}, Dnf: []string{"putty"}, EPEL: true},
 	"rustdesk":  {Repo: "rustdesk/rustdesk", Deb: `^rustdesk-[\d.]+-x86_64\.deb$`, Rpm: `^rustdesk-[\d.]+-0\.x86_64\.rpm$`, Note: noteDesktop},

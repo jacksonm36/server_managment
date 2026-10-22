@@ -207,21 +207,30 @@ func swInstall(ctx context.Context, a *swApp, fam string, vars map[string]string
 		case len(a.Apt) > 0:
 			if a.AptRepo != nil {
 				if err := swAptRepo(ctx, a, vars, logf); err != nil {
+					swDropRepo(a.ID, logf)
 					return err
 				}
 				*updated = false
 			}
 			if !*updated {
 				if err := aptUpdate(ctx, logf); err != nil {
+					if a.AptRepo != nil {
+						swDropRepo(a.ID, logf)
+						_ = aptUpdate(ctx, logf)
+					}
 					return err
 				}
 				*updated = true
 			}
 			pkgs, err := swPick(ctx, fam, a.Apt)
-			if err != nil {
-				return err
+			if err == nil {
+				err = aptRun(ctx, logf, append([]string{"install", "--no-install-recommends"}, pkgs...)...)
 			}
-			if err := aptRun(ctx, logf, append([]string{"install", "--no-install-recommends"}, pkgs...)...); err != nil {
+			if err != nil {
+				if a.AptRepo != nil {
+					swDropRepo(a.ID, logf)
+					*updated = false
+				}
 				return err
 			}
 			did = true
@@ -241,14 +250,18 @@ func swInstall(ctx context.Context, a *swApp, fam string, vars map[string]string
 			}
 			if a.DnfRepo != nil {
 				if err := swDnfRepo(ctx, a, vars, logf); err != nil {
+					swDropRepo(a.ID, logf)
 					return err
 				}
 			}
 			pkgs, err := swPick(ctx, fam, a.Dnf)
-			if err != nil {
-				return err
+			if err == nil {
+				err = dnfRun(ctx, logf, append([]string{"install"}, pkgs...)...)
 			}
-			if err := dnfRun(ctx, logf, append([]string{"install"}, pkgs...)...); err != nil {
+			if err != nil {
+				if a.DnfRepo != nil {
+					swDropRepo(a.ID, logf)
+				}
 				return err
 			}
 			did = true
@@ -451,6 +464,22 @@ func swDnfRepo(ctx context.Context, a *swApp, vars map[string]string, logf func(
 	repo := fmt.Sprintf("# Added by servermgr for %s\n[servermgr-%s]\nname=%s (servermgr)\nbaseurl=%s\nenabled=1\ngpgcheck=1\ngpgkey=file://%s\n",
 		a.Name, a.ID, a.Name, src, keyFile)
 	return writeFileAtomic(filepath.Join(swYumRepos, "servermgr-"+a.ID+".repo"), []byte(repo), 0o644)
+}
+
+// swDropRepo removes the repository files servermgr wrote for an app.
+func swDropRepo(id string, logf func(string, ...any)) {
+	removed := false
+	for _, f := range []string{
+		filepath.Join(swAptSources, "servermgr-"+id+".list"), filepath.Join(swAptPrefs, "servermgr-"+id),
+		filepath.Join(swAptKeys, "servermgr-"+id+".asc"), filepath.Join(swYumRepos, "servermgr-"+id+".repo"),
+	} {
+		if os.Remove(f) == nil {
+			removed = true
+		}
+	}
+	if removed {
+		logf("removed the %s repository again, so it does not break other installs", id)
+	}
 }
 
 // ---- release archives ----
@@ -711,13 +740,16 @@ func listSoftware(ctx context.Context) (any, error) {
 		for _, n := range strings.Fields(string(manual)) {
 			want[strings.SplitN(n, ":", 2)[0]] = true
 		}
-		out, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Package}\t${Version}\t${Maintainer}\t${Installed-Size}\t${db:Status-Abbrev}\n").Output()
+		out, err := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Package}\t${Version}\t${Maintainer}\t${Installed-Size}\t${db:Status-Abbrev}\t${Priority}\t${Essential}\t${Section}\n").Output()
 		if err != nil {
 			return nil, fmt.Errorf("dpkg-query: %w", err)
 		}
 		for _, line := range strings.Split(string(out), "\n") {
 			f := strings.Split(line, "\t")
-			if len(f) < 5 || !want[f[0]] || !strings.HasPrefix(f[4], "ii") {
+			// Images mark the whole base system manual: leave out what the
+			// distribution requires and the libraries.
+			if len(f) < 8 || !want[f[0]] || !strings.HasPrefix(f[4], "ii") || f[6] == "yes" ||
+				f[5] == "required" || f[5] == "important" || swLibSection.MatchString(f[7]) {
 				continue
 			}
 			kb, _ := strconv.ParseInt(f[3], 10, 64)
@@ -728,9 +760,24 @@ func listSoftware(ctx context.Context) (any, error) {
 		if err != nil {
 			return nil, fmt.Errorf("dnf repoquery: %w", err)
 		}
+		// What came with the OS (within an hour of basesystem) is the base
+		// system, not something installed on purpose.
+		// (rpm, not dnf, gives the times as numbers.)
+		installed := map[string]int64{}
+		if b, err := exec.CommandContext(ctx, "rpm", "-qa", "--qf", "%{NAME}\t%{INSTALLTIME}\n").Output(); err == nil {
+			for _, l := range strings.Split(string(b), "\n") {
+				if n, t, ok := strings.Cut(l, "\t"); ok {
+					installed[n], _ = strconv.ParseInt(t, 10, 64)
+				}
+			}
+		}
+		base := installed["basesystem"]
 		for _, line := range strings.Split(string(out), "\n") {
 			f := strings.Split(line, "\t")
 			if len(f) < 4 {
+				continue
+			}
+			if t := installed[f[0]]; base > 0 && t > 0 && t <= base+3600 {
 				continue
 			}
 			b, _ := strconv.ParseInt(f[3], 10, 64)
@@ -760,7 +807,10 @@ func swMaintainer(m string) string {
 	return m
 }
 
-var swRemv = regexp.MustCompile(`(?m)^Remv (\S+)`)
+var (
+	swRemv       = regexp.MustCompile(`(?m)^Remv (\S+)`)
+	swLibSection = regexp.MustCompile(`(^|/)(libs|oldlibs|libdevel)$`)
+)
 
 func uninstallSoftware(ctx context.Context, p map[string]string, logf func(string, ...any)) (any, error) {
 	kind, name, _ := strings.Cut(p["id"], ":")
