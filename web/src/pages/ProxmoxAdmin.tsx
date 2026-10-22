@@ -624,7 +624,10 @@ function NetDialog({ cluster, node, row, onClose, onDone }: { cluster: string; n
   );
 }
 
-function NodeDisks({ cluster, node }: { cluster: string; node: string }) {
+// NodeDisks is a node's disk manager: disks with SMART, GPT and wipe, and
+// storage made on them. On the Storage page (inStorage) the ZFS pools are
+// left to the ZFS manager there.
+export function NodeDisks({ cluster, node, inStorage = false, onChanged }: { cluster: string; node: string; inStorage?: boolean; onChanged?: () => void }) {
   const { data, err, load } = useLoad(() => pve.nodeView<Row[]>(cluster, node, "disks"), [cluster, node]);
   const { data: zfs } = useLoad(() => pve.nodeView<Row[]>(cluster, node, "zfs").catch(() => []), [cluster, node]);
   const { data: lvm } = useLoad(() => pve.nodeView<Row>(cluster, node, "lvm").catch((): Row => ({})), [cluster, node]);
@@ -636,13 +639,27 @@ function NodeDisks({ cluster, node }: { cluster: string; node: string }) {
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const unused = (data ?? []).filter((d) => d.used === undefined || d.used === "" || d.used === "unused").map((d) => str(d.devpath));
   const vgs = ((lvm?.children as Row[] | undefined) ?? []).map((v) => ({ name: v.name, size: v.size, free: v.free }));
+  const done = (t: string) => {
+    setMsg({ ok: true, text: t });
+    void load();
+    onChanged?.();
+  };
+  // Proxmox refuses disks in use anyway; only offer it for free ones.
+  const free = (r: Row) => !r.used || r.used === "unused" || r.used === "partitions";
   return (
     <div className="grid gap-4">
       <Card>
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
-          <CardTitle>Disks</CardTitle>
+          <div>
+            <CardTitle>{inStorage ? `Disks on ${node}` : "Disks"}</CardTitle>
+            {inStorage && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                Physical disks with SMART health. Make LVM, LVM-thin or directory storage on free disks; initialize or wipe a disk nothing uses.
+              </p>
+            )}
+          </div>
           <div className="flex flex-wrap gap-2">
-            {["zfs", "lvm", "lvmthin", "directory"].map((k) => (
+            {(inStorage ? ["lvm", "lvmthin", "directory"] : ["zfs", "lvm", "lvmthin", "directory"]).map((k) => (
               <Button key={k} size="sm" variant="secondary" onClick={() => setCreate(k)}>
                 <Plus /> {k === "zfs" ? "ZFS pool" : k === "lvm" ? "LVM" : k === "lvmthin" ? "LVM-thin" : "Directory"}
               </Button>
@@ -673,10 +690,23 @@ function NodeDisks({ cluster, node }: { cluster: string; node: string }) {
                 <Button size="sm" variant="ghost" onClick={() => setSmart(str(r.devpath))}>
                   SMART
                 </Button>
-                <Button size="sm" variant="ghost" onClick={() => setDanger({ action: "initgpt", disk: str(r.devpath) })}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={!free(r)}
+                  title={free(r) ? undefined : `In use (${str(r.used)})`}
+                  onClick={() => setDanger({ action: "initgpt", disk: str(r.devpath) })}
+                >
                   Init GPT
                 </Button>
-                <Button size="sm" variant="ghost" className="text-destructive" onClick={() => setDanger({ action: "wipedisk", disk: str(r.devpath) })}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-destructive"
+                  disabled={!free(r)}
+                  title={free(r) ? undefined : `In use (${str(r.used)})`}
+                  onClick={() => setDanger({ action: "wipedisk", disk: str(r.devpath) })}
+                >
                   Wipe
                 </Button>
               </div>
@@ -685,23 +715,25 @@ function NodeDisks({ cluster, node }: { cluster: string; node: string }) {
         </CardContent>
       </Card>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>ZFS pools</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table
-              rows={zfs ?? []}
-              cols={[
-                ["name", "Pool"],
-                ["health", "Health"],
-                ["size", "Size", (r) => formatBytes(num(r.size))],
-                ["free", "Free", (r) => formatBytes(num(r.free))],
-                ["frag", "Frag", (r) => `${str(r.frag)}%`],
-              ]}
-            />
-          </CardContent>
-        </Card>
+        {!inStorage && (
+          <Card>
+            <CardHeader>
+              <CardTitle>ZFS pools</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table
+                rows={zfs ?? []}
+                cols={[
+                  ["name", "Pool"],
+                  ["health", "Health"],
+                  ["size", "Size", (r) => formatBytes(num(r.size))],
+                  ["free", "Free", (r) => formatBytes(num(r.free))],
+                  ["frag", "Frag", (r) => `${str(r.frag)}%`],
+                ]}
+              />
+            </CardContent>
+          </Card>
+        )}
         <Card>
           <CardHeader>
             <CardTitle>LVM volume groups</CardTitle>
@@ -749,7 +781,7 @@ function NodeDisks({ cluster, node }: { cluster: string; node: string }) {
           </CardContent>
         </Card>
       </div>
-      {create && <CreateStorageOnDisk cluster={cluster} node={node} kind={create} disks={unused} onClose={() => setCreate(null)} onDone={(t) => (setMsg({ ok: true, text: t }), void load())} />}
+      {create && <CreateStorageOnDisk cluster={cluster} node={node} kind={create} disks={unused} onClose={() => setCreate(null)} onDone={done} />}
       {danger && (
         <TypedConfirm
           title={danger.action === "wipedisk" ? `Wipe ${danger.disk}` : `Initialize ${danger.disk} with GPT`}
@@ -759,8 +791,7 @@ function NodeDisks({ cluster, node }: { cluster: string; node: string }) {
           onClose={() => setDanger(null)}
           run={async (c) => {
             const r = await pve.disk(cluster, node, danger.action, { disk: danger.disk }, c);
-            setMsg({ ok: true, text: ranMsg(r, "Done.", "Started; see Tasks.") });
-            void load();
+            done(ranMsg(r, "Done.", "Started; see Tasks."));
           }}
         />
       )}

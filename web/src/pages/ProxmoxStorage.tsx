@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Activity, Database, Disc3, Download, Eraser, FolderOpen, HardDrive, Layers, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Database, Disc3, Download, FolderOpen, Layers, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import {
   api,
   type PVECluster,
   type PVEDisk,
   type PVEISO,
   type PVENodeStorage,
-  type PVESMART,
   type PVEStorageConfig,
   type PVEStorageOverview,
   type PVEStorageReq,
@@ -24,7 +23,7 @@ import { Input, Label } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/select";
 import { useAction } from "@/pages/ProxmoxGuestTabs";
-import { UploadDialog } from "@/pages/ProxmoxAdmin";
+import { NodeDisks, UploadDialog } from "@/pages/ProxmoxAdmin";
 import { ISOLibrary } from "@/components/ISOLibrary";
 import { ZFS } from "@/pages/server/ZFS";
 
@@ -245,7 +244,15 @@ function ClusterStorage({ cluster }: { cluster: string }) {
 
       {browsing && <ContentBrowser key={`${node}/${browse}`} cluster={cluster} node={node} storage={browsing} onClose={() => setBrowse("")} />}
 
-      {node && <DisksCard key={`d-${node}-${diskRev}`} cluster={cluster} node={node} />}
+      {node && (
+        <NodeDisks
+          key={`d-${node}-${diskRev}`}
+          cluster={cluster}
+          node={node}
+          inStorage
+          onChanged={() => void load()}
+        />
+      )}
       {node && (
         <ZFSCard
           key={`z-${node}`}
@@ -632,150 +639,6 @@ function healthBadge(h?: string) {
     <Badge variant={ok ? "success" : "destructive"} className="gap-1.5">
       <span className="size-1.5 rounded-full bg-current" /> {h.toLowerCase()}
     </Badge>
-  );
-}
-
-function DisksCard({ cluster, node }: { cluster: string; node: string }) {
-  const [disks, setDisks] = useState<PVEDisk[] | null>(null);
-  const [err, setErr] = useState("");
-  const [smart, setSmart] = useState<{ disk: string; data: PVESMART | null; err: string } | null>(null);
-  const { busy, run, note } = useAction();
-  const load = useCallback(() => {
-    api
-      .pveDisks(cluster, node)
-      .then((d) => setDisks(d.sort((a, b) => a.devpath.localeCompare(b.devpath))))
-      .catch((e) => setErr((e as Error).message));
-  }, [cluster, node]);
-  useEffect(load, [load]);
-
-  const openSmart = (disk: string) => {
-    setSmart({ disk, data: null, err: "" });
-    api
-      .pveDiskSMART(cluster, node, disk)
-      // Only the dialog still showing this disk takes the answer.
-      .then((data) => setSmart((cur) => (cur?.disk === disk ? { disk, data, err: "" } : cur)))
-      .catch((e) => setSmart((cur) => (cur?.disk === disk ? { disk, data: null, err: (e as Error).message } : cur)));
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <HardDrive className="size-4" /> Disks on {node}
-        </CardTitle>
-        <CardDescription>Physical disks with their SMART health. Only disks nothing uses can be wiped.</CardDescription>
-      </CardHeader>
-      <CardContent className="grid gap-3">
-        {err && <p className="text-sm text-destructive">{err}</p>}
-        {note}
-        {busy && <p className="text-sm text-muted-foreground">{busy}…</p>}
-        {disks && disks.length === 0 && <p className="text-sm text-muted-foreground">No disks reported.</p>}
-        {disks && disks.length > 0 && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-muted/60 text-left text-xs font-semibold tracking-wider text-muted-foreground uppercase">
-                  <th className="rounded-l-md px-2 py-1.5">Disk</th>
-                  <th className="px-2 py-1.5">Model</th>
-                  <th className="px-2 py-1.5">Size</th>
-                  <th className="px-2 py-1.5">Health</th>
-                  <th className="px-2 py-1.5">Used by</th>
-                  <th className="rounded-r-md px-2 py-1.5" />
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {disks.map((d) => (
-                  <tr key={d.devpath}>
-                    <td className="px-2 py-2">
-                      <div className="font-mono text-xs">{d.devpath}</div>
-                      <div className="text-xs text-muted-foreground uppercase">{d.type}</div>
-                    </td>
-                    <td className="px-2 py-2">
-                      <div>{d.model || "—"}</div>
-                      {d.serial && <div className="text-xs text-muted-foreground">{d.serial}</div>}
-                    </td>
-                    <td className="tabular px-2 py-2 whitespace-nowrap">{formatBytes(d.size)}</td>
-                    <td className="px-2 py-2">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {healthBadge(d.health)}
-                        {typeof d.wearout === "number" && <span className="text-xs text-muted-foreground">{d.wearout}% life left</span>}
-                      </div>
-                    </td>
-                    <td className="px-2 py-2 text-muted-foreground">{d.mounted ? "mounted" : d.used || "free"}</td>
-                    <td className="px-2 py-2 text-right whitespace-nowrap">
-                      <Button size="sm" variant="ghost" onClick={() => openSmart(d.devpath)}>
-                        <Activity /> SMART
-                      </Button>
-                      {diskFree(d) && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive"
-                          disabled={!!busy}
-                          onClick={() => {
-                            const x = prompt(`Wipe ${d.devpath}? Every partition and all data on it is erased. Type ${d.devpath} to confirm.`);
-                            if (x) void run(`Wiping ${d.devpath}`, () => api.pveDiskWipe(cluster, node, d.devpath, x), `${d.devpath} wiped.`).then((ok) => ok && load());
-                          }}
-                        >
-                          <Eraser /> Wipe
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </CardContent>
-      {smart && (
-        <Dialog open onOpenChange={(o) => !o && setSmart(null)}>
-          <DialogContent className="sm:max-w-2xl">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                SMART: {smart.disk} {smart.data && healthBadge(smart.data.health)}
-              </DialogTitle>
-            </DialogHeader>
-            {smart.err && <p className="text-sm text-destructive">{smart.err}</p>}
-            {!smart.data && !smart.err && <p className="text-sm text-muted-foreground">Reading…</p>}
-            {smart.data?.text && <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">{smart.data.text}</pre>}
-            {smart.data && !smart.data.text && !smart.data.attributes?.length && (
-              <p className="text-sm text-muted-foreground">
-                No SMART data: the disk does not report it (virtual disks and some USB or RAID controllers do not).
-              </p>
-            )}
-            {smart.data?.attributes && smart.data.attributes.length > 0 && (
-              <div className="max-h-96 overflow-auto">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="text-left text-muted-foreground">
-                      <th className="py-1 pr-2">ID</th>
-                      <th className="py-1 pr-2">Attribute</th>
-                      <th className="py-1 pr-2">Value</th>
-                      <th className="py-1 pr-2">Worst</th>
-                      <th className="py-1 pr-2">Thresh</th>
-                      <th className="py-1">Raw</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {smart.data.attributes.map((a) => (
-                      <tr key={`${a.id}-${a.name}`} className={a.fail && a.fail !== "-" ? "text-destructive" : ""}>
-                        <td className="py-1 pr-2">{a.id}</td>
-                        <td className="py-1 pr-2">{a.name}</td>
-                        <td className="tabular py-1 pr-2">{a.value}</td>
-                        <td className="tabular py-1 pr-2">{a.worst}</td>
-                        <td className="tabular py-1 pr-2">{a.threshold}</td>
-                        <td className="tabular py-1">{a.raw}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
-      )}
-    </Card>
   );
 }
 
