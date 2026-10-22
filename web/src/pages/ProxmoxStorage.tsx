@@ -16,6 +16,8 @@ import {
   type PVEZPool,
 } from "@/lib/api";
 import { formatBytes, pct } from "@/lib/utils";
+import { useLive } from "@/lib/live";
+import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -778,6 +780,8 @@ function DisksCard({ cluster, node }: { cluster: string; node: string }) {
 }
 
 function ZFSCard({ cluster, node, onStorageChanged }: { cluster: string; node: string; onStorageChanged: () => void }) {
+  // The node's servermgr server, if the agent is on it: full ZFS lives there.
+  const agent = useLive((st) => [...st.servers.values()].find((x) => [x.name, x.hostname.split(".")[0]].some((n) => n.toLowerCase() === node.toLowerCase())));
   const [pools, setPools] = useState<PVEZPool[] | null>(null);
   const [err, setErr] = useState("");
   const [open, setOpen] = useState<{ name: string; detail: PVEZDetail | null } | null>(null);
@@ -828,7 +832,16 @@ function ZFSCard({ cluster, node, onStorageChanged }: { cluster: string; node: s
           <CardTitle className="flex items-center gap-2">
             <Layers className="size-4" /> ZFS pools on {node}
           </CardTitle>
-          <CardDescription>Create a pool from free disks and add it as VM storage in one step.</CardDescription>
+          <CardDescription>
+            Create a pool from free disks and add it as VM storage in one step.{" "}
+            {agent ? (
+              <Link href={`/servers/${agent.id}#zfs`} className="text-brand hover:underline">
+                Scrubs, disks, datasets and snapshots →
+              </Link>
+            ) : (
+              <>Scrubs, disk replacement, datasets and snapshots need the servermgr agent on {node}.</>
+            )}
+          </CardDescription>
         </div>
         <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
           <Plus /> Create pool
