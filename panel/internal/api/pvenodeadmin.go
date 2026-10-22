@@ -103,7 +103,7 @@ func (a *API) handlePVENodeView(w http.ResponseWriter, r *http.Request) {
 	form := url.Values{}
 	if r.PathValue("what") == "smart" {
 		disk := r.URL.Query().Get("disk")
-		if !pveDevPath.MatchString(disk) {
+		if !pveDevPath.MatchString(disk) || strings.Contains(disk, "..") {
 			writeErr(w, http.StatusBadRequest, "bad disk")
 			return
 		}

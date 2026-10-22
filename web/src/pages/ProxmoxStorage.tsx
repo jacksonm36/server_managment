@@ -650,8 +650,9 @@ function DisksCard({ cluster, node }: { cluster: string; node: string }) {
     setSmart({ disk, data: null, err: "" });
     api
       .pveDiskSMART(cluster, node, disk)
-      .then((data) => setSmart({ disk, data, err: "" }))
-      .catch((e) => setSmart({ disk, data: null, err: (e as Error).message }));
+      // Only the dialog still showing this disk takes the answer.
+      .then((data) => setSmart((cur) => (cur?.disk === disk ? { disk, data, err: "" } : cur)))
+      .catch((e) => setSmart((cur) => (cur?.disk === disk ? { disk, data: null, err: (e as Error).message } : cur)));
   };
 
   return (
@@ -736,6 +737,11 @@ function DisksCard({ cluster, node }: { cluster: string; node: string }) {
             {smart.err && <p className="text-sm text-destructive">{smart.err}</p>}
             {!smart.data && !smart.err && <p className="text-sm text-muted-foreground">Reading…</p>}
             {smart.data?.text && <pre className="max-h-96 overflow-auto rounded-md bg-muted p-3 text-xs whitespace-pre-wrap">{smart.data.text}</pre>}
+            {smart.data && !smart.data.text && !smart.data.attributes?.length && (
+              <p className="text-sm text-muted-foreground">
+                No SMART data: the disk does not report it (virtual disks and some USB or RAID controllers do not).
+              </p>
+            )}
             {smart.data?.attributes && smart.data.attributes.length > 0 && (
               <div className="max-h-96 overflow-auto">
                 <table className="w-full text-xs">

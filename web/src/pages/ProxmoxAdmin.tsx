@@ -664,8 +664,9 @@ function NodeDisks({ cluster, node }: { cluster: string; node: string }) {
               ["size", "Size", (r) => formatBytes(num(r.size))],
               ["model", "Model"],
               ["serial", "Serial"],
-              ["health", "SMART", (r) => <Badge variant={r.health === "PASSED" || r.health === "OK" ? "success" : r.health ? "warning" : "outline"}>{str(r.health || "n/a")}</Badge>],
-              ["wearout", "Wearout", (r) => (r.wearout === "N/A" || r.wearout === undefined ? "" : `${str(r.wearout)}%`)],
+              ["health", "SMART", (r) => <Badge variant={smartVariant(r.health)}>{str(r.health || "n/a")}</Badge>],
+              // Proxmox reports the life left (100 = new); wearout is what is used up.
+              ["wearout", "Wearout", (r) => (r.wearout === "" || r.wearout === undefined || isNaN(Number(r.wearout)) ? "" : `${100 - Number(r.wearout)}%`)],
             ]}
             actions={(r) => (
               <div className="flex justify-end gap-1">
@@ -768,6 +769,15 @@ function NodeDisks({ cluster, node }: { cluster: string; node: string }) {
   );
 }
 
+// smartVariant colours a SMART health: PASSED/OK good, unknown neutral,
+// anything else (FAILED!, …) bad.
+function smartVariant(h: unknown): "success" | "outline" | "destructive" {
+  if (h === "PASSED" || h === "OK") return "success";
+  return !h || h === "UNKNOWN" ? "outline" : "destructive";
+}
+
+const noSmart = "No SMART data: the disk does not report it (virtual disks and some USB or RAID controllers do not).";
+
 function SmartDialog({ cluster, node, disk, onClose }: { cluster: string; node: string; disk: string; onClose: () => void }) {
   const { data, err } = useLoad(() => pve.nodeView<Row>(cluster, node, "smart", `?disk=${encodeURIComponent(disk)}`), [cluster, node, disk]);
   const attrs = (data?.attributes as Row[] | undefined) ?? [];
@@ -776,7 +786,7 @@ function SmartDialog({ cluster, node, disk, onClose }: { cluster: string; node: 
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
-            SMART · {disk} {data?.health ? <Badge variant={data.health === "PASSED" ? "success" : "warning"}>{str(data.health)}</Badge> : null}
+            SMART · {disk} {data?.health ? <Badge variant={smartVariant(data.health)}>{str(data.health)}</Badge> : null}
           </DialogTitle>
         </DialogHeader>
         {err && <p className="text-sm text-destructive">{err}</p>}
@@ -794,7 +804,7 @@ function SmartDialog({ cluster, node, disk, onClose }: { cluster: string; node: 
               ]}
             />
           ) : (
-            <pre className="font-mono text-xs whitespace-pre-wrap">{str(data?.text) || "Loading…"}</pre>
+            <pre className="font-mono text-xs whitespace-pre-wrap">{data ? str(data.text) || noSmart : err ? "" : "Loading…"}</pre>
           )}
         </div>
       </DialogContent>
