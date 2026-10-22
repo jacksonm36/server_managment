@@ -12,6 +12,7 @@ import {
   Globe,
   Info,
   KeyRound,
+  Layers,
   LayoutGrid,
   ListTodo,
   PackageCheck,
@@ -52,6 +53,7 @@ import { Firewall } from "./server/Firewall";
 import { Fail2ban } from "./server/Fail2ban";
 import { ServerCrowdSec } from "./server/CrowdSec";
 import { Software } from "./server/Software";
+import { ZFS } from "./server/ZFS";
 
 const EMPTY: never[] = [];
 
@@ -193,6 +195,7 @@ export function ServerDetail({ id }: { id: string }) {
         </Suspense>
       )}
       {tab === "software" && <Software serverId={id} online={server.online} />}
+      {tab === "zfs" && <ZFS serverId={id} online={server.online} />}
       {tab === "apps" && <Apps serverId={id} online={server.online} initialApp={pendingApp} onInitialAppUsed={() => setPendingApp("")} />}
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "docker" && <Docker serverId={id} online={server.online} />}
@@ -250,6 +253,7 @@ const TABS = [
   { id: "cron", label: "Cron", icon: Clock, group: "System", on: "linux" },
   { id: "backups", label: "Backups", icon: Archive, group: "System", on: "linux" },
   { id: "updates", label: "Updates", icon: PackageCheck, group: "System", on: "all" },
+  { id: "zfs", label: "ZFS", icon: Layers, group: "System", on: "linux" },
   { id: "ssh", label: "SSH keys", icon: KeyRound, group: "Security", on: "linux" },
   { id: "firewall", label: "Firewall", icon: Shield, group: "Security", on: "all" },
   { id: "crowdsec", label: "CrowdSec", icon: ShieldCheck, group: "Security", on: "linux" },
