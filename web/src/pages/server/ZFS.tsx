@@ -41,7 +41,7 @@ type Dataset = {
   refer: Num;
   mountpoint?: string;
   compression?: string;
-  compressratio?: string;
+  compressratio?: number | string;
   recordsize?: Num;
   volsize?: Num;
   quota?: Num;
@@ -668,7 +668,7 @@ function Datasets({
                     <td className="tabular hidden px-3 py-1.5 text-right lg:table-cell">{bytes(d.refer)}</td>
                     <td className="hidden px-3 py-1.5 text-muted-foreground lg:table-cell">
                       {d.compression}
-                      {d.compressratio && d.compressratio !== "1.00x" ? ` (${d.compressratio})` : ""}
+                      {Number.parseFloat(String(d.compressratio)) > 1.005 ? ` (${Number.parseFloat(String(d.compressratio)).toFixed(2)}x)` : ""}
                     </td>
                     <td className="hidden max-w-56 truncate px-3 py-1.5 font-mono text-xs text-muted-foreground md:table-cell" title={d.mountpoint}>
                       {d.mountpoint && d.mountpoint !== "-" ? d.mountpoint : ""}
