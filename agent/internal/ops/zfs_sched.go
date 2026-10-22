@@ -521,6 +521,14 @@ func ZFSRecv(parent, command string, stdin io.Reader, stdout, stderr io.Writer) 
 		}
 		return 0
 	case f[0] == "recv" && len(f) == 2:
+		// A transfer cut off earlier leaves partial state (-s) that blocks
+		// any other stream; the sender restarts from the last common
+		// snapshot, so drop it.
+		if tok, err := zfsCmd(ctx, "zfs", "get", "-H", "-o", "value", "receive_resume_token", ds); err == nil {
+			if t := strings.TrimSpace(string(tok)); t != "" && t != "-" {
+				_, _ = zfsCmd(ctx, "zfs", "recv", "-A", ds)
+			}
+		}
 		if err := zfsRecvExec(ctx, []string{"recv", "-s", "-u", "-F", ds}, stdin, stdout, stderr); err != nil {
 			return fail("%v", err)
 		}
