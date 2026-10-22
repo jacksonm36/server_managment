@@ -572,6 +572,15 @@ var opsByName = map[string]opSpec{
 	"software.list":      {op: agentv1.Op_OP_WIN_APPS_LIST},
 	"software.install":   {op: agentv1.Op_OP_WIN_APPS_INSTALL, params: []string{"apps"}},
 	"software.uninstall": {op: agentv1.Op_OP_WIN_APP_UNINSTALL, params: []string{"id"}},
+	// ZFS on Linux servers (Proxmox nodes with the agent included).
+	"zfs.status":       {op: agentv1.Op_OP_ZFS_STATUS},
+	"zfs.pool":         {op: agentv1.Op_OP_ZFS_POOL, params: []string{"action", "pool"}},
+	"zfs.device":       {op: agentv1.Op_OP_ZFS_DEVICE, params: []string{"action", "pool", "device", "new_device", "vdev", "devices"}},
+	"zfs.dataset":      {op: agentv1.Op_OP_ZFS_DATASET, params: []string{"action", "name", "type", "size", "props", "new_name", "recursive"}},
+	"zfs.snapshots":    {op: agentv1.Op_OP_ZFS_SNAPSHOTS, params: []string{"dataset"}},
+	"zfs.snapshot":     {op: agentv1.Op_OP_ZFS_SNAPSHOT, params: []string{"action", "name", "recursive", "target"}},
+	"zfs.pool_create":  {op: agentv1.Op_OP_ZFS_POOL_CREATE, params: []string{"name", "vdev", "devices", "ashift", "compression"}},
+	"zfs.pool_destroy": {op: agentv1.Op_OP_ZFS_POOL_DESTROY, params: []string{"name", "confirm"}},
 }
 
 // secretParams are forwarded to the agent but never stored in job history
@@ -603,7 +612,7 @@ var readOnlyOps = map[string]bool{
 	"files.list": true, "files.read": true, "cron.list": true, "backup.list": true,
 	"services.list": true, "logs.read": true, "crowdsec.status": true,
 	"docker.status": true, "docker.logs": true, "compose.read": true,
-	"software.list": true,
+	"software.list": true, "zfs.status": true, "zfs.snapshots": true,
 }
 
 func (s opSpec) checkParams(p map[string]string) error {

@@ -150,6 +150,15 @@ const (
 	Op_OP_WIN_APPS_LIST     Op = 70 // installed programs
 	Op_OP_WIN_APPS_INSTALL  Op = 71 // params: apps (JSON: resolved catalog entries from the panel)
 	Op_OP_WIN_APP_UNINSTALL Op = 72 // params: id (the program's uninstall registry key)
+	// ZFS (Linux)
+	Op_OP_ZFS_STATUS       Op = 73 // pools (vdev tree, scan), datasets, importable pools, ARC
+	Op_OP_ZFS_POOL         Op = 74 // params: action (scrub|scrub_pause|scrub_stop|trim|clear|upgrade|export|import), pool
+	Op_OP_ZFS_DEVICE       Op = 75 // params: action (add|attach|detach|replace|offline|online|remove), pool, device, new_device, vdev, devices
+	Op_OP_ZFS_DATASET      Op = 76 // params: action (create|destroy|set|inherit|rename), name, type, size, props, new_name, recursive
+	Op_OP_ZFS_SNAPSHOTS    Op = 77 // params: dataset (optional)
+	Op_OP_ZFS_SNAPSHOT     Op = 78 // params: action (create|destroy|rollback|clone), name, recursive, target
+	Op_OP_ZFS_POOL_CREATE  Op = 79 // params: name, vdev, devices, ashift, compression
+	Op_OP_ZFS_POOL_DESTROY Op = 80 // params: name, confirm
 )
 
 // Enum value maps for Op.
@@ -228,6 +237,14 @@ var (
 		70: "OP_WIN_APPS_LIST",
 		71: "OP_WIN_APPS_INSTALL",
 		72: "OP_WIN_APP_UNINSTALL",
+		73: "OP_ZFS_STATUS",
+		74: "OP_ZFS_POOL",
+		75: "OP_ZFS_DEVICE",
+		76: "OP_ZFS_DATASET",
+		77: "OP_ZFS_SNAPSHOTS",
+		78: "OP_ZFS_SNAPSHOT",
+		79: "OP_ZFS_POOL_CREATE",
+		80: "OP_ZFS_POOL_DESTROY",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -303,6 +320,14 @@ var (
 		"OP_WIN_APPS_LIST":          70,
 		"OP_WIN_APPS_INSTALL":       71,
 		"OP_WIN_APP_UNINSTALL":      72,
+		"OP_ZFS_STATUS":             73,
+		"OP_ZFS_POOL":               74,
+		"OP_ZFS_DEVICE":             75,
+		"OP_ZFS_DATASET":            76,
+		"OP_ZFS_SNAPSHOTS":          77,
+		"OP_ZFS_SNAPSHOT":           78,
+		"OP_ZFS_POOL_CREATE":        79,
+		"OP_ZFS_POOL_DESTROY":       80,
 	}
 )
 
@@ -1363,7 +1388,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xbb\f\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xe2\r\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -1438,7 +1463,15 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x11OP_ANSIBLE_REVOKE\x10E\x12\x14\n" +
 	"\x10OP_WIN_APPS_LIST\x10F\x12\x17\n" +
 	"\x13OP_WIN_APPS_INSTALL\x10G\x12\x18\n" +
-	"\x14OP_WIN_APP_UNINSTALL\x10H2M\n" +
+	"\x14OP_WIN_APP_UNINSTALL\x10H\x12\x11\n" +
+	"\rOP_ZFS_STATUS\x10I\x12\x0f\n" +
+	"\vOP_ZFS_POOL\x10J\x12\x11\n" +
+	"\rOP_ZFS_DEVICE\x10K\x12\x12\n" +
+	"\x0eOP_ZFS_DATASET\x10L\x12\x14\n" +
+	"\x10OP_ZFS_SNAPSHOTS\x10M\x12\x13\n" +
+	"\x0fOP_ZFS_SNAPSHOT\x10N\x12\x16\n" +
+	"\x12OP_ZFS_POOL_CREATE\x10O\x12\x17\n" +
+	"\x13OP_ZFS_POOL_DESTROY\x10P2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 
