@@ -5,7 +5,8 @@ import { formatBytes, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input, Label } from "@/components/ui/input";
+import { Label } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { OpStatus, Offline } from "@/components/OpStatus";
 
@@ -150,11 +151,11 @@ function SiteCard({
             </div>
             <div className="grid gap-1.5">
               <Label className="text-xs">At hour</Label>
-              <Input type="number" min={0} max={23} value={pol.hour} onChange={(e) => setPol({ ...pol, hour: Number(e.target.value) })} />
+              <NumberInput min={0} max={23} value={pol.hour} onValue={(n) => setPol({ ...pol, hour: n })} />
             </div>
             <div className="grid gap-1.5">
               <Label className="text-xs">Keep</Label>
-              <Input type="number" min={1} max={365} value={pol.keep} onChange={(e) => setPol({ ...pol, keep: Number(e.target.value) })} />
+              <NumberInput min={1} max={365} value={pol.keep} onValue={(n) => setPol({ ...pol, keep: n })} />
             </div>
           </div>
           <div className="grid gap-1.5">

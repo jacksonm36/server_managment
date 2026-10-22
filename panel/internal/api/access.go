@@ -54,7 +54,10 @@ var permissions = []Permission{
 
 	{"proxmox.view", "See Proxmox clusters and guests", "Proxmox", false},
 	{"proxmox.operate", "Power actions and snapshots", "Proxmox", false},
-	{"proxmox.manage", "Add clusters, create and delete VMs, roll back", "Proxmox", false},
+	{"proxmox.console", "Open a guest's console (full control of the guest)", "Proxmox", false},
+	{"proxmox.guests", "Create and delete VMs, roll back snapshots", "Proxmox", false},
+	{"proxmox.manage", "Add and change Proxmox clusters; manage their nodes, storage and datacenter settings", "Proxmox", false},
+	{"tenants.manage", "Create tenants and set up their isolation on Proxmox", "Panel", false},
 
 	{"audit.view", "See the audit log", "Panel", false},
 	{"notifications.manage", "Edit notification channels", "Panel", false},
@@ -87,7 +90,7 @@ var builtinPerms = func() map[string][]string {
 	for _, p := range all {
 		switch p {
 		case "server.delete", "servers.add", "keys.manage", "notifications.manage", "settings.manage",
-			"users.manage", "vault.manage", "ansible.manage", "tofu.manage", "proxmox.manage", "crowdsec.manage":
+			"users.manage", "vault.manage", "ansible.manage", "tofu.manage", "proxmox.manage", "crowdsec.manage", "tenants.manage":
 		default:
 			operator = append(operator, p)
 		}
@@ -113,7 +116,7 @@ func opPerm(op string) string {
 	}
 	prefix, _, _ := strings.Cut(op, ".")
 	switch prefix {
-	case "system", "packages", "services", "cron", "agent", "logs":
+	case "system", "packages", "services", "cron", "agent", "logs", "software", "zfs":
 		return "server.system"
 	case "ssh_keys":
 		return "server.ssh_keys"
@@ -138,10 +141,20 @@ func viewerOp(op string) bool {
 	return readOnlyOps[op] && op != "files.read" && op != "compose.read"
 }
 
+// tenantPerms are the only panel-wide permissions a tenant's user can
+// hold, whatever their roles say. Everything else (users, settings,
+// automation, clusters) belongs to the platform.
+var tenantPerms = map[string]bool{
+	"proxmox.view": true, "proxmox.operate": true, "proxmox.console": true, "proxmox.guests": true, "audit.view": true,
+}
+
 // Access is what one user may do. A nil *Access is the panel itself
 // (schedules, baselines, provisioning) and may do everything.
 type Access struct {
-	Role   string
+	Role string
+	// Tenant is set for a tenant's users: they only reach the tenant's
+	// Proxmox pools and the servers of its server group.
+	Tenant *store.Tenant
 	global map[string]bool
 	// scoped holds server permissions granted per server group.
 	scoped map[int64]map[string]bool
@@ -250,12 +263,62 @@ func (a *API) loadAccess(ctx context.Context, ad *store.Admin) (*Access, error) 
 			}
 		}
 	}
+	if ad.TenantID != nil {
+		t, err := a.Store.GetTenant(ctx, *ad.TenantID)
+		if err != nil {
+			return nil, err
+		}
+		ac.Tenant = t
+		ac.clampToTenant()
+	}
 	if len(ac.scoped) > 0 {
 		if ac.groupsOf, err = a.Store.ServerGroupsByServer(ctx); err != nil {
 			return nil, err
 		}
 	}
 	return ac, nil
+}
+
+// clampToTenant keeps a tenant user inside the tenant: panel-wide
+// permissions shrink to tenantPerms, and server permissions only apply to
+// the tenant's server group (none if it has no group).
+func (ac *Access) clampToTenant() {
+	var group int64
+	if ac.Tenant.ServerGroupID != nil {
+		group = *ac.Tenant.ServerGroupID
+	}
+	for p := range ac.global {
+		if serverPerm(p) && group != 0 {
+			if ac.scoped[group] == nil {
+				ac.scoped[group] = map[string]bool{}
+			}
+			ac.scoped[group][p] = true
+		}
+		if !tenantPerms[p] {
+			delete(ac.global, p)
+		}
+	}
+	for g := range ac.scoped {
+		if g != group {
+			delete(ac.scoped, g)
+		}
+	}
+}
+
+// TenantID is the user's tenant, nil for platform users.
+func (ac *Access) TenantID() *int64 {
+	if ac == nil || ac.Tenant == nil {
+		return nil
+	}
+	return &ac.Tenant.ID
+}
+
+// tenantGroup is the tenant's server group, 0 if none or no tenant.
+func (ac *Access) tenantGroup() int64 {
+	if ac == nil || ac.Tenant == nil || ac.Tenant.ServerGroupID == nil {
+		return 0
+	}
+	return *ac.Tenant.ServerGroupID
 }
 
 type accessKey struct{}

@@ -16,8 +16,16 @@ type FW = {
   logging?: string;
   ssh_port?: string;
   rules?: Rule[];
-  backend?: "ufw" | "firewalld";
+  backend?: "ufw" | "firewalld" | "windows";
+  other_rules?: number;
 };
+
+const WIN_PRESETS = [
+  { label: "RDP", port: "3389", proto: "tcp" },
+  { label: "HTTP", port: "80", proto: "tcp" },
+  { label: "HTTPS", port: "443", proto: "tcp" },
+  { label: "SMB", port: "445", proto: "tcp" },
+];
 
 const PRESETS = [
   { label: "SSH", port: "22", proto: "tcp" },
@@ -26,7 +34,7 @@ const PRESETS = [
   { label: "HTTP/3", port: "443", proto: "udp" },
 ];
 
-export function Firewall({ serverId, online }: { serverId: string; online: boolean }) {
+export function Firewall({ serverId, online, windows = false }: { serverId: string; online: boolean; windows?: boolean }) {
   const { data, busy, error, job, run } = useAgentState<FW>(serverId, "firewall.status", online);
   const [action, setAction] = useState("allow");
   const [port, setPort] = useState("");
@@ -34,7 +42,8 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
   const [from, setFrom] = useState("");
   const [comment, setComment] = useState("");
   const disabled = !online || !!busy;
-  const fw = data?.backend === "firewalld" ? "firewalld" : "UFW";
+  const win = windows || data?.backend === "windows";
+  const fw = win ? "Windows Firewall" : data?.backend === "firewalld" ? "firewalld" : "UFW";
 
   async function addRule(e: React.FormEvent) {
     e.preventDefault();
@@ -58,13 +67,15 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
       if (!confirm("Disable the firewall? All incoming traffic will be allowed.")) return;
       await run("firewall.disable");
     } else {
-      if (!confirm(`Enable ${fw}? SSH (port ${data?.ssh_port ?? 22}/tcp) is allowed with rate limiting first, so you stay connected.`))
-        return;
+      const keep = win
+        ? `Remote Desktop (3389/tcp)${data?.ssh_port ? ", SSH" : ""} and WinRM (when running) are allowed first, so you stay connected.`
+        : `SSH (port ${data?.ssh_port ?? 22}/tcp) is allowed with rate limiting first, so you stay connected.`;
+      if (!confirm(`Enable ${fw}? ${keep}`)) return;
       await run("firewall.enable");
     }
   }
 
-  if (data && !data.installed) {
+  if (data && !data.installed && !win) {
     return (
       <Card className="flex flex-col items-center gap-3 p-10 text-center">
         <ShieldOff className="size-8 text-muted-foreground" />
@@ -90,6 +101,11 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
               {data && (data.active ? <Badge variant="success"><ShieldCheck className="size-3" /> active</Badge> : <Badge variant="outline">inactive</Badge>)}
             </CardTitle>
             <CardDescription>{data?.defaults ? `Default: ${data.defaults}` : "Loading…"}</CardDescription>
+            {win && data && (
+              <CardDescription className="mt-1">
+                Showing the rules added from servermgr. Windows has {data.other_rules ?? 0} other enabled inbound allow rules of its own.
+              </CardDescription>
+            )}
           </div>
           <div className="flex gap-2">
             <Button variant="ghost" size="sm" disabled={disabled} onClick={() => run("firewall.status")} aria-label="Refresh">
@@ -104,7 +120,7 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
         </CardHeader>
         <CardContent className="grid gap-4">
           {!online && <Offline />}
-          {data?.active && (data.rules?.length ?? 0) === 0 && <p className="text-sm text-muted-foreground">No rules.</p>}
+          {data?.active && (data.rules?.length ?? 0) === 0 && <p className="text-sm text-muted-foreground">{win ? "No servermgr rules." : "No rules."}</p>}
           {data && !data.active && (
             <p className="text-sm text-muted-foreground">The firewall is off. Rules you add are applied once it is enabled.</p>
           )}
@@ -154,7 +170,7 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
         <CardContent>
           <form onSubmit={addRule} className="grid gap-3">
             <div className="flex flex-wrap gap-1.5">
-              {PRESETS.map((p) => (
+              {(win ? WIN_PRESETS : PRESETS).map((p) => (
                 <Button
                   key={p.label}
                   type="button"
@@ -176,9 +192,9 @@ export function Firewall({ serverId, online }: { serverId: string; online: boole
                 <Label htmlFor="fw-action">Action</Label>
                 <Select id="fw-action" value={action} onChange={(e) => setAction(e.target.value)}>
                   <option value="allow">Allow</option>
-                  <option value="limit">Limit (rate)</option>
-                  <option value="deny">Deny</option>
-                  <option value="reject">Reject</option>
+                  {!win && <option value="limit">Limit (rate)</option>}
+                  <option value="deny">{win ? "Block" : "Deny"}</option>
+                  {!win && <option value="reject">Reject</option>}
                 </Select>
               </div>
               <div className="grid gap-2">

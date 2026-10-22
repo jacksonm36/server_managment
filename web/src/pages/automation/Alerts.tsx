@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input, Label } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ServerPicker } from "@/components/ServerPicker";
@@ -234,7 +235,7 @@ function RuleDialog({ rule, channels, onClose, onSave }: { rule: AlertRule; chan
             {!isOffline && (
               <div className="grid gap-2">
                 <Label htmlFor="ar-th">Above {METRICS[r.metric as Metric].unit}</Label>
-                <Input id="ar-th" type="number" step="any" min={0} value={r.threshold} onChange={(e) => set({ threshold: Number(e.target.value) })} />
+                <NumberInput id="ar-th" step="any" min={0} value={r.threshold} onValue={(n) => set({ threshold: n })} />
               </div>
             )}
             <div className="grid gap-2">

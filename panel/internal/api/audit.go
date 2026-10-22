@@ -27,7 +27,7 @@ func (a *API) auditAs(ctx context.Context, who Who, action, target string, detai
 	if detail != nil {
 		raw, _ = json.Marshal(detail)
 	}
-	e := &store.AuditEntry{Actor: who.Actor, IP: who.IP, Action: action, Target: target, Detail: raw, Success: success}
+	e := &store.AuditEntry{Actor: who.Actor, IP: who.IP, Action: action, Target: target, Detail: raw, Success: success, TenantID: who.Tenant}
 	if err := a.Store.Audit(ctx, e); err != nil {
 		a.Log.Error("audit", "action", action, "err", err)
 	}
@@ -43,7 +43,7 @@ func queryInt(r *http.Request, key string, def, max int) int {
 
 func (a *API) handleListAudit(w http.ResponseWriter, r *http.Request) {
 	before, _ := strconv.ParseInt(r.URL.Query().Get("before"), 10, 64)
-	list, err := a.Store.ListAudit(r.Context(), queryInt(r, "limit", 100, 500), before, r.URL.Query().Get("action"))
+	list, err := a.Store.ListAudit(r.Context(), queryInt(r, "limit", 100, 500), before, r.URL.Query().Get("action"), accessFrom(r.Context()).TenantID())
 	if err != nil {
 		a.internal(w, err)
 		return

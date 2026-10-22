@@ -4,6 +4,7 @@ package ops
 import (
 	"bufio"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +49,12 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = checkUpdates(ctx, logf)
 	case agentv1.Op_OP_PACKAGES_UPGRADE:
 		result, err = upgradePackages(ctx, p, logf)
+	case agentv1.Op_OP_WIN_APPS_LIST:
+		result, err = listSoftware(ctx)
+	case agentv1.Op_OP_WIN_APPS_INSTALL:
+		result, err = installSoftware(ctx, p, logf)
+	case agentv1.Op_OP_WIN_APP_UNINSTALL:
+		result, err = uninstallSoftware(ctx, p, logf)
 	case agentv1.Op_OP_SYSTEM_REBOOT:
 		result, err = reboot(logf)
 	case agentv1.Op_OP_SSH_KEYS_LIST:
@@ -162,6 +169,32 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = ansiblePrepare(ctx, p, logf)
 	case agentv1.Op_OP_ANSIBLE_REVOKE:
 		result, err = ansibleRevoke(ctx, logf)
+	case agentv1.Op_OP_ZFS_STATUS:
+		result, err = zfsStatus(ctx)
+	case agentv1.Op_OP_ZFS_POOL:
+		result, err = zfsPoolAction(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_DEVICE:
+		result, err = zfsDeviceAction(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_DATASET:
+		result, err = zfsDatasetAction(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_SNAPSHOTS:
+		result, err = zfsSnapshots(ctx, p)
+	case agentv1.Op_OP_ZFS_SNAPSHOT:
+		result, err = zfsSnapshotAction(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_POOL_CREATE:
+		result, err = zfsPoolCreate(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_POOL_DESTROY:
+		result, err = zfsPoolDestroy(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_SNAP_POLICY:
+		result, err = zfsSnapPolicyOp(ctx, p)
+	case agentv1.Op_OP_ZFS_REPL_KEY:
+		result, err = zfsReplKey()
+	case agentv1.Op_OP_ZFS_REPL_AUTHORIZE:
+		result, err = zfsReplAuthorize(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_REPL_POLICY:
+		result, err = zfsReplPolicyOp(ctx, p)
+	case agentv1.Op_OP_ZFS_REPL_RUN:
+		result, err = zfsReplRun(ctx, p, logf)
 	case agentv1.Op_OP_CROWDSEC_STATUS:
 		result, err = crowdsecStatus(ctx)
 	case agentv1.Op_OP_CROWDSEC_INSTALL:
@@ -292,3 +325,7 @@ func streamCmd(cmd *exec.Cmd, logf func(string, ...any)) error {
 	pr.Close()
 	return cmd.Wait()
 }
+
+// PanelCA is the panel CA saved at enrollment; HTTPS to the panel trusts
+// it and nothing else.
+var PanelCA *x509.CertPool

@@ -12,6 +12,7 @@ import {
   Globe,
   Info,
   KeyRound,
+  Layers,
   LayoutGrid,
   ListTodo,
   PackageCheck,
@@ -51,6 +52,8 @@ import { SSHKeys } from "./server/SSHKeys";
 import { Firewall } from "./server/Firewall";
 import { Fail2ban } from "./server/Fail2ban";
 import { ServerCrowdSec } from "./server/CrowdSec";
+import { Software } from "./server/Software";
+import { ZFS } from "./server/ZFS";
 
 const EMPTY: never[] = [];
 
@@ -89,6 +92,9 @@ export function ServerDetail({ id }: { id: string }) {
   }
 
   const m = server.online ? server.latest : null;
+  const windows = server.os === "windows";
+  const tabs = tabsFor(windows);
+  const disk = windows ? "Disk C:" : "Disk /";
 
   async function remove() {
     if (!confirm(`Remove ${server!.name}? Its agent will be refused on the next connect.`)) return;
@@ -141,21 +147,25 @@ export function ServerDetail({ id }: { id: string }) {
         </div>
       </div>
 
-      <Tabs tab={tab} setTab={setTab} />
+      <Tabs tab={tab} setTab={setTab} tabs={tabs} />
 
       <div className="grid gap-6 lg:grid-cols-[12rem_minmax(0,1fr)]">
-        <SideNav tab={tab} setTab={setTab} />
+        <SideNav tab={tab} setTab={setTab} tabs={tabs} />
         <div className="grid min-w-0 content-start gap-6">
       {tab === "overview" && (
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="Uptime" value={m ? formatUptime(m.uptime) : "—"} />
-            <Stat
-              label="Load (1 / 5 / 15)"
-              value={m ? `${m.load1.toFixed(2)} / ${m.load5.toFixed(2)} / ${m.load15.toFixed(2)}` : "—"}
-            />
+            {windows ? (
+              <Stat label="CPU" value={m ? `${m.cpu.toFixed(1)} %` : "—"} />
+            ) : (
+              <Stat
+                label="Load (1 / 5 / 15)"
+                value={m ? `${m.load1.toFixed(2)} / ${m.load5.toFixed(2)} / ${m.load15.toFixed(2)}` : "—"}
+              />
+            )}
             <Stat label="Memory" value={m ? `${formatBytes(m.mem_used)} / ${formatBytes(m.mem_total)}` : "—"} />
-            <Stat label="Disk /" value={m ? `${formatBytes(m.disk_used)} / ${formatBytes(m.disk_total)}` : "—"} />
+            <Stat label={disk} value={m ? `${formatBytes(m.disk_used)} / ${formatBytes(m.disk_total)}` : "—"} />
           </div>
 
           <div className="grid gap-4 lg:grid-cols-3">
@@ -167,7 +177,7 @@ export function ServerDetail({ id }: { id: string }) {
               detail={m ? formatBytes(m.mem_total) : undefined}
             />
             <LiveChart
-              title="Disk /"
+              title={disk}
               points={series.disk}
               color="var(--color-warning)"
               detail={m ? formatBytes(m.disk_total) : undefined}
@@ -181,9 +191,11 @@ export function ServerDetail({ id }: { id: string }) {
       )}
       {tab === "terminal" && (
         <Suspense fallback={<p className="text-sm text-muted-foreground">Loading terminal…</p>}>
-          <Terminal serverId={id} online={server.online} />
+          <Terminal serverId={id} online={server.online} windows={windows} />
         </Suspense>
       )}
+      {tab === "software" && <Software serverId={id} online={server.online} windows={windows} />}
+      {tab === "zfs" && <ZFS serverId={id} online={server.online} />}
       {tab === "apps" && <Apps serverId={id} online={server.online} initialApp={pendingApp} onInitialAppUsed={() => setPendingApp("")} />}
       {tab === "sites" && <Sites serverId={id} online={server.online} />}
       {tab === "docker" && <Docker serverId={id} online={server.online} />}
@@ -197,23 +209,24 @@ export function ServerDetail({ id }: { id: string }) {
           }}
         />
       )}
-      {tab === "files" && <Files serverId={id} online={server.online} />}
+      {tab === "files" && <Files serverId={id} online={server.online} windows={windows} />}
       {tab === "services" && (
         <Services
           serverId={id}
           online={server.online}
+          windows={windows}
           onLogs={(u) => {
             setLogUnit(u);
             setTab("logs");
           }}
         />
       )}
-      {tab === "logs" && <Logs serverId={id} online={server.online} unit={logUnit} />}
+      {tab === "logs" && <Logs serverId={id} online={server.online} unit={logUnit} windows={windows} />}
       {tab === "cron" && <Cron serverId={id} online={server.online} />}
       {tab === "backups" && <Backups serverId={id} online={server.online} />}
-      {tab === "updates" && <Updates serverId={id} online={server.online} />}
+      {tab === "updates" && <Updates serverId={id} online={server.online} windows={windows} />}
       {tab === "ssh" && <SSHKeys serverId={id} online={server.online} />}
-      {tab === "firewall" && <Firewall serverId={id} online={server.online} />}
+      {tab === "firewall" && <Firewall serverId={id} online={server.online} windows={windows} />}
       {tab === "fail2ban" && <Fail2ban serverId={id} online={server.online} />}
       {tab === "crowdsec" && <ServerCrowdSec serverId={id} online={server.online} onOpenFail2ban={() => setTab("fail2ban")} />}
       {tab === "tasks" && <Jobs serverId={id} online={server.online} />}
@@ -223,26 +236,33 @@ export function ServerDetail({ id }: { id: string }) {
   );
 }
 
+// on: which servers have the tab (Windows agents take a subset of jobs).
 const TABS = [
-  { id: "overview", label: "Overview", icon: Activity, group: "" },
-  { id: "terminal", label: "Terminal", icon: SquareTerminal, group: "" },
-  { id: "tasks", label: "Tasks", icon: ListTodo, group: "" },
-  { id: "sites", label: "Sites", icon: Globe, group: "Web" },
-  { id: "apps", label: "Apps", icon: LayoutGrid, group: "Web" },
-  { id: "databases", label: "Databases", icon: Database, group: "Web" },
-  { id: "docker", label: "Docker", icon: Container, group: "Web" },
-  { id: "files", label: "Files", icon: FolderOpen, group: "Web" },
-  { id: "services", label: "Services", icon: Cog, group: "System" },
-  { id: "logs", label: "Logs", icon: ScrollText, group: "System" },
-  { id: "cron", label: "Cron", icon: Clock, group: "System" },
-  { id: "backups", label: "Backups", icon: Archive, group: "System" },
-  { id: "updates", label: "Updates", icon: PackageCheck, group: "System" },
-  { id: "ssh", label: "SSH keys", icon: KeyRound, group: "Security" },
-  { id: "firewall", label: "Firewall", icon: Shield, group: "Security" },
-  { id: "crowdsec", label: "CrowdSec", icon: ShieldCheck, group: "Security" },
-  { id: "fail2ban", label: "Fail2ban", icon: ShieldBan, group: "Security" },
+  { id: "overview", label: "Overview", icon: Activity, group: "", on: "all" },
+  { id: "terminal", label: "Terminal", icon: SquareTerminal, group: "", on: "all" },
+  { id: "tasks", label: "Tasks", icon: ListTodo, group: "", on: "all" },
+  { id: "sites", label: "Sites", icon: Globe, group: "Web", on: "linux" },
+  { id: "apps", label: "Apps", icon: LayoutGrid, group: "Web", on: "linux" },
+  { id: "databases", label: "Databases", icon: Database, group: "Web", on: "linux" },
+  { id: "docker", label: "Docker", icon: Container, group: "Web", on: "linux" },
+  { id: "files", label: "Files", icon: FolderOpen, group: "Web", on: "linux" },
+  { id: "software", label: "Software", icon: PackageSearch, group: "System", on: "all" },
+  { id: "files", label: "Files", icon: FolderOpen, group: "System", on: "windows" },
+  { id: "services", label: "Services", icon: Cog, group: "System", on: "all" },
+  { id: "logs", label: "Logs", icon: ScrollText, group: "System", on: "all" },
+  { id: "cron", label: "Cron", icon: Clock, group: "System", on: "linux" },
+  { id: "backups", label: "Backups", icon: Archive, group: "System", on: "linux" },
+  { id: "updates", label: "Updates", icon: PackageCheck, group: "System", on: "all" },
+  { id: "zfs", label: "ZFS", icon: Layers, group: "System", on: "linux" },
+  { id: "ssh", label: "SSH keys", icon: KeyRound, group: "Security", on: "linux" },
+  { id: "firewall", label: "Firewall", icon: Shield, group: "Security", on: "all" },
+  { id: "crowdsec", label: "CrowdSec", icon: ShieldCheck, group: "Security", on: "linux" },
+  { id: "fail2ban", label: "Fail2ban", icon: ShieldBan, group: "Security", on: "linux" },
 ] as const;
 type TabId = (typeof TABS)[number]["id"];
+type Tab = (typeof TABS)[number];
+
+const tabsFor = (windows: boolean): readonly Tab[] => TABS.filter((t) => t.on === "all" || t.on === (windows ? "windows" : "linux"));
 
 // The active tab lives in the URL hash so it survives reloads and can be linked.
 function useTab(): [TabId, (t: TabId) => void] {
@@ -264,14 +284,14 @@ function useTab(): [TabId, (t: TabId) => void] {
 }
 
 // Sidebar on wide screens: grouped like a hosting panel.
-function SideNav({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
-  const groups = [...new Set(TABS.map((t) => t.group))];
+function SideNav({ tab, setTab, tabs }: { tab: TabId; setTab: (t: TabId) => void; tabs: readonly Tab[] }) {
+  const groups = [...new Set(tabs.map((t) => t.group))];
   return (
     <nav aria-label="Server sections" className="sticky top-20 hidden content-start gap-4 lg:grid">
       {groups.map((g) => (
         <div key={g || "main"} className="grid gap-0.5">
           {g && <div className="px-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{g}</div>}
-          {TABS.filter((t) => t.group === g).map(({ id, label, icon: Icon }) => (
+          {tabs.filter((t) => t.group === g).map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
@@ -289,7 +309,7 @@ function SideNav({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
   );
 }
 
-function Tabs({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
+function Tabs({ tab, setTab, tabs }: { tab: TabId; setTab: (t: TabId) => void; tabs: readonly Tab[] }) {
   const strip = useRef<HTMLDivElement>(null);
   // Keep the active tab visible in the scrolling strip (phones/tablets).
   useEffect(() => {
@@ -297,7 +317,7 @@ function Tabs({ tab, setTab }: { tab: TabId; setTab: (t: TabId) => void }) {
   }, [tab]);
   return (
     <div ref={strip} role="tablist" className="-mx-1 flex gap-1 overflow-x-auto border-b px-1 lg:hidden">
-      {TABS.map(({ id, label, icon: Icon }) => (
+      {tabs.map(({ id, label, icon: Icon }) => (
         <button
           key={id}
           role="tab"

@@ -6,6 +6,7 @@
 :root {
   --radius: 0.625rem;
   --background: oklch(0.985 0 0);
+  --sidebar: oklch(0.965 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -22,34 +23,35 @@
   --destructive: oklch(0.577 0.245 27.325);
   --border: oklch(0.91 0 0);
   --input: oklch(0.91 0 0);
-  --ring: oklch(0.7 0.12 210);
-  --brand: oklch(0.6 0.13 215);
+  --ring: oklch(0.72 0.15 50);
+  --brand: oklch(0.64 0.19 45);
   --success: oklch(0.62 0.17 150);
-  --warning: oklch(0.72 0.16 75);
+  --warning: oklch(0.76 0.16 90);
 }
 
 .dark {
-  --background: oklch(0.155 0.006 265);
+  --background: oklch(0.165 0.012 260);
+  --sidebar: oklch(0.145 0.012 260);
   --foreground: oklch(0.96 0 0);
-  --card: oklch(0.195 0.007 265);
+  --card: oklch(0.2 0.015 260);
   --card-foreground: oklch(0.96 0 0);
-  --popover: oklch(0.21 0.007 265);
+  --popover: oklch(0.215 0.015 260);
   --popover-foreground: oklch(0.96 0 0);
   --primary: oklch(0.96 0 0);
   --primary-foreground: oklch(0.2 0 0);
-  --secondary: oklch(0.255 0.008 265);
+  --secondary: oklch(0.25 0.015 260);
   --secondary-foreground: oklch(0.96 0 0);
-  --muted: oklch(0.255 0.008 265);
-  --muted-foreground: oklch(0.68 0.01 265);
-  --accent: oklch(0.27 0.01 265);
+  --muted: oklch(0.27 0.015 260);
+  --muted-foreground: oklch(0.68 0.015 260);
+  --accent: oklch(0.26 0.018 260);
   --accent-foreground: oklch(0.96 0 0);
   --destructive: oklch(0.65 0.2 25);
-  --border: oklch(1 0 0 / 9%);
+  --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 13%);
-  --ring: oklch(0.75 0.13 210);
-  --brand: oklch(0.78 0.13 210);
+  --ring: oklch(0.74 0.16 52);
+  --brand: oklch(0.74 0.17 52);
   --success: oklch(0.75 0.17 155);
-  --warning: oklch(0.82 0.15 80);
+  --warning: oklch(0.86 0.16 95);
 }
 
 @theme inline {
@@ -58,6 +60,7 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --color-background: var(--background);
+  --color-sidebar: var(--sidebar);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
@@ -109,5 +112,99 @@
   }
   select option:disabled {
     color: var(--muted-foreground);
+  }
+}
+
+/* Power actions: a bar sweeping under a banner, a ring pulsing round a
+   status dot, and a check popping in when it is done. */
+@keyframes sm-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@keyframes sm-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 60%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+@keyframes sm-pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@keyframes sm-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@utility animate-sweep {
+  animation: sm-sweep 1.3s ease-in-out infinite;
+}
+@utility animate-ring {
+  animation: sm-ring 1.2s ease-out infinite;
+}
+@utility animate-pop {
+  animation: sm-pop 0.35s ease-out both;
+}
+@utility animate-fade-in {
+  animation: sm-fade-in 0.2s ease-out both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-sweep,
+  .animate-ring {
+    animation-duration: 3s;
+  }
+}
+
+/* Scale the whole UI up on large screens (everything is in rem), and keep
+   phones from zooming into form fields. */
+@media (min-width: 2200px) {
+  html {
+    font-size: 17px;
+  }
+}
+@media (min-width: 2800px) {
+  html {
+    font-size: 19px;
+  }
+}
+@media (min-width: 3600px) {
+  html {
+    font-size: 22px;
+  }
+}
+/* iOS zooms into fields with text under 16px. */
+@media (max-width: 639px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Grid items default to min-width: auto, so one wide child (a tab strip, a
+   long name) widens the whole page on phones. Let them shrink. */
+@layer base {
+  .grid > * {
+    min-width: 0;
   }
 }

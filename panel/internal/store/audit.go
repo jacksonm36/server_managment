@@ -15,6 +15,8 @@ type AuditEntry struct {
 	Target  string          `json:"target"`
 	Detail  json.RawMessage `json:"detail"`
 	Success bool            `json:"success"`
+	// TenantID is the tenant of the user who acted, if any.
+	TenantID *int64 `json:"tenant_id"`
 }
 
 func (s *Store) Audit(ctx context.Context, e *AuditEntry) error {
@@ -23,18 +25,19 @@ func (s *Store) Audit(ctx context.Context, e *AuditEntry) error {
 		detail = json.RawMessage("{}")
 	}
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO audit_log (actor, ip, action, target, detail, success) VALUES ($1, $2, $3, $4, $5, $6)`,
-		e.Actor, e.IP, e.Action, e.Target, []byte(detail), e.Success)
+		INSERT INTO audit_log (actor, ip, action, target, detail, success, tenant_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		e.Actor, e.IP, e.Action, e.Target, []byte(detail), e.Success, e.TenantID)
 	return err
 }
 
 // ListAudit returns entries newest first. before > 0 pages backwards by id;
-// action filters by prefix (e.g. "auth.").
-func (s *Store) ListAudit(ctx context.Context, limit int, before int64, action string) ([]*AuditEntry, error) {
+// action filters by prefix (e.g. "auth."); a non-nil tenant limits the
+// list to what that tenant's users did.
+func (s *Store) ListAudit(ctx context.Context, limit int, before int64, action string, tenant *int64) ([]*AuditEntry, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, ts, actor, ip, action, target, detail, success FROM audit_log
-		WHERE ($2 = 0 OR id < $2) AND ($3 = '' OR action LIKE $3 || '%')
-		ORDER BY id DESC LIMIT $1`, limit, before, action)
+		SELECT id, ts, actor, ip, action, target, detail, success, tenant_id FROM audit_log
+		WHERE ($2 = 0 OR id < $2) AND ($3 = '' OR action LIKE $3 || '%') AND ($4::bigint IS NULL OR tenant_id = $4)
+		ORDER BY id DESC LIMIT $1`, limit, before, action, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +46,7 @@ func (s *Store) ListAudit(ctx context.Context, limit int, before int64, action s
 	for rows.Next() {
 		e := &AuditEntry{}
 		var detail []byte
-		if err := rows.Scan(&e.ID, &e.TS, &e.Actor, &e.IP, &e.Action, &e.Target, &detail, &e.Success); err != nil {
+		if err := rows.Scan(&e.ID, &e.TS, &e.Actor, &e.IP, &e.Action, &e.Target, &detail, &e.Success, &e.TenantID); err != nil {
 			return nil, err
 		}
 		e.Detail = detail

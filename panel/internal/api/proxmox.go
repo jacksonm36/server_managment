@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -36,6 +37,84 @@ func (a *API) pveClient(ctx context.Context, id string) (*store.ProxmoxCluster, 
 	return c, proxmox.New(c.URL, c.TokenID, string(secret), c.Fingerprint), nil
 }
 
+// pveScope is what one request may reach on one cluster. Platform users
+// use the cluster's token. A tenant's user uses the tenant's own token,
+// which Proxmox ACLs limit to the tenant's pool, and every guest route
+// checks the pool as well (pveGuest).
+type pveScope struct {
+	C  *store.ProxmoxCluster
+	Cl *proxmox.Client
+	TC *store.TenantCluster // nil for platform users
+}
+
+// errNoCluster is also what a tenant gets for a cluster it has no access to.
+var errNoCluster = errors.New("cluster not found")
+
+func (a *API) pveScope(r *http.Request) (*pveScope, error) {
+	ac := accessFrom(r.Context())
+	if ac.Tenant == nil {
+		c, cl, err := a.pveClient(r.Context(), r.PathValue("id"))
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, errNoCluster
+		}
+		return &pveScope{C: c, Cl: cl}, err
+	}
+	c, err := a.Store.GetProxmoxCluster(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return nil, errNoCluster
+	}
+	tc, err := a.Store.GetTenantCluster(r.Context(), ac.Tenant.ID, c.ID)
+	if err != nil || !tc.Isolated() {
+		return nil, errNoCluster
+	}
+	secret, err := a.openSecret(tc.Sealed)
+	if err != nil {
+		return nil, fmt.Errorf("cannot decrypt the API token: %v", err)
+	}
+	return &pveScope{C: c, Cl: proxmox.New(c.URL, tc.TokenID, string(secret), c.Fingerprint), TC: tc}, nil
+}
+
+// scopeErr answers a pveScope error.
+func scopeErr(w http.ResponseWriter, err error) {
+	if errors.Is(err, errNoCluster) {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeErr(w, http.StatusServiceUnavailable, err.Error())
+}
+
+// errNoGuest is the answer for a guest outside the caller's tenant too, so
+// a tenant cannot even learn which VMIDs exist elsewhere.
+var errNoGuest = errors.New("guest not found")
+
+// pveGuest resolves the {node}/{type}/{vmid} of a guest route. For a
+// tenant's user the guest must be in the tenant's pool.
+func (a *API) pveGuest(w http.ResponseWriter, r *http.Request) (s *pveScope, node, typ string, vmid int, ok bool) {
+	node, typ, vmid, err := guestPath(r)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return nil, "", "", 0, false
+	}
+	if s, err = a.pveScope(r); err != nil {
+		scopeErr(w, err)
+		return nil, "", "", 0, false
+	}
+	if s.TC != nil {
+		res, err := s.Cl.Resources(r.Context())
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err.Error())
+			return nil, "", "", 0, false
+		}
+		if !slices.ContainsFunc(res, func(x proxmox.Resource) bool {
+			return x.Type == typ && x.VMID == vmid && x.Node == node && x.Pool == s.TC.Pool
+		}) {
+			writeErr(w, http.StatusNotFound, errNoGuest.Error())
+			return nil, "", "", 0, false
+		}
+	}
+	return s, node, typ, vmid, true
+}
+
 var (
 	pveTokenID = regexp.MustCompile(`^[\w.-]+@[\w.-]+![\w.-]+$`)
 	pveName    = regexp.MustCompile(`^[\w][\w .-]{0,62}$`)
@@ -60,13 +139,39 @@ func (a *API) handlePVEProbe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"fingerprint": fp, "subject": subject})
 }
 
+// pveClusterView is a cluster as a tenant's user sees it: no address,
+// token or fingerprint of the platform's connection.
+type pveClusterView struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Pool string `json:"pool"`
+}
+
 func (a *API) handleListPVE(w http.ResponseWriter, r *http.Request) {
 	list, err := a.Store.ListProxmoxClusters(r.Context())
 	if err != nil {
 		a.internal(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, list)
+	t := accessFrom(r.Context()).Tenant
+	if t == nil {
+		writeJSON(w, http.StatusOK, list)
+		return
+	}
+	tcs, err := a.Store.ListTenantClusters(r.Context(), t.ID)
+	if err != nil {
+		a.internal(w, err)
+		return
+	}
+	out := []pveClusterView{}
+	for _, c := range list {
+		for _, tc := range tcs {
+			if tc.ClusterID == c.ID && tc.Isolated() {
+				out = append(out, pveClusterView{ID: c.ID, Name: c.Name, Pool: tc.Pool})
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // handleSavePVE adds or updates a cluster after checking that the token
@@ -157,48 +262,130 @@ type pveGuest struct {
 	proxmox.Resource
 	ServerID   string `json:"server_id,omitempty"`
 	ServerName string `json:"server_name,omitempty"`
+	// Tenant names the tenant whose pool holds the guest (platform view).
+	Tenant string `json:"tenant,omitempty"`
+}
+
+// tenantUsage is what a tenant's guests take, counted against its quotas.
+type tenantUsage struct {
+	Guests   int   `json:"guests"`
+	Cores    int   `json:"cores"`
+	MemoryMB int64 `json:"memory_mb"`
+	DiskGB   int64 `json:"disk_gb"`
+}
+
+func (u *tenantUsage) add(o tenantUsage) {
+	u.Guests += o.Guests
+	u.Cores += o.Cores
+	u.MemoryMB += o.MemoryMB
+	u.DiskGB += o.DiskGB
+}
+
+func guestUsage(x proxmox.Resource) tenantUsage {
+	return tenantUsage{Guests: 1, Cores: int(x.MaxCPU), MemoryMB: x.MaxMem >> 20, DiskGB: x.MaxDisk >> 30}
+}
+
+func poolUsage(res []proxmox.Resource, pool string) tenantUsage {
+	var u tenantUsage
+	for _, x := range res {
+		if (x.Type == "qemu" || x.Type == "lxc") && x.Template == 0 && x.Pool == pool {
+			u.add(guestUsage(x))
+		}
+	}
+	return u
+}
+
+// overQuota says which limit u would break, or "".
+func overQuota(t *store.Tenant, u tenantUsage) string {
+	switch {
+	case t.MaxGuests > 0 && u.Guests > t.MaxGuests:
+		return fmt.Sprintf("%d guests", t.MaxGuests)
+	case t.MaxCores > 0 && u.Cores > t.MaxCores:
+		return fmt.Sprintf("%d vCPUs", t.MaxCores)
+	case t.MaxMemoryMB > 0 && u.MemoryMB > t.MaxMemoryMB:
+		return fmt.Sprintf("%d MB of memory", t.MaxMemoryMB)
+	case t.MaxDiskGB > 0 && u.DiskGB > t.MaxDiskGB:
+		return fmt.Sprintf("%d GB of disk", t.MaxDiskGB)
+	}
+	return ""
 }
 
 func (a *API) handlePVEResources(w http.ResponseWriter, r *http.Request) {
-	c, cl, err := a.pveClient(r.Context(), r.PathValue("id"))
+	s, err := a.pveScope(r)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+		scopeErr(w, err)
 		return
 	}
-	ver, err := cl.Version(r.Context())
+	c := s.C
+	var view any = c
+	if s.TC != nil {
+		view = pveClusterView{ID: c.ID, Name: c.Name, Pool: s.TC.Pool}
+	}
+	ver, err := s.Cl.Version(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"cluster": c, "error": err.Error()})
+		writeJSON(w, http.StatusOK, map[string]any{"cluster": view, "error": err.Error()})
 		return
 	}
-	res, err := cl.Resources(r.Context())
+	res, err := s.Cl.Resources(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"cluster": c, "error": err.Error()})
+		writeJSON(w, http.StatusOK, map[string]any{"cluster": view, "error": err.Error()})
 		return
 	}
+	ac := accessFrom(r.Context())
 	links, _ := a.Store.ProxmoxLinks(r.Context(), c.ID)
 	servers, _ := a.Store.ListServers(r.Context())
 	names := map[string]string{}
-	for _, s := range servers {
-		names[s.ID] = s.Name
+	for _, sv := range servers {
+		if ac.CanOn("server.view", sv.ID) {
+			names[sv.ID] = sv.Name
+		}
+	}
+	pools := map[string]string{} // pool -> tenant name (platform view)
+	if s.TC == nil {
+		tenants, _ := a.Store.ListTenants(r.Context())
+		tcs, _ := a.Store.ListTenantClusters(r.Context(), 0)
+		for _, tc := range tcs {
+			for _, t := range tenants {
+				if tc.ClusterID == c.ID && tc.TenantID == t.ID {
+					pools[tc.Pool] = t.Name
+				}
+			}
+		}
 	}
 	nodes, guests, storage := []proxmox.Resource{}, []pveGuest{}, []proxmox.Resource{}
 	for _, x := range res {
 		switch x.Type {
 		case "node":
-			nodes = append(nodes, x)
+			if s.TC == nil {
+				nodes = append(nodes, x)
+			}
 		case "qemu", "lxc":
-			g := pveGuest{Resource: x}
+			// A tenant sees its pool, and the templates it may clone.
+			if s.TC != nil && x.Pool != s.TC.Pool && (x.Template == 0 || !slices.Contains(s.TC.Templates, x.VMID)) {
+				continue
+			}
+			g := pveGuest{Resource: x, Tenant: pools[x.Pool]}
 			if sid := links[x.VMID]; sid != "" && names[sid] != "" {
 				g.ServerID, g.ServerName = sid, names[sid]
 			}
 			guests = append(guests, g)
 		case "storage":
-			storage = append(storage, x)
+			if s.TC == nil || slices.Contains(s.TC.Storages, x.Storage) {
+				storage = append(storage, x)
+			}
 		}
 	}
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].Node < nodes[j].Node })
 	sort.Slice(guests, func(i, j int) bool { return guests[i].VMID < guests[j].VMID })
-	writeJSON(w, http.StatusOK, map[string]any{"cluster": c, "version": ver, "nodes": nodes, "guests": guests, "storage": storage})
+	out := map[string]any{"cluster": view, "version": ver, "nodes": nodes, "guests": guests, "storage": storage}
+	if s.TC != nil {
+		out["tenant"] = map[string]any{
+			"name": ac.Tenant.Name, "pool": s.TC.Pool, "storages": s.TC.Storages, "bridges": s.TC.Bridges, "vlans": s.TC.VLANs,
+			"usage": poolUsage(res, s.TC.Pool),
+			"quota": tenantUsage{Guests: ac.Tenant.MaxGuests, Cores: ac.Tenant.MaxCores, MemoryMB: ac.Tenant.MaxMemoryMB, DiskGB: ac.Tenant.MaxDiskGB},
+		}
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // guestPath validates the {node}/{type}/{vmid} path values.
@@ -212,16 +399,11 @@ func guestPath(r *http.Request) (node, typ string, vmid int, err error) {
 }
 
 func (a *API) pveGuestCall(w http.ResponseWriter, r *http.Request, method, sub string, form url.Values, audit string) bool {
-	c, cl, err := a.pveClient(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+	s, node, typ, vmid, ok := a.pveGuest(w, r)
+	if !ok {
 		return false
 	}
-	node, typ, vmid, err := guestPath(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return false
-	}
+	c, cl := s.C, s.Cl
 	var upid string
 	if err := cl.Do(r.Context(), method, proxmox.GuestPath(node, typ, vmid)+sub, form, &upid); err != nil {
 		a.audit(r, "", audit, fmt.Sprintf("%s/%d", c.Name, vmid), map[string]string{"error": err.Error()}, false)
@@ -259,16 +441,11 @@ func (a *API) handlePVEPower(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handlePVESnapshots(w http.ResponseWriter, r *http.Request) {
-	_, cl, err := a.pveClient(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+	s, node, typ, vmid, ok := a.pveGuest(w, r)
+	if !ok {
 		return
 	}
-	node, typ, vmid, err := guestPath(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	cl := s.Cl
 	var snaps []map[string]any
 	if err := cl.Do(r.Context(), http.MethodGet, proxmox.GuestPath(node, typ, vmid)+"/snapshot", nil, &snaps); err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
@@ -330,16 +507,11 @@ func (a *API) handlePVEDeleteGuest(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	_, cl, err := a.pveClient(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+	s, node, typ, vmid, ok := a.pveGuest(w, r)
+	if !ok {
 		return
 	}
-	node, typ, vmid, err := guestPath(r)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	cl := s.Cl
 	var cfg struct {
 		Name     string `json:"name"`
 		Hostname string `json:"hostname"`
@@ -364,19 +536,143 @@ func (a *API) handlePVEDeleteGuest(w http.ResponseWriter, r *http.Request) {
 // ---- provisioning ----
 
 type pveProvisionReq struct {
-	TemplateVMID int    `json:"template_vmid"`
-	Node         string `json:"node"`   // node holding the template
-	Target       string `json:"target"` // node for the new VM ("" = same)
-	Name         string `json:"name"`
-	Cores        int    `json:"cores"`
-	MemoryMB     int    `json:"memory_mb"`
-	DiskGrowGB   int    `json:"disk_grow_gb"`
-	Disk         string `json:"disk"`
-	FullClone    bool   `json:"full_clone"`
-	IP           string `json:"ip"` // "dhcp" or CIDR
-	Gateway      string `json:"gateway"`
-	Enroll       bool   `json:"enroll"`
+	TemplateVMID int      `json:"template_vmid"`
+	Node         string   `json:"node"`   // node holding the template
+	Target       string   `json:"target"` // node for the new VM ("" = same)
+	Name         string   `json:"name"`
+	Cores        int      `json:"cores"`
+	MemoryMB     int      `json:"memory_mb"`
+	DiskGrowGB   int      `json:"disk_grow_gb"`
+	DiskGB       int      `json:"disk_gb"` // disk size to set (0 = the template's); never shrinks
+	Disk         string   `json:"disk"`
+	FullClone    bool     `json:"full_clone"`
+	IP           string   `json:"ip"` // "dhcp" or CIDR
+	Gateway      string   `json:"gateway"`
+	Enroll       bool     `json:"enroll"`
+	Storage      string   `json:"storage"` // full clone target storage ("" = template's)
+	Bridge       string   `json:"bridge"`  // network bridge for net0 ("" = template's)
+	VLAN         int      `json:"vlan"`    // VLAN tag for net0 (0 = untagged); needs a bridge
+	Apps         []string `json:"apps"`    // catalog apps installed once the VM is enrolled
+	pveCIOpts
+	windows bool // the template is Windows (Cloudbase-Init)
 }
+
+// windowsCheck applies Windows rules to a deploy from a Windows template:
+// a NetBIOS-length name, a strong Administrator password and no SSH keys.
+func (r *pveProvisionReq) windowsCheck() string {
+	switch {
+	case !winHost.MatchString(r.Name):
+		return "Windows computer names have at most 15 characters (lowercase letters, digits, dashes)"
+	case len(r.keyLines) > 0:
+		return "SSH keys are not used on Windows; set the Administrator password"
+	case r.CIPassword == "":
+		return "set the Administrator password"
+	}
+	if msg := winPasswordProblem(r.CIPassword); msg != "" {
+		return msg
+	}
+	r.windows = true
+	return ""
+}
+
+// pveCIOpts are the cloud-init and guest options a new VM can get on top
+// of the panel's own SSH key.
+type pveCIOpts struct {
+	CIUser       string   `json:"ciuser"` // "" = root
+	CIPassword   string   `json:"cipassword"`
+	SSHKeys      string   `json:"sshkeys"`     // extra keys, one per line
+	SSHKeyIDs    []int64  `json:"ssh_key_ids"` // keys from the key library
+	Nameserver   string   `json:"nameserver"`
+	Searchdomain string   `json:"searchdomain"`
+	Tags         []string `json:"tags"`
+	OnBoot       bool     `json:"onboot"`
+	Description  string   `json:"description"`
+	keyLines     []string // resolved by check
+}
+
+// checkCIOpts validates the options and resolves library keys. ac decides
+// whether library keys may be used.
+func (a *API) checkCIOpts(ctx context.Context, ac *Access, o *pveCIOpts) string {
+	o.CIUser = strings.TrimSpace(o.CIUser)
+	if o.CIUser != "" && !pveCIUser.MatchString(o.CIUser) {
+		return "user: lower-case letters, digits, - and _"
+	}
+	if o.CIPassword != "" && (len(o.CIPassword) < 8 || len(o.CIPassword) > 128) {
+		return "password: 8 to 128 characters"
+	}
+	o.keyLines = nil
+	for _, k := range strings.Split(strings.ReplaceAll(o.SSHKeys, "\r", ""), "\n") {
+		if k = strings.TrimSpace(k); k == "" {
+			continue
+		}
+		if !pveSSHKey.MatchString(k) {
+			return "SSH keys: one OpenSSH public key per line"
+		}
+		o.keyLines = append(o.keyLines, k)
+	}
+	if len(o.SSHKeyIDs) > 0 && !ac.Can("keys.manage") {
+		return "using keys from the key library needs the keys.manage permission"
+	}
+	for _, id := range o.SSHKeyIDs {
+		k, err := a.Store.GetSSHKey(ctx, id)
+		if err != nil {
+			return fmt.Sprintf("key %d is not in the key library", id)
+		}
+		line, err := a.openSecret(k.Sealed)
+		if err != nil {
+			return "unlock the vault to use keys from the key library"
+		}
+		o.keyLines = append(o.keyLines, strings.TrimSpace(string(line)))
+	}
+	if len(o.keyLines) > 20 {
+		return "SSH keys: at most 20"
+	}
+	var ns []string
+	for _, n := range strings.Fields(o.Nameserver) {
+		if net.ParseIP(n) == nil || len(ns) == 3 {
+			return "DNS servers: up to 3 IP addresses"
+		}
+		ns = append(ns, n)
+	}
+	o.Nameserver = strings.Join(ns, " ")
+	o.Searchdomain = strings.TrimSpace(o.Searchdomain)
+	if o.Searchdomain != "" && (len(o.Searchdomain) > 512 || !pveSearch.MatchString(o.Searchdomain)) {
+		return "search domain: domain names separated by spaces"
+	}
+	if len(o.Tags) > 10 {
+		return "at most 10 tags"
+	}
+	for _, t := range o.Tags {
+		if !pveTag.MatchString(t) {
+			return "tags: lower-case letters, digits, - _ . +"
+		}
+	}
+	if len(o.Description) > 2000 {
+		return "notes: at most 2000 characters"
+	}
+	return ""
+}
+
+// redacted is the request as the audit log keeps it.
+func (r pveProvisionReq) redacted() pveProvisionReq {
+	if r.CIPassword != "" {
+		r.CIPassword = "(set)"
+	}
+	return r
+}
+
+// user is the cloud-init user the VM gets.
+func (o *pveCIOpts) user() string {
+	if o.CIUser == "" {
+		return "root"
+	}
+	return o.CIUser
+}
+
+var (
+	pveStorage = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,62}$`)
+	pveBridge  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_.-]{0,14}$`)
+)
 
 var pveDisk = regexp.MustCompile(`^(scsi|virtio|sata|ide)\d{1,2}$`)
 
@@ -394,7 +690,7 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 		bad("pick a template")
 		return
 	}
-	if req.Cores < 0 || req.Cores > 128 || req.MemoryMB < 0 || req.MemoryMB > 1<<20 || req.DiskGrowGB < 0 || req.DiskGrowGB > 10000 {
+	if req.Cores < 0 || req.Cores > 128 || req.MemoryMB < 0 || req.MemoryMB > 1<<20 || req.DiskGrowGB < 0 || req.DiskGrowGB > 10000 || req.DiskGB < 0 || req.DiskGB > 10000 {
 		bad("resources out of range")
 		return
 	}
@@ -415,23 +711,153 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	c, cl, err := a.pveClient(r.Context(), r.PathValue("id"))
-	if err != nil {
-		writeErr(w, http.StatusNotFound, err.Error())
+	if (req.Storage != "" && !pveStorage.MatchString(req.Storage)) || (req.Bridge != "" && !pveBridge.MatchString(req.Bridge)) {
+		bad("invalid storage or bridge")
 		return
 	}
-	p := &store.ProxmoxProvision{ID: store.NewUUID(), ClusterID: c.ID, Name: req.Name, Status: "running", CreatedBy: whoFrom(r).Actor}
+	if req.VLAN < 0 || req.VLAN > 4094 || (req.VLAN > 0 && req.Bridge == "") {
+		bad("VLAN: 1-4094, with a network bridge picked")
+		return
+	}
+	if msg := a.checkCIOpts(r.Context(), accessFrom(r.Context()), &req.pveCIOpts); msg != "" {
+		bad(msg)
+		return
+	}
+	if msg := checkDeployApps(req.Apps, req.Enroll); msg != "" {
+		bad(msg)
+		return
+	}
+	s, err := a.pveScope(r)
+	if err != nil {
+		scopeErr(w, err)
+		return
+	}
+	var reserved *tenantUsage
+	if s.TC != nil {
+		u, msg := a.tenantProvisionCheck(r, s, &req)
+		if msg != "" {
+			bad(msg)
+			return
+		}
+		reserved = &u
+		defer func() {
+			// Released by runProvision once it is running.
+			if reserved != nil {
+				a.releaseQuota(s.TC.TenantID, *reserved)
+			}
+		}()
+	}
+	tcfg, err := guestConfig(r.Context(), s, req.Node, "qemu", req.TemplateVMID)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if isWindowsConfig(tcfg) {
+		if msg := req.windowsCheck(); msg != "" {
+			bad(msg)
+			return
+		}
+	}
+	who := whoFrom(r)
+	p := &store.ProxmoxProvision{ID: store.NewUUID(), ClusterID: s.C.ID, Name: req.Name, Status: "running", CreatedBy: who.Actor, TenantID: who.Tenant}
 	if err := a.Store.CreateProvision(r.Context(), p); err != nil {
 		a.internal(w, err)
 		return
 	}
-	a.audit(r, "", "proxmox.provision", c.Name+"/"+req.Name, req, true)
-	go a.runProvision(whoFrom(r), c, cl, p, req)
+	a.audit(r, "", "proxmox.provision", s.C.Name+"/"+req.Name, req.redacted(), true)
+	// The reservation ends once the clone is in the pool (or it failed).
+	release := func() {}
+	if reserved != nil {
+		res := *reserved
+		reserved = nil
+		release = sync.OnceFunc(func() { a.releaseQuota(s.TC.TenantID, res) })
+	}
+	go func() {
+		defer release()
+		a.runProvision(who, s, p, req, release)
+	}()
 	writeJSON(w, http.StatusAccepted, p)
 }
 
+// tenantProvisionCheck applies a tenant's rules to a new VM: only its
+// templates, storages and bridges, always into its pool, within its
+// quotas. It reserves the VM's share of the quota (released by the
+// caller) and returns it, or a message saying what is not allowed.
+func (a *API) tenantProvisionCheck(r *http.Request, s *pveScope, req *pveProvisionReq) (tenantUsage, string) {
+	tc, t := s.TC, accessFrom(r.Context()).Tenant
+	if !slices.Contains(tc.Templates, req.TemplateVMID) {
+		return tenantUsage{}, "that template is not available to you"
+	}
+	if req.Target != "" && req.Target != req.Node {
+		return tenantUsage{}, "new VMs are created on the template's node"
+	}
+	req.Target = ""
+	if len(tc.Storages) == 0 || len(tc.Bridges) == 0 {
+		return tenantUsage{}, "no storage or network has been given to you yet; ask an administrator"
+	}
+	if req.Storage == "" && len(tc.Storages) == 1 {
+		req.Storage = tc.Storages[0]
+	}
+	if !slices.Contains(tc.Storages, req.Storage) {
+		return tenantUsage{}, "pick one of your storages"
+	}
+	if req.Bridge == "" && len(tc.Bridges) == 1 {
+		req.Bridge = tc.Bridges[0]
+	}
+	if !slices.Contains(tc.Bridges, req.Bridge) {
+		return tenantUsage{}, "pick one of your networks"
+	}
+	if req.VLAN != 0 && !slices.Contains(tc.VLANs, req.VLAN) {
+		return tenantUsage{}, fmt.Sprintf("VLAN %d is not available to you", req.VLAN)
+	}
+	// A linked clone would live on the template's storage.
+	req.FullClone = true
+
+	res, err := s.Cl.Resources(r.Context())
+	if err != nil {
+		return tenantUsage{}, "cannot read your guests: " + err.Error()
+	}
+	i := slices.IndexFunc(res, func(x proxmox.Resource) bool {
+		return x.Type == "qemu" && x.VMID == req.TemplateVMID && x.Template == 1
+	})
+	if i < 0 || res[i].Node != req.Node {
+		return tenantUsage{}, "that template is not available to you"
+	}
+	tpl := res[i]
+	add := tenantUsage{Guests: 1, Cores: req.Cores, MemoryMB: int64(req.MemoryMB), DiskGB: max(tpl.MaxDisk>>30, int64(req.DiskGB)) + int64(req.DiskGrowGB)}
+	if add.Cores == 0 {
+		add.Cores = int(tpl.MaxCPU)
+	}
+	if add.MemoryMB == 0 {
+		add.MemoryMB = tpl.MaxMem >> 20
+	}
+	a.pveMu.Lock()
+	defer a.pveMu.Unlock()
+	if a.pveReserved == nil {
+		a.pveReserved = map[int64]tenantUsage{}
+	}
+	total := poolUsage(res, tc.Pool)
+	total.add(a.pveReserved[tc.TenantID])
+	total.add(add)
+	if limit := overQuota(t, total); limit != "" {
+		return tenantUsage{}, "this VM would go over your limit of " + limit
+	}
+	u := a.pveReserved[tc.TenantID]
+	u.add(add)
+	a.pveReserved[tc.TenantID] = u
+	return add, ""
+}
+
+func (a *API) releaseQuota(tenant int64, u tenantUsage) {
+	a.pveMu.Lock()
+	defer a.pveMu.Unlock()
+	cur := a.pveReserved[tenant]
+	cur.add(tenantUsage{Guests: -u.Guests, Cores: -u.Cores, MemoryMB: -u.MemoryMB, DiskGB: -u.DiskGB})
+	a.pveReserved[tenant] = cur
+}
+
 func (a *API) handleListProvisions(w http.ResponseWriter, r *http.Request) {
-	list, err := a.Store.ListProvisions(r.Context(), 50)
+	list, err := a.Store.ListProvisions(r.Context(), 50, accessFrom(r.Context()).TenantID())
 	if err != nil {
 		a.internal(w, err)
 		return
@@ -444,125 +870,259 @@ func encodeURIComponent(s string) string {
 	return strings.ReplaceAll(url.QueryEscape(s), "+", "%20")
 }
 
-func (a *API) runProvision(who Who, c *store.ProxmoxCluster, cl *proxmox.Client, p *store.ProxmoxProvision, req pveProvisionReq) {
-	ctx, cancel := context.WithTimeout(a.baseCtx(), 30*time.Minute)
-	defer cancel()
+// provisionLog appends timestamped lines to a provisioning run's log.
+func (a *API) provisionLog(p *store.ProxmoxProvision) func(string, ...any) {
 	var mu sync.Mutex
-	logf := func(format string, args ...any) {
+	return func(format string, args ...any) {
 		mu.Lock()
 		p.Log += time.Now().UTC().Format("15:04:05 ") + fmt.Sprintf(format, args...) + "\n"
 		mu.Unlock()
 		_ = a.Store.UpdateProvision(a.baseCtx(), p, false)
 	}
-	err := func() error {
-		var next flexString
-		if err := cl.Do(ctx, http.MethodGet, "/cluster/nextid", nil, &next); err != nil {
-			return err
-		}
-		vmid, err := strconv.Atoi(string(next))
-		if err != nil {
-			return fmt.Errorf("unexpected nextid %q", next)
-		}
-		p.VMID = &vmid
-		node := req.Node
-		if req.Target != "" {
-			node = req.Target
-		}
-		logf("cloning template %d on %s to VM %d (%s)", req.TemplateVMID, req.Node, vmid, req.Name)
-		form := url.Values{"newid": {strconv.Itoa(vmid)}, "name": {req.Name}, "full": {map[bool]string{true: "1", false: "0"}[req.FullClone]}}
-		if req.Target != "" {
-			form.Set("target", req.Target)
-		}
-		var upid string
-		if err := cl.Do(ctx, http.MethodPost, proxmox.GuestPath(req.Node, "qemu", req.TemplateVMID)+"/clone", form, &upid); err != nil {
-			return err
-		}
-		if err := cl.WaitTask(ctx, req.Node, upid); err != nil {
-			return err
-		}
+}
 
-		_, pub, err := a.ansibleKey()
-		if err != nil {
-			return err
-		}
-		ipcfg := "ip=dhcp"
-		if req.IP != "dhcp" {
-			ipcfg = "ip=" + req.IP
-			if req.Gateway != "" {
-				ipcfg += ",gw=" + req.Gateway
-			}
-		}
-		cfg := url.Values{"ciuser": {"root"}, "sshkeys": {encodeURIComponent(pub + " servermgr-ansible")}, "ipconfig0": {ipcfg}, "agent": {"1"}}
-		if req.Cores > 0 {
-			cfg.Set("cores", strconv.Itoa(req.Cores))
-		}
-		if req.MemoryMB > 0 {
-			cfg.Set("memory", strconv.Itoa(req.MemoryMB))
-		}
-		logf("cloud-init: root with the panel SSH key, %s; agent enabled", ipcfg)
-		if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/config", cfg, nil); err != nil {
-			return err
-		}
-		if req.DiskGrowGB > 0 {
-			logf("growing %s by %d GB", req.Disk, req.DiskGrowGB)
-			if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/resize", url.Values{"disk": {req.Disk}, "size": {fmt.Sprintf("+%dG", req.DiskGrowGB)}}, nil); err != nil {
-				return err
-			}
-		}
-		logf("starting VM %d", vmid)
-		if err := cl.Do(ctx, http.MethodPost, proxmox.GuestPath(node, "qemu", vmid)+"/status/start", nil, &upid); err != nil {
-			return err
-		}
-		if err := cl.WaitTask(ctx, node, upid); err != nil {
-			return err
-		}
-		if !req.Enroll {
-			logf("done (not enrolling)")
-			return nil
-		}
-
-		// Address: the static IP, or what the guest agent reports.
-		addr := ""
-		if req.IP != "dhcp" {
-			ip, _, _ := net.ParseCIDR(req.IP)
-			addr = ip.String()
-		} else {
-			logf("waiting for the guest agent to report an IP")
-			for i := 0; i < 60 && addr == ""; i++ {
-				if ip, err := cl.GuestIPv4(ctx, node, vmid); err == nil {
-					addr = ip
-					break
-				}
-				select {
-				case <-ctx.Done():
-					return ctx.Err()
-				case <-time.After(5 * time.Second):
-				}
-			}
-			if addr == "" {
-				return errors.New("no IP from the guest agent after 5 minutes (is qemu-guest-agent in the template?)")
-			}
-		}
-		logf("VM address %s; enrolling the agent over SSH", addr)
-		serverID, err := a.enrollOverSSH(ctx, addr, req.Name, logf)
-		if err != nil {
-			return err
-		}
-		p.ServerID = &serverID
-		_ = a.Store.LinkProxmoxGuest(ctx, c.ID, vmid, serverID)
-		logf("enrolled as server %s; restricting the panel key and pinning host keys (Prepare for Ansible)", serverID)
-		if _, err := a.Dispatch(ctx, Who{Actor: who.Actor, IP: "panel"}, serverID, "ansible.prepare", map[string]string{"address": addr}); err != nil {
-			logf("warning: ansible.prepare: %v", err)
-		}
-		return nil
-	}()
+// finishProvision records how a provisioning run ended.
+func (a *API) finishProvision(p *store.ProxmoxProvision, err error, logf func(string, ...any)) {
 	p.Status = "succeeded"
 	if err != nil {
 		p.Status = "failed"
 		logf("error: %v", err)
 	}
 	_ = a.Store.UpdateProvision(a.baseCtx(), p, true)
-	a.Log.Info("proxmox provision finished", "name", p.Name, "status", p.Status)
+	a.Log.Info("proxmox provisioning finished", "name", p.Name, "status", p.Status)
+}
+
+func (a *API) runProvision(who Who, s *pveScope, p *store.ProxmoxProvision, req pveProvisionReq, cloned func()) {
+	// Windows' first boot (Sysprep specialize, Cloudbase-Init) is slow.
+	ctx, cancel := context.WithTimeout(a.baseCtx(), 60*time.Minute)
+	defer cancel()
+	logf := a.provisionLog(p)
+	a.finishProvision(p, a.provisionVM(ctx, who, s, p, req, cloned, logf), logf)
+}
+
+// provisionVM clones a template into a new VM, sets cloud-init, starts it
+// and, if asked, enrolls it.
+func (a *API) provisionVM(ctx context.Context, who Who, s *pveScope, p *store.ProxmoxProvision, req pveProvisionReq, cloned func(), logf func(string, ...any)) error {
+	cl := s.Cl
+	var next flexString
+	if err := cl.Do(ctx, http.MethodGet, "/cluster/nextid", nil, &next); err != nil {
+		return err
+	}
+	vmid, err := strconv.Atoi(string(next))
+	if err != nil {
+		return fmt.Errorf("unexpected nextid %q", next)
+	}
+	p.VMID = &vmid
+	node := req.Node
+	if req.Target != "" {
+		node = req.Target
+	}
+	logf("cloning template %d on %s to VM %d (%s)", req.TemplateVMID, req.Node, vmid, req.Name)
+	form := url.Values{"newid": {strconv.Itoa(vmid)}, "name": {req.Name}, "full": {map[bool]string{true: "1", false: "0"}[req.FullClone]}}
+	if req.Target != "" {
+		form.Set("target", req.Target)
+	}
+	if req.Storage != "" && req.FullClone {
+		form.Set("storage", req.Storage)
+	}
+	if s.TC != nil {
+		form.Set("pool", s.TC.Pool)
+		logf("the VM goes into pool %s", s.TC.Pool)
+	}
+	var upid string
+	if err := cl.Do(ctx, http.MethodPost, proxmox.GuestPath(req.Node, "qemu", req.TemplateVMID)+"/clone", form, &upid); err != nil {
+		return err
+	}
+	if err := cl.WaitTask(ctx, req.Node, upid); err != nil {
+		return err
+	}
+	cloned()
+
+	ipcfg := "ip=dhcp"
+	if req.IP != "dhcp" {
+		ipcfg = "ip=" + req.IP
+		if req.Gateway != "" {
+			ipcfg += ",gw=" + req.Gateway
+		}
+	}
+	cfg := url.Values{"ipconfig0": {ipcfg}, "agent": {"1"}}
+	if req.windows {
+		// Cloudbase-Init reads Proxmox's config drive; Proxmox passes the
+		// password as is for a Windows OS type.
+		cfg.Set("citype", "configdrive2")
+		cfg.Set("ciuser", "Administrator")
+	} else {
+		_, pub, err := a.ansibleKey()
+		if err != nil {
+			return err
+		}
+		keys := append([]string{pub + " servermgr-ansible"}, req.keyLines...)
+		cfg.Set("ciuser", req.user())
+		cfg.Set("sshkeys", encodeURIComponent(strings.Join(keys, "\n")))
+	}
+	if req.CIPassword != "" {
+		cfg.Set("cipassword", req.CIPassword)
+	}
+	if req.Nameserver != "" {
+		cfg.Set("nameserver", req.Nameserver)
+	}
+	if req.Searchdomain != "" {
+		cfg.Set("searchdomain", req.Searchdomain)
+	}
+	if len(req.Tags) > 0 {
+		cfg.Set("tags", strings.Join(req.Tags, ";"))
+	}
+	if req.OnBoot {
+		cfg.Set("onboot", "1")
+	}
+	if req.Description != "" {
+		cfg.Set("description", req.Description)
+	}
+	if req.Cores > 0 {
+		cfg.Set("cores", strconv.Itoa(req.Cores))
+	}
+	if req.MemoryMB > 0 {
+		cfg.Set("memory", strconv.Itoa(req.MemoryMB))
+	}
+	if req.Bridge != "" {
+		cfg.Set("net0", "virtio,bridge="+req.Bridge+vlanOpt(req.VLAN))
+	}
+	extra := ""
+	if n := len(req.keyLines); n > 0 {
+		extra = fmt.Sprintf(" and %d more key(s)", n)
+	}
+	if req.CIPassword != "" {
+		extra += ", a password"
+	}
+	if req.windows {
+		logf("cloud-init (Cloudbase-Init): Administrator with a password, hostname %s, %s", req.Name, ipcfg)
+	} else {
+		logf("cloud-init: user %s with the panel SSH key%s, %s; agent enabled", req.user(), extra, ipcfg)
+	}
+	if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/config", cfg, nil); err != nil {
+		return err
+	}
+	if req.DiskGB > 0 {
+		logf("setting %s to %d GB", req.Disk, req.DiskGB)
+		err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/resize", url.Values{"disk": {req.Disk}, "size": {fmt.Sprintf("%dG", req.DiskGB)}}, nil)
+		var ae *proxmox.APIError
+		if errors.As(err, &ae) && strings.Contains(ae.Msg, "shrink") {
+			logf("the disk is already bigger than %d GB; keeping its size", req.DiskGB)
+		} else if err != nil {
+			return err
+		}
+	}
+	if req.DiskGrowGB > 0 {
+		logf("growing %s by %d GB", req.Disk, req.DiskGrowGB)
+		if err := cl.Do(ctx, http.MethodPut, proxmox.GuestPath(node, "qemu", vmid)+"/resize", url.Values{"disk": {req.Disk}, "size": {fmt.Sprintf("+%dG", req.DiskGrowGB)}}, nil); err != nil {
+			return err
+		}
+	}
+	logf("starting VM %d", vmid)
+	if err := cl.Do(ctx, http.MethodPost, proxmox.GuestPath(node, "qemu", vmid)+"/status/start", nil, &upid); err != nil {
+		return err
+	}
+	if err := cl.WaitTask(ctx, node, upid); err != nil {
+		return err
+	}
+	if !req.Enroll {
+		logf("done (not enrolling)")
+		return nil
+	}
+	if req.windows {
+		// No SSH on Windows: the agent service goes in through the
+		// guest agent once Cloudbase-Init has named and set up the VM.
+		if err := waitWindowsReady(ctx, cl, node, vmid, req.Name, logf); err != nil {
+			return err
+		}
+		serverID, err := a.enrollWindowsViaAgent(ctx, cl, node, vmid, req.Name, logf)
+		if err != nil {
+			return err
+		}
+		p.ServerID = &serverID
+		logf("enrolled as server %s", serverID)
+		a.linkEnrolled(ctx, who, s, vmid, serverID, "", logf)
+		a.installDeployApps(ctx, who, serverID, req.Apps, logf)
+		return nil
+	}
+
+	// Address: the static IP, or what the guest agent reports.
+	addr := ""
+	if req.IP != "dhcp" {
+		ip, _, _ := net.ParseCIDR(req.IP)
+		addr = ip.String()
+	} else {
+		logf("waiting for the guest agent to report an IP")
+		for i := 0; i < 60 && addr == ""; i++ {
+			if ip, err := cl.GuestIPv4(ctx, node, vmid); err == nil {
+				addr = ip
+				break
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(5 * time.Second):
+			}
+		}
+		if addr == "" {
+			return errors.New("no IP from the guest agent after 5 minutes (is qemu-guest-agent in the template?)")
+		}
+	}
+	logf("VM address %s; enrolling the agent over SSH", addr)
+	serverID, err := a.enrollOverSSH(ctx, addr, req.user(), req.Name, logf)
+	if err != nil {
+		// The panel may not reach the VM's network; the guest agent
+		// does not need to.
+		logf("SSH enrollment failed (%v); enrolling through the guest agent instead", err)
+		if serverID, err = a.enrollViaAgent(ctx, cl, node, vmid, req.Name, logf); err != nil {
+			return err
+		}
+	}
+	p.ServerID = &serverID
+	a.linkEnrolled(ctx, who, s, vmid, serverID, addr, logf)
+	a.installDeployApps(ctx, who, serverID, req.Apps, logf)
+	return nil
+}
+
+// checkDeployApps checks the apps picked for a new VM; they install
+// through the agent, so the VM has to be enrolled.
+func checkDeployApps(apps []string, enroll bool) string {
+	if len(apps) == 0 {
+		return ""
+	}
+	if !enroll {
+		return "applications are installed by the agent: tick Enroll"
+	}
+	if len(apps) > len(winApps) {
+		return "too many applications"
+	}
+	for i, id := range apps {
+		if winAppByID(id) == nil || slices.Contains(apps[:i], id) {
+			return "unknown application " + strconv.Quote(id)
+		}
+	}
+	return ""
+}
+
+// installDeployApps starts installing the apps picked for a new VM once
+// its agent is connected; the install is a job on the server's page.
+func (a *API) installDeployApps(ctx context.Context, who Who, serverID string, apps []string, logf func(string, ...any)) {
+	if len(apps) == 0 {
+		return
+	}
+	for i := 0; i < 24 && !a.Hub.Online(serverID); i++ {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+	job, err := a.Dispatch(ctx, Who{Actor: who.Actor, IP: "panel"}, serverID, "software.install", map[string]string{"apps": strings.Join(apps, " ")})
+	if err != nil {
+		logf("warning: installing the applications: %v (install them from the server's Software tab)", err)
+		return
+	}
+	logf("installing %d applications as job %s (see the server's Software tab)", len(apps), job.ID)
 }
 
 // flexString decodes a JSON string or number (Proxmox returns nextid as a
@@ -576,7 +1136,7 @@ func (s *flexString) UnmarshalJSON(b []byte) error {
 
 // enrollOverSSH logs in with the panel key (installed by cloud-init), runs
 // the agent installer with a fresh join token and waits for the agent.
-func (a *API) enrollOverSSH(ctx context.Context, addr, name string, logf func(string, ...any)) (string, error) {
+func (a *API) enrollOverSSH(ctx context.Context, addr, user, name string, logf func(string, ...any)) (string, error) {
 	keyPath, _, err := a.ansibleKey()
 	if err != nil {
 		return "", err
@@ -593,7 +1153,7 @@ func (a *API) enrollOverSSH(ctx context.Context, addr, name string, logf func(st
 	// pinned properly by ansible.prepare over the agent afterwards).
 	var seen string
 	cfg := &ssh.ClientConfig{
-		User: "root", Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, Timeout: 15 * time.Second,
+		User: user, Auth: []ssh.AuthMethod{ssh.PublicKeys(signer)}, Timeout: 15 * time.Second,
 		HostKeyCallback: func(_ string, _ net.Addr, k ssh.PublicKey) error { seen = ssh.FingerprintSHA256(k); return nil },
 	}
 	var conn *ssh.Client
@@ -617,29 +1177,22 @@ func (a *API) enrollOverSSH(ctx context.Context, addr, name string, logf func(st
 	if err := a.Store.CreateJoinToken(ctx, hash, name, time.Now().Add(joinTokenTTL), nil); err != nil {
 		return "", err
 	}
-	cmd := fmt.Sprintf("curl -fsSL %s/install.sh | sh -s -- --token %s --ca-sha256 %s", a.Cfg.PublicURL, raw, a.CA.Fingerprint())
+	// Cloud images give their default user passwordless sudo. The token
+	// goes in on stdin, so it is never in the guest's process list.
+	cmd := "sh -c " + shellQuote(a.enrollScript())
+	if user != "root" {
+		cmd = "sudo -n " + cmd
+	}
 	sess, err := conn.NewSession()
 	if err != nil {
 		return "", err
 	}
 	defer sess.Close()
+	sess.Stdin = strings.NewReader(raw + "\n")
 	out, err := sess.CombinedOutput(cmd)
-	tail := strings.TrimSpace(string(out))
-	if len(tail) > 300 {
-		tail = "…" + tail[len(tail)-300:]
-	}
-	logf("installer: %s", strings.ReplaceAll(tail, raw, "••••"))
+	logTail(logf, string(out), raw)
 	if err != nil {
 		return "", fmt.Errorf("agent installer failed: %v", err)
 	}
-	for i := 0; i < 60; i++ {
-		if sid, err := a.Store.JoinTokenServer(ctx, hash); err == nil && sid != "" {
-			for j := 0; j < 30 && !a.Hub.Online(sid); j++ {
-				time.Sleep(time.Second)
-			}
-			return sid, nil
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return "", errors.New("the agent did not enroll within 2 minutes")
+	return a.waitEnrolled(ctx, hash)
 }

@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
+	"strconv"
+	"strings"
 
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 	"github.com/jacksonm36/servermgr/panel/internal/store"
@@ -24,6 +28,11 @@ type Who struct {
 	// Access is the user's permissions; nil for the panel's own background
 	// work (schedules, baselines, provisioning), which may do anything.
 	Access *Access
+	// Tenant is the acting user's tenant, recorded in the audit log.
+	Tenant *int64
+	// Internal marks the panel's own multi-step work, which may send
+	// internal ops (permissions are still checked against Access).
+	Internal bool
 }
 
 // Dispatch validates op/params, records the job and sends it to the agent.
@@ -32,6 +41,9 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 	spec, ok := opsByName[op]
 	if !ok {
 		return nil, &DispatchError{http.StatusBadRequest, "unknown op " + op}
+	}
+	if spec.internal && !who.Internal {
+		return nil, &DispatchError{http.StatusBadRequest, op + " is sent by the panel itself"}
 	}
 	if err := spec.checkParams(params); err != nil {
 		return nil, &DispatchError{http.StatusBadRequest, err.Error()}
@@ -53,7 +65,36 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 		params = map[string]string{}
 	}
 	var after func(jobID string)
+	storedApps := ""
 	switch op {
+	case "software.install":
+		// The agent gets the catalog entries (download URL, publisher or
+		// SHA-256 to verify), resolved here; ids are all a caller names.
+		storedApps = params["apps"]
+		ids := strings.Fields(storedApps)
+		if len(ids) == 0 {
+			return nil, &DispatchError{http.StatusBadRequest, "pick at least one application"}
+		}
+		for i, id := range ids {
+			x := winAppByID(id)
+			if x == nil || slices.Contains(ids[:i], id) {
+				return nil, &DispatchError{http.StatusBadRequest, "unknown application " + strconv.Quote(id)}
+			}
+			if srv.OS == "windows" && !x.OnWindows || srv.OS != "windows" && !x.OnLinux {
+				return nil, &DispatchError{http.StatusBadRequest, x.Name + " is not available for " + srv.OS}
+			}
+		}
+		var jobs any
+		if srv.OS == "windows" {
+			jobs, err = resolveWinApps(ctx, ids)
+		} else {
+			jobs, err = resolveLinuxApps(ctx, ids)
+		}
+		if err != nil {
+			return nil, &DispatchError{http.StatusBadGateway, err.Error()}
+		}
+		b, _ := json.Marshal(jobs)
+		params = map[string]string{"apps": string(b)}
 	case "ansible.prepare":
 		var addr string
 		if params, addr, err = a.ansiblePrepareParams(srv.ID, params); err != nil {
@@ -72,6 +113,9 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 		a.deprovisionCrowdSec(ctx, srv)
 	}
 	stored := redact(params)
+	if storedApps != "" {
+		stored["apps"] = storedApps
+	}
 	if op == "ssh_keys.add" {
 		stored["key"] = storedKeyParam(params["key"])
 	}
@@ -110,6 +154,7 @@ func whoFrom(r *http.Request) Who {
 		w.Actor = ad.Username
 	}
 	w.Access = accessFrom(r.Context())
+	w.Tenant = w.Access.TenantID()
 	return w
 }
 

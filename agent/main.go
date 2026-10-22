@@ -4,7 +4,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -22,20 +21,15 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"os/exec"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
-	"github.com/jacksonm36/servermgr/agent/internal/ops"
+	"github.com/jacksonm36/servermgr/agent/internal/panelhttp"
 	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
 )
 
 var version = "0.1.0-dev"
-
-const defaultStateDir = "/etc/servermgr-agent"
 
 type state struct {
 	ServerID string `json:"server_id"`
@@ -53,10 +47,12 @@ func main() {
 	case "enroll":
 		err = cmdEnroll(os.Args[2:])
 	case "run":
-		ensureUnitDropIn(log)
+		log = prepareRun(log)
 		err = cmdRun(os.Args[2:], log)
 	case "version":
 		fmt.Println(version)
+	case "zfs-recv":
+		os.Exit(zfsRecv(os.Args[2:]))
 	default:
 		usage()
 	}
@@ -66,41 +62,33 @@ func main() {
 	}
 }
 
-// ensureUnitDropIn makes systemd keep the agent running when a child it
-// started (apt, dnf…) is OOM-killed; the default policy stops the unit.
-func ensureUnitDropIn(log *slog.Logger) {
-	const dir = "/etc/systemd/system/servermgr-agent.service.d"
-	const path = dir + "/servermgr.conf"
-	want := "[Service]\nOOMPolicy=continue\n"
-	if b, err := os.ReadFile(path); err == nil && string(b) == want {
-		return
-	}
-	if os.MkdirAll(dir, 0o755) != nil || os.WriteFile(path, []byte(want), 0o644) != nil {
-		return
-	}
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-		log.Warn("systemctl daemon-reload", "err", err)
-	}
-}
-
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: servermgr-agent enroll --panel URL --token TOKEN --ca-sha256 HEX | run | version")
+	fmt.Fprintln(os.Stderr, "usage: servermgr-agent enroll --panel URL [--token TOKEN] --ca-sha256 HEX | run | version")
+	fmt.Fprintln(os.Stderr, "  enroll reads the join token from SM_JOIN_TOKEN when --token is not given,")
+	fmt.Fprintln(os.Stderr, "  which keeps it out of the process list.")
 	os.Exit(2)
 }
 
 func cmdEnroll(args []string) error {
 	fs := flag.NewFlagSet("enroll", flag.ExitOnError)
-	panel := fs.String("panel", "", "panel base URL, e.g. http://10.0.1.240:8090")
-	token := fs.String("token", "", "one-time join token")
+	panel := fs.String("panel", "", "panel base URL, e.g. https://10.0.1.240:8443")
+	token := fs.String("token", "", "one-time join token (default: $SM_JOIN_TOKEN)")
 	caSHA := fs.String("ca-sha256", "", "expected SHA-256 of the panel CA certificate")
 	dir := fs.String("state-dir", defaultStateDir, "state directory")
 	_ = fs.Parse(args)
+	if *token == "" {
+		*token = strings.TrimSpace(os.Getenv("SM_JOIN_TOKEN"))
+	}
 	if *panel == "" || *token == "" || *caSHA == "" {
-		return errors.New("--panel, --token and --ca-sha256 are required")
+		return errors.New("--panel, --token (or SM_JOIN_TOKEN) and --ca-sha256 are required")
 	}
 
 	if err := os.MkdirAll(*dir, 0o700); err != nil {
 		return err
+	}
+	// The private key goes here: only root / SYSTEM and Administrators.
+	if err := secureStateDir(*dir); err != nil {
+		return fmt.Errorf("securing %s: %w", *dir, err)
 	}
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
@@ -118,7 +106,7 @@ func cmdEnroll(args []string) error {
 		"csr_pem":  string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE REQUEST", Bytes: csrDER})),
 		"hostname": hostname,
 	})
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := panelhttp.PinnedPanelClient(*caSHA, 30*time.Second)
 	resp, err := client.Post(strings.TrimRight(*panel, "/")+"/api/v1/enroll", "application/json", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -207,12 +195,10 @@ func cmdRun(args []string, log *slog.Logger) error {
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := runContext(log)
 	defer stop()
 
-	ops.PanelURL = st.PanelURL
-	ops.StartRenewer(ctx, log)
-	ops.StartBackups(ctx, log)
+	startBackground(ctx, log, st.PanelURL, pool)
 	c := &client{addr: st.GRPCAddr, tls: tlsCfg, log: log.With("server", st.ServerID), sys: sysinfo.New()}
 	c.loop(ctx)
 	return nil

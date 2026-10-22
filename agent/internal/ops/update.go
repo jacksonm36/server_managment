@@ -1,6 +1,8 @@
 package ops
 
 import (
+	"github.com/jacksonm36/servermgr/agent/internal/panelhttp"
+
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -14,6 +16,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // PanelURL is set by main from the enrollment state; the new binary is
@@ -22,15 +25,19 @@ var PanelURL string
 
 var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
-// selfUpdate replaces the agent binary with the panel's build. The expected
-// SHA-256 arrives over the mTLS stream, so the plain-HTTP download cannot be
-// tampered with undetected. The agent restarts itself after replying.
+// selfUpdate replaces the agent binary with the panel's build, downloaded
+// over HTTPS trusting only the panel CA. The expected SHA-256 arrives over
+// the mTLS stream as well. The agent restarts itself after replying.
 func selfUpdate(ctx context.Context, p map[string]string, logf func(string, ...any)) (any, error) {
 	want := strings.ToLower(p["sha256"])
 	if !sha256Hex.MatchString(want) {
 		return nil, errors.New("invalid sha256")
 	}
-	if PanelURL == "" {
+	base := PanelURL
+	if u := p["panel_url"]; strings.HasPrefix(u, "https://") {
+		base = u // the panel's current address (agents enrolled over HTTP move to HTTPS)
+	}
+	if base == "" {
 		return nil, errors.New("panel URL unknown; re-enroll the agent")
 	}
 	exe, err := os.Executable()
@@ -40,10 +47,10 @@ func selfUpdate(ctx context.Context, p map[string]string, logf func(string, ...a
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
 		return nil, err
 	}
-	url := strings.TrimRight(PanelURL, "/") + "/download/servermgr-agent-linux-" + runtime.GOARCH
+	url := strings.TrimRight(base, "/") + "/download/servermgr-agent-linux-" + runtime.GOARCH
 	logf("downloading %s", url)
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := panelhttp.PanelClient(PanelCA, 10*time.Minute).Do(req)
 	if err != nil {
 		return nil, err
 	}

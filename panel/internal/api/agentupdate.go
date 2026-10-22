@@ -24,14 +24,30 @@ var (
 	buildStamp time.Time
 )
 
-// currentAgentBuild hashes bin/servermgr-agent-linux-* (cached until the
-// files change) and reads the version written by `make agent`.
+// agentBuildFiles maps the build keys (Linux arch, or windows-<arch>) to
+// the files /download serves.
+var agentBuildFiles = map[string]string{
+	"amd64":         "servermgr-agent-linux-amd64",
+	"arm64":         "servermgr-agent-linux-arm64",
+	"windows-amd64": "servermgr-agent-windows-amd64.exe",
+}
+
+// buildKey is the agentBuildFiles key for a server.
+func buildKey(os, arch string) string {
+	if os == "windows" {
+		return "windows-" + arch
+	}
+	return arch
+}
+
+// currentAgentBuild hashes the agent builds (cached until the files
+// change) and reads the version written by `make agent`.
 func (a *API) currentAgentBuild() agentBuild {
 	buildMu.Lock()
 	defer buildMu.Unlock()
 	newest := time.Time{}
-	for _, arch := range []string{"amd64", "arm64"} {
-		if fi, err := os.Stat(filepath.Join(a.Cfg.AgentBinDir, "servermgr-agent-linux-"+arch)); err == nil && fi.ModTime().After(newest) {
+	for _, file := range agentBuildFiles {
+		if fi, err := os.Stat(filepath.Join(a.Cfg.AgentBinDir, file)); err == nil && fi.ModTime().After(newest) {
 			newest = fi.ModTime()
 		}
 	}
@@ -42,8 +58,8 @@ func (a *API) currentAgentBuild() agentBuild {
 	if v, err := os.ReadFile(filepath.Join(a.Cfg.AgentBinDir, "agent.version")); err == nil {
 		b.Version = strings.TrimSpace(string(v))
 	}
-	for _, arch := range []string{"amd64", "arm64"} {
-		f, err := os.Open(filepath.Join(a.Cfg.AgentBinDir, "servermgr-agent-linux-"+arch))
+	for key, file := range agentBuildFiles {
+		f, err := os.Open(filepath.Join(a.Cfg.AgentBinDir, file))
 		if err != nil {
 			continue
 		}
@@ -51,7 +67,7 @@ func (a *API) currentAgentBuild() agentBuild {
 		_, err = io.Copy(h, f)
 		f.Close()
 		if err == nil {
-			b.SHA256[arch] = hex.EncodeToString(h.Sum(nil))
+			b.SHA256[key] = hex.EncodeToString(h.Sum(nil))
 		}
 	}
 	buildCache, buildStamp = b, newest
@@ -70,12 +86,12 @@ func (a *API) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b := a.currentAgentBuild()
-	sum, ok := b.SHA256[srv.Arch]
+	sum, ok := b.SHA256[buildKey(srv.OS, srv.Arch)]
 	if !ok {
-		writeErr(w, http.StatusConflict, "no agent build for architecture "+srv.Arch)
+		writeErr(w, http.StatusConflict, "no agent build for "+buildKey(srv.OS, srv.Arch))
 		return
 	}
-	job, err := a.Dispatch(r.Context(), whoFrom(r), srv.ID, "agent.update", map[string]string{"sha256": sum, "version": b.Version, "current": srv.AgentVersion})
+	job, err := a.Dispatch(r.Context(), whoFrom(r), srv.ID, "agent.update", map[string]string{"sha256": sum, "version": b.Version, "current": srv.AgentVersion, "panel_url": a.Cfg.PublicURL})
 	if err != nil {
 		a.writeDispatchErr(w, err)
 		return

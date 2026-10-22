@@ -57,6 +57,12 @@ cd web && npx tsc -b && npm run build   # then: git checkout web/dist/.gitkeep
 | Agent ops | `agent/internal/ops/*.go` (`ops.Run` switch in ops.go) |
 | Live job console + jobs tray (lower right corner) | `web/src/components/JobResults.tsx`, `JobsDock.tsx`; `GET /api/v1/jobs?active=1` |
 | Bulk actions catalog (UI) | `web/src/lib/catalog.ts` |
+| Tenants, Proxmox isolation setup | `panel/internal/api/tenants.go`, `web/src/pages/Tenants.tsx` |
+| Proxmox routes, per-tenant scope (`pveScope`, `pveGuest`) | `panel/internal/api/proxmox.go` |
+| Proxmox guest detail, RRD, tasks | `panel/internal/api/pveguest.go`, `web/src/pages/ProxmoxGuest.tsx`, `web/src/components/HistoryChart.tsx` |
+| Proxmox backups, cloud-init, firewall | `panel/internal/api/pvetabs.go`, `web/src/pages/ProxmoxGuestTabs.tsx` |
+| Templates from cloud images | `panel/internal/proxmox/images.yaml`, `images.go`, `panel/internal/api/pvetemplates.go`, `web/src/components/ImageTemplateDialog.tsx` |
+| Proxmox console relay and window | `panel/internal/api/pveconsole.go`, `web/src/components/GuestConsole.tsx` |
 
 ## App store (one-click apps)
 
@@ -126,6 +132,20 @@ Implemented as the in-panel refresher.
 - nginx sites listen on `[::]` only when the host has IPv6. On hosts without IPv6, the IPv6 listen in the distro default site is commented out.
 - PHP sites deny common data-file extensions.
 - The `nginx` app step (per-app deny rules and web root) and PATH_INFO for PHP sites.
+
+## Tenants and Proxmox isolation (2026-10-14)
+
+Part of bringing CloudManager (a separate Proxmox manager) into servermgr. Tenants come first so every ported feature is per tenant.
+
+- **Model:** `tenants` (quotas, optional server group), `tenant_clusters` (pool, allowed storages, bridges and templates, sealed Proxmox token), `admins.tenant_id`. Migration 015.
+- **Panel side:** `loadAccess` clamps a tenant user's permissions to `tenantPerms` (proxmox view/operate/console/guests, audit.view), whatever their roles say. Server permissions only apply to the tenant's server group. Audit entries and provisioning runs carry `tenant_id`, and tenants only see their own.
+- **Proxmox side:** setup creates the pool and the Proxmox user `sm-<slug>@pve` (no password). It grants exactly PVEVMAdmin and PVEPoolAdmin on the pool, PVEDatastoreUser on the storages, PVESDNUser on `/sdn/zones/localnetwork/<bridge>` and PVETemplateUser on the templates. It issues a privsep=0 token, then checks the token sees nothing outside the pool. Tenant requests use that token, and `pveGuest` also checks the pool. Anything outside it is a 404.
+- **Not handled:** deleting a whole cluster from servermgr leaves the tenants' Proxmox users on it (remove access per tenant first). Moving a user into or out of a tenant ends their sessions.
+- **Guest page** (`/proxmox/<cluster>/<node>/<type>/<vmid>`): live status every 5 s, RRD graphs (CPU, memory, network, disk I/O; hour to year), hardware and options from the config with `cipassword` masked, guest IPs, recent tasks with their logs. All of it goes through `pveGuest`; a task log is only served when the UPID names this guest.
+- **Guest tabs:** Backups (list per backup storage, back up now with vzdump, restore over a stopped guest after typing its ID, delete), Cloud-init (user, password, SSH keys, IP config per NIC, DNS) and Firewall (on/off, default policies, rules). Tenants only see and use their own storages. Firewall addresses are limited to IPs and CIDRs: cluster aliases and ipsets are cluster-wide names. A restore by a tenant passes the tenant's pool.
+- **Templates from cloud images** (Proxmox page, Templates, From image; needs `proxmox.manage`, never for tenants): the catalog is `panel/internal/proxmox/images.yaml` (official vendor "latest" URLs and checksum files). The panel fetches the checksum; Proxmox downloads the image with download-url into a storage with the Import content type (PVE 8.2+). It is imported as scsi0 with a cloud-init drive and a serial console, then converted to a template. The build log shows under Provisioning. Written from scratch: CloudManager's catalog is ProxCenter-derived (AGPL).
+- **Console** (Console button on a running guest, needs `proxmox.console`): `POST …/console` opens vncproxy or termproxy and returns a one-time session id. It is bound to the user who opened it and expires after 30 s. The browser then opens `GET /api/v1/proxmox-console/{sid}`, and the panel relays it to Proxmox's vncwebsocket with the scope's token. VMs default to noVNC (the VNC ticket goes to the browser as its password), or to the serial port when `vga: serialN`. Containers and serial ports use xterm.js; the panel does the termproxy login itself, so that ticket stays server-side. Opening and closing are audit-logged.
+- **Tests:** `TestTenantIsolation` runs against an in-memory Proxmox (`pvefake_test.go`) that enforces ACLs. `scripts/mock-pve.py` also mocks pools, users, tokens and ACLs.
 
 ## Owner preferences
 

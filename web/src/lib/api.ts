@@ -181,6 +181,7 @@ export type User = {
   sessions: number;
   last_login: string | null;
   created_at: string;
+  tenant_id: number | null;
 };
 
 export type UserBody = {
@@ -192,6 +193,7 @@ export type UserBody = {
   disabled: boolean;
   must_change_password?: boolean;
   groups: number[];
+  tenant_id?: number | null;
 };
 
 export type VaultStatus = { configured: boolean; unlocked: boolean };
@@ -243,7 +245,39 @@ export type Me = {
   permissions: string[];
   server_permissions: Record<string, string[]>;
   vault: VaultStatus;
+  tenant: { id: number; name: string } | null;
 };
+
+export type Tenant = {
+  id: number;
+  name: string;
+  slug: string;
+  description: string;
+  server_group_id: number | null;
+  max_guests: number;
+  max_cores: number;
+  max_memory_mb: number;
+  max_disk_gb: number;
+  users: number;
+  created_at: string;
+  clusters: TenantCluster[];
+};
+export type TenantBody = Pick<Tenant, "name" | "description" | "server_group_id" | "max_guests" | "max_cores" | "max_memory_mb" | "max_disk_gb"> & { slug?: string };
+export type TenantCluster = {
+  tenant_id: number;
+  cluster_id: string;
+  pool: string;
+  storages: string[];
+  bridges: string[];
+  vlans?: number[];
+  templates: number[];
+  pve_user: string;
+  token_id: string;
+  set_up_at: string | null;
+};
+export type TenantClusterBody = { pool: string; storages: string[]; bridges: string[]; vlans: number[]; templates: number[]; rotate?: boolean };
+export type TenantOptions = { storages: string[]; bridges: string[]; templates: { vmid: number; name: string; node: string }[]; pools: string[] };
+export type TenantUsage = { guests: number; cores: number; memory_mb: number; disk_gb: number };
 
 export type Permission = { key: string; label: string; group: string; server: boolean };
 
@@ -304,7 +338,8 @@ export type CatalogSource = {
 };
 export type CatalogStatus = { running: boolean; done: number; total: number; last_run: string | null; sources: CatalogSource[] };
 
-export type PVECluster = { id: string; name: string; url: string; token_id: string; fingerprint: string; created_at: string; updated_at: string };
+// A tenant's user gets only id, name and pool.
+export type PVECluster = { id: string; name: string; url?: string; token_id?: string; fingerprint?: string; pool?: string; created_at?: string; updated_at?: string };
 export type PVEResource = {
   id: string;
   type: "node" | "qemu" | "lxc" | "storage";
@@ -321,9 +356,133 @@ export type PVEResource = {
   uptime: number;
   template?: number;
   tags?: string;
+  pool?: string;
+  storage?: string;
+  shared?: number;
 };
-export type PVEGuest = PVEResource & { server_id?: string; server_name?: string };
-export type PVEResources = { cluster: PVECluster; version?: string; error?: string; nodes?: PVEResource[]; guests?: PVEGuest[]; storage?: PVEResource[] };
+export type PVEGuest = PVEResource & { server_id?: string; server_name?: string; tenant?: string };
+export type PVETenantInfo = { name: string; pool: string; storages: string[]; bridges: string[]; vlans?: number[]; usage: TenantUsage; quota: TenantUsage };
+// What the panel knows a guest runs: OS and detected software, and how it found them.
+// An ISO from the built-in library, resolved to the vendor's newest file.
+export type PVEISO = {
+  id: string;
+  name: string;
+  vendor: string;
+  category: "linux" | "bsd" | "windows" | "hypervisor" | "tools";
+  icon: string;
+  windows?: string; // the Windows template edition this ISO installs
+  url?: string;
+  file?: string;
+  checksum?: string;
+  checksum_algorithm?: string;
+  compression?: string; // Proxmox unpacks the download
+  error?: string;
+};
+export type PVEGuestOS = { os: string; pretty?: string; os_via?: string; app?: string; app_via?: string; hints?: string };
+export type PVEResources = {
+  cluster: PVECluster;
+  version?: string;
+  error?: string;
+  nodes?: PVEResource[];
+  guests?: PVEGuest[];
+  storage?: PVEResource[];
+  tenant?: PVETenantInfo;
+};
+export type PVEGuestDetail = {
+  node: string;
+  type: "qemu" | "lxc";
+  vmid: number;
+  status: Record<string, unknown> & { status: string; name?: string; cpu?: number; cpus?: number; mem?: number; maxmem?: number; disk?: number; maxdisk?: number; uptime?: number; netin?: number; netout?: number; qmpstatus?: string; lock?: string };
+  config: Record<string, string | number>;
+  ips: string[] | null;
+  interfaces?: PVEGuestIface[] | null; // from the guest agent or the container
+  server_id?: string; // the servermgr server this guest is
+  server_name?: string;
+};
+export type PVEOption = { key: string; kind: "bool" | "enum" | "text"; values?: string[]; about: string; hint?: string; admin?: boolean; default?: string };
+export type PVEGuestIface = { name: string; mac?: string; addrs: string[] };
+export type PVEHardwareOptions = { storages: string[]; bridges: string[]; isos: string[] };
+export type PVEHardwareReq = Partial<{
+  cores: number;
+  sockets: number;
+  cpu: string;
+  cpulimit: number;
+  memory: number;
+  balloon: number;
+  swap: number;
+  name: string;
+  description: string;
+  tags: string[];
+  onboot: boolean;
+  protection: boolean;
+  agent: boolean;
+  boot: string[];
+}>;
+export type PVENICReq = { model?: string; bridge: string; vlan?: number; firewall?: boolean; rate?: number; mac?: string; name?: string; ip?: string; gw?: string; link_down?: boolean };
+export type PVETimeframe = "hour" | "day" | "week" | "month" | "year";
+export type PVERRDPoint = { time: number; cpu?: number; maxcpu?: number; mem?: number; maxmem?: number; netin?: number; netout?: number; diskread?: number; diskwrite?: number };
+export type PVETask = { upid: string; type: string; user: string; status?: string; starttime: number; endtime?: number };
+export type PVEBackup = { volid: string; storage: string; size: number; ctime: number; format?: string; notes?: string; protected?: number };
+export type PVEFirewallRule = {
+  pos: number;
+  type: "in" | "out";
+  action: "ACCEPT" | "DROP" | "REJECT";
+  enable: number;
+  proto?: string;
+  source?: string;
+  dest?: string;
+  dport?: string;
+  sport?: string;
+  iface?: string;
+  comment?: string;
+};
+export type PVEFirewall = { enable: number; policy_in: string; policy_out: string; rules: PVEFirewallRule[] };
+export type PVECloudInit = { ciuser: string; cipassword: string; sshkeys: string; nameserver: string; searchdomain: string; ipconfig: Record<string, string> };
+export type PVEFlavor = { id: number; name: string; cores: number; memory_mb: number; disk_gb: number; description: string };
+export type PVEDeployReq = {
+  image: string;
+  node: string;
+  name: string;
+  flavor_id?: number;
+  cores?: number;
+  memory_mb?: number;
+  disk_gb?: number;
+  image_storage: string;
+  disk_storage: string;
+  bridge: string;
+  vlan?: number;
+  ip: string;
+  gateway: string;
+  enroll: boolean;
+  apps?: string[];
+  count?: number;
+} & PVECIOpts;
+// Cloud-init and guest options for a new VM, on top of the panel's key.
+export type PVECIOpts = {
+  ciuser?: string;
+  cipassword?: string;
+  sshkeys?: string;
+  ssh_key_ids?: number[];
+  nameserver?: string;
+  searchdomain?: string;
+  tags?: string[];
+  onboot?: boolean;
+  description?: string;
+};
+export type PVEImage = { id: string; name: string; vendor: string; user: string; url: string; checksums?: string };
+export type PVETemplateTargets = { nodes: string[]; image_storages: string[]; file_storages: string[]; disk_storages: string[]; bridges: string[] };
+export type PVETemplateReq = {
+  image: string;
+  node: string;
+  name: string;
+  image_storage: string;
+  disk_storage: string;
+  bridge: string;
+  vlan?: number;
+  cores: number;
+  memory_mb: number;
+  disk_gb: number;
+};
 export type PVESnapshot = { name: string; description?: string; snaptime?: number; vmstate?: number; parent?: string };
 export type PVEProvision = {
   id: string;
@@ -348,9 +507,11 @@ export type TofuWorkspace = {
   git_url: string;
   git_ref: string;
   git_path: string;
+  proxmox_cluster: string | null;
   created_at: string;
   updated_at: string;
 };
+export type TofuStack = { id: string; name: string; summary: string; files: Record<string, string> };
 export type TofuSummary = {
   changes?: boolean;
   add?: number;
@@ -466,7 +627,33 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+// ZFS replication of a dataset to another server, as the source reports it.
+export type ZFSReplication = {
+  dataset: string;
+  target_host: string;
+  target_port?: number | string;
+  target_parent: string;
+  target_name?: string;
+  schedule: string;
+  keep?: number | string;
+  last_run?: number | string;
+  last_ok?: number | string;
+  last_error?: string;
+  last_bytes?: number | string;
+};
+
+export type ZFSReplRequest = {
+  dataset: string;
+  target_server: string;
+  target_parent: string;
+  target_host: string;
+  target_port?: number;
+  from?: string;
+  schedule?: string;
+  keep?: number;
+};
+
+export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
     credentials: "same-origin",
@@ -481,6 +668,89 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) throw new ApiError(res.status, data.error ?? res.statusText, data);
   return data as T;
 }
+
+const pveNodeURL = (id: string, node: string) => `/api/v1/proxmox/${id}/nodes/${encodeURIComponent(node)}`;
+
+// Node details (platform users).
+export type PVENodeStatus = {
+  uptime?: number;
+  loadavg?: string[];
+  kversion?: string;
+  pveversion?: string;
+  cpu?: number;
+  wait?: number;
+  cpuinfo?: { model?: string; cpus?: number; sockets?: number; cores?: number; mhz?: string };
+  memory?: { total: number; used: number; free: number };
+  swap?: { total: number; used: number; free: number };
+  rootfs?: { total: number; used: number; avail: number };
+  "boot-info"?: { mode?: string };
+};
+export type PVENodeRRDPoint = {
+  time: number;
+  cpu?: number;
+  iowait?: number;
+  loadavg?: number;
+  memused?: number;
+  memtotal?: number;
+  swapused?: number;
+  netin?: number;
+  netout?: number;
+  rootused?: number;
+  roottotal?: number;
+};
+
+// Storage page (platform admins).
+export type PVEStorageConfig = {
+  storage: string;
+  type: string;
+  content?: string;
+  nodes?: string;
+  disable?: number;
+  shared?: number;
+  path?: string;
+  server?: string;
+  export?: string;
+  vgname?: string;
+  thinpool?: string;
+  pool?: string;
+};
+export type PVENodeStorage = { storage: string; type: string; content: string; active: number; enabled: number; shared?: number; total?: number; used?: number; avail?: number };
+export type PVEStorageOverview = { config: PVEStorageConfig[]; nodes: Record<string, PVENodeStorage[]>; errors: string[] | null };
+export type PVEStorageReq = {
+  storage: string;
+  type: "dir" | "nfs" | "lvmthin" | "zfspool";
+  content: string[];
+  nodes?: string[];
+  disable?: boolean;
+  path?: string;
+  server?: string;
+  export?: string;
+  vgname?: string;
+  thinpool?: string;
+  pool?: string;
+};
+export type PVEVolume = { volid: string; content: string; format?: string; size?: number; ctime?: number; vmid?: number; notes?: string };
+export type PVEDisk = {
+  devpath: string;
+  model?: string;
+  serial?: string;
+  size: number;
+  type?: string;
+  health?: string;
+  wearout?: number | string;
+  used?: string;
+  mounted?: number | boolean;
+  rpm?: number;
+};
+export type PVESMART = {
+  health: string;
+  type: string;
+  text?: string;
+  attributes?: { id: number | string; name: string; value: number | string; worst: number | string; threshold: number | string; raw: string; fail?: string }[];
+};
+export type PVEZPool = { name: string; health: string; size: number; alloc: number; free: number; frag?: number; dedup?: number };
+export type PVEZNode = { name: string; state?: string; read?: number; write?: number; cksum?: number; msg?: string; children?: PVEZNode[] };
+export type PVEZDetail = { name: string; state: string; status?: string; action?: string; scan?: string; errors?: string; children?: PVEZNode[] };
 
 export const api = {
   login: (username: string, password: string, otp?: string) =>
@@ -579,6 +849,10 @@ export const api = {
   firingAlerts: () => request<AlertEvent[]>("GET", "/api/v1/alerts?state=firing"),
   agentBuild: () => request<{ version: string; sha256: Record<string, string> }>("GET", "/api/v1/agent-build"),
   updateAgent: (id: string) => request<Job>("POST", `/api/v1/servers/${id}/agent-update`),
+  zfsReplKey: (id: string) => request<{ public_key: string; address_hint: string }>("GET", `/api/v1/servers/${id}/zfs/replication/key`),
+  zfsReplCreate: (id: string, body: ZFSReplRequest) => request<{ replications?: ZFSReplication[] }>("POST", `/api/v1/servers/${id}/zfs/replication`, body),
+  zfsReplDelete: (id: string, body: { dataset: string; target_host: string; target_server?: string }) =>
+    request<{ replications?: ZFSReplication[]; warning?: string }>("DELETE", `/api/v1/servers/${id}/zfs/replication`, body),
   catalogStatus: () => request<CatalogStatus>("GET", "/api/v1/apps/catalog"),
   refreshCatalog: () => request<{ status: string }>("POST", "/api/v1/apps/catalog/refresh"),
   apps: () => request<CatalogApp[]>("GET", "/api/v1/apps"),
@@ -595,14 +869,90 @@ export const api = {
       : request<{ cluster: PVECluster; version: string }>("POST", "/api/v1/proxmox", c),
   deletePVE: (id: string) => request<void>("DELETE", `/api/v1/proxmox/${id}`),
   pveResources: (id: string) => request<PVEResources>("GET", `/api/v1/proxmox/${id}/resources`),
+  pveGuestOS: (id: string) => request<Record<string, PVEGuestOS>>("GET", `/api/v1/proxmox/${id}/guest-os`),
+  pveImages: () => request<PVEImage[]>("GET", "/api/v1/proxmox-images"),
+  pveISOs: (refresh = false) => request<PVEISO[]>("GET", `/api/v1/proxmox-isos${refresh ? "?refresh=1" : ""}`),
+  pveTemplateTargets: (id: string, node: string) =>
+    request<PVETemplateTargets>("GET", `/api/v1/proxmox/${id}/template-targets?node=${encodeURIComponent(node)}`),
+  pveTemplateCreate: (id: string, b: PVETemplateReq) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/templates`, b),
   pveProvisions: () => request<PVEProvision[]>("GET", "/api/v1/proxmox/provisions"),
-  pvePower: (id: string, g: PVEGuest, action: string) => request<void>("POST", `${pveGuestURL(id, g)}/power`, { action }),
-  pveSnapshots: (id: string, g: PVEGuest) => request<PVESnapshot[]>("GET", `${pveGuestURL(id, g)}/snapshots`),
-  pveSnapshot: (id: string, g: PVEGuest, s: { name: string; description: string; vmstate: boolean }) =>
+  pveEnroll: (id: string, g: PVEGuestRef) => request<{ server_id: string; name: string; log: string[] }>("POST", `${pveGuestURL(id, g)}/enroll`),
+  pveSetPassword: (id: string, g: PVEGuestRef, username: string, password: string) =>
+    request<void>("POST", `${pveGuestURL(id, g)}/password`, { username, password }),
+  pvePower: (id: string, g: PVEGuestRef, action: string) => request<void>("POST", `${pveGuestURL(id, g)}/power`, { action }),
+  pveGuest: (id: string, g: PVEGuestRef) => request<PVEGuestDetail>("GET", pveGuestURL(id, g)),
+  pveGuestRRD: (id: string, g: PVEGuestRef, tf: PVETimeframe) => request<PVERRDPoint[]>("GET", `${pveGuestURL(id, g)}/rrd?timeframe=${tf}`),
+  pveGuestTasks: (id: string, g: PVEGuestRef) => request<PVETask[]>("GET", `${pveGuestURL(id, g)}/tasks`),
+  pveConsole: (id: string, g: PVEGuestRef, mode: "auto" | "vga" | "serial") =>
+    request<{ sid: string; mode: "vga" | "term"; serial?: string }>("POST", `${pveGuestURL(id, g)}/console`, { mode }),
+  pveBackups: (id: string, g: PVEGuestRef) => request<{ storages: string[]; backups: PVEBackup[]; problems?: { storage: string; error: string }[] }>("GET", `${pveGuestURL(id, g)}/backups`),
+  pveBackup: (id: string, g: PVEGuestRef, b: { storage: string; mode: string; notes: string }) =>
+    request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/backups`, b),
+  pveDeleteBackup: (id: string, g: PVEGuestRef, volid: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/backups?volid=${encodeURIComponent(volid)}`),
+  pveRestore: (id: string, g: PVEGuestRef, volid: string, confirm: string) =>
+    request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/restore`, { volid, confirm }),
+  pveCloudInit: (id: string, g: PVEGuestRef, c: PVECloudInit) => request<void>("PUT", `${pveGuestURL(id, g)}/cloudinit`, c),
+  pveFirewall: (id: string, g: PVEGuestRef) => request<PVEFirewall>("GET", `${pveGuestURL(id, g)}/firewall`),
+  pveFirewallOptions: (id: string, g: PVEGuestRef, o: { enable: boolean; policy_in: string; policy_out: string }) =>
+    request<void>("PUT", `${pveGuestURL(id, g)}/firewall/options`, o),
+  pveFirewallAdd: (id: string, g: PVEGuestRef, r: Omit<PVEFirewallRule, "pos">) => request<void>("POST", `${pveGuestURL(id, g)}/firewall/rules`, r),
+  pveFirewallDelete: (id: string, g: PVEGuestRef, pos: number) => request<void>("DELETE", `${pveGuestURL(id, g)}/firewall/rules/${pos}`),
+  pveTaskLog: (id: string, g: PVEGuestRef, upid: string) =>
+    request<{ log: string }>("GET", `${pveGuestURL(id, g)}/tasks/log?upid=${encodeURIComponent(upid)}`),
+  pveStorage: (id: string) => request<PVEStorageOverview>("GET", `/api/v1/proxmox/${id}/storage`),
+  pveStorageCreate: (id: string, b: PVEStorageReq) => request<void>("POST", `/api/v1/proxmox/${id}/storage`, b),
+  pveStorageUpdate: (id: string, storage: string, b: Partial<PVEStorageReq>) =>
+    request<void>("PUT", `/api/v1/proxmox/${id}/storage/${encodeURIComponent(storage)}`, b),
+  pveStorageDelete: (id: string, storage: string, confirm: string) =>
+    request<void>("DELETE", `/api/v1/proxmox/${id}/storage/${encodeURIComponent(storage)}?confirm=${encodeURIComponent(confirm)}`),
+  pveStorageContent: (id: string, node: string, storage: string) =>
+    request<PVEVolume[]>("GET", `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/content`),
+  pveVolumeDelete: (id: string, node: string, storage: string, volume: string, confirm: string) =>
+    request<void>(
+      "DELETE",
+      `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/content?volume=${encodeURIComponent(volume)}&confirm=${encodeURIComponent(confirm)}`,
+    ),
+  pveDownloadURL: (id: string, node: string, storage: string, b: { url: string; content: "iso" | "vztmpl"; filename?: string; checksum?: string; checksum_algorithm?: string; compression?: string }) =>
+    request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/storage/${encodeURIComponent(storage)}/download`, b),
+  pveNodeTask: (id: string, node: string, upid: string) =>
+    request<{ status: string; exitstatus: string; log: string[] }>("GET", `${pveNodeURL(id, node)}/task?upid=${encodeURIComponent(upid)}`),
+  pveNodeStatus: (id: string, node: string) => request<PVENodeStatus>("GET", `${pveNodeURL(id, node)}/status`),
+  pveNodeRRD: (id: string, node: string, tf: PVETimeframe) => request<PVENodeRRDPoint[]>("GET", `${pveNodeURL(id, node)}/rrd?timeframe=${tf}`),
+  pveNodeTasks: (id: string, node: string) => request<(PVETask & { id?: string; node?: string })[]>("GET", `${pveNodeURL(id, node)}/tasks`),
+  pveDisks: (id: string, node: string) => request<PVEDisk[]>("GET", `${pveNodeURL(id, node)}/disks`),
+  pveDiskSMART: (id: string, node: string, disk: string) => request<PVESMART>("GET", `${pveNodeURL(id, node)}/disks/smart?disk=${encodeURIComponent(disk)}`),
+  pveDiskWipe: (id: string, node: string, disk: string, confirm: string) => request<void>("POST", `${pveNodeURL(id, node)}/disks/wipe`, { disk, confirm }),
+  // Installs the servermgr agent on a Proxmox node through its shell.
+  pveNodeEnroll: (id: string, node: string) => request<{ server_id: string; output: string }>("POST", `${pveNodeURL(id, node)}/enroll`, {}),
+  pveZFS: (id: string, node: string) => request<PVEZPool[]>("GET", `${pveNodeURL(id, node)}/zfs`),
+  pveZFSDetail: (id: string, node: string, pool: string) => request<PVEZDetail>("GET", `${pveNodeURL(id, node)}/zfs/${encodeURIComponent(pool)}`),
+  pveZFSCreate: (id: string, node: string, b: { name: string; devices: string[]; raidlevel: string; ashift: number; compression: string; add_storage: boolean }) =>
+    request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/zfs`, b),
+  pveZFSDestroy: (id: string, node: string, pool: string, b: { confirm: string; cleanup_config: boolean; cleanup_disks: boolean }) =>
+    request<{ upid: string }>("POST", `${pveNodeURL(id, node)}/zfs/${encodeURIComponent(pool)}/destroy`, b),
+  pveHardwareOptions: (id: string, g: PVEGuestRef) => request<PVEHardwareOptions>("GET", `${pveGuestURL(id, g)}/hardware`),
+  pveHardware: (id: string, g: PVEGuestRef, h: PVEHardwareReq) => request<void>("PUT", `${pveGuestURL(id, g)}/hardware`, h),
+  pveOptions: (id: string, g: PVEGuestRef) => request<PVEOption[]>("GET", `${pveGuestURL(id, g)}/options`),
+  pveSetOptions: (id: string, g: PVEGuestRef, body: { set?: Record<string, string>; delete?: string[] }) =>
+    request<void>("PUT", `${pveGuestURL(id, g)}/options`, body),
+  pveDiskAdd: (id: string, g: PVEGuestRef, d: { bus?: string; storage: string; size_gb: number; path?: string }) =>
+    request<void>("POST", `${pveGuestURL(id, g)}/disks`, d),
+  pveDiskResize: (id: string, g: PVEGuestRef, disk: string, grow_gb: number) => request<void>("POST", `${pveGuestURL(id, g)}/disks/resize`, { disk, grow_gb }),
+  pveDiskRemove: (id: string, g: PVEGuestRef, disk: string, destroy: boolean, confirm = "") =>
+    request<void>("POST", `${pveGuestURL(id, g)}/disks/remove`, { disk, destroy, confirm }),
+  pveNIC: (id: string, g: PVEGuestRef, key: string, n: PVENICReq) => request<void>("PUT", `${pveGuestURL(id, g)}/nics/${key}`, n),
+  pveNICDelete: (id: string, g: PVEGuestRef, key: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/nics/${key}`),
+  pveCDROM: (id: string, g: PVEGuestRef, iso: string) => request<void>("PUT", `${pveGuestURL(id, g)}/cdrom`, { iso }),
+  pveClone: (id: string, g: PVEGuestRef, c: { name: string; full: boolean; target?: string; storage?: string }) =>
+    request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/clone`, c),
+  pveMigrate: (id: string, g: PVEGuestRef, target: string, online: boolean) => request<{ upid: string }>("POST", `${pveGuestURL(id, g)}/migrate`, { target, online }),
+  pveMakeTemplate: (id: string, g: PVEGuestRef, confirm: string) => request<void>("POST", `${pveGuestURL(id, g)}/template`, { confirm }),
+  pveSnapshots: (id: string, g: PVEGuestRef) => request<PVESnapshot[]>("GET", `${pveGuestURL(id, g)}/snapshots`),
+  pveSnapshot: (id: string, g: PVEGuestRef, s: { name: string; description: string; vmstate: boolean }) =>
     request<void>("POST", `${pveGuestURL(id, g)}/snapshots`, s),
-  pveDeleteSnapshot: (id: string, g: PVEGuest, name: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/snapshots/${name}`),
-  pveRollback: (id: string, g: PVEGuest, name: string) => request<void>("POST", `${pveGuestURL(id, g)}/snapshots/${name}/rollback`),
-  pveDeleteGuest: (id: string, g: PVEGuest, confirm: string) => request<void>("DELETE", pveGuestURL(id, g), { confirm }),
+  pveDeleteSnapshot: (id: string, g: PVEGuestRef, name: string) => request<void>("DELETE", `${pveGuestURL(id, g)}/snapshots/${name}`),
+  pveRollback: (id: string, g: PVEGuestRef, name: string) => request<void>("POST", `${pveGuestURL(id, g)}/snapshots/${name}/rollback`),
+  pveDeleteGuest: (id: string, g: PVEGuestRef, confirm: string) => request<void>("DELETE", pveGuestURL(id, g), { confirm }),
   pveProvision: (
     id: string,
     b: {
@@ -612,13 +962,31 @@ export const api = {
       name: string;
       cores: number;
       memory_mb: number;
-      disk_grow_gb: number;
+      disk_grow_gb?: number;
+      disk_gb?: number;
       full_clone: boolean;
       ip: string;
       gateway: string;
       enroll: boolean;
-    },
+      apps?: string[];
+      storage?: string;
+      bridge?: string;
+      vlan?: number;
+    } & PVECIOpts,
   ) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/provision`, b),
+  pveFlavors: () => request<PVEFlavor[]>("GET", "/api/v1/proxmox-flavors"),
+  pveFlavorSave: (f: Omit<PVEFlavor, "id"> & { id?: number }) =>
+    f.id ? request<PVEFlavor>("PUT", `/api/v1/proxmox-flavors/${f.id}`, f) : request<PVEFlavor>("POST", "/api/v1/proxmox-flavors", f),
+  pveFlavorDelete: (id: number) => request<void>("DELETE", `/api/v1/proxmox-flavors/${id}`),
+  pveDeploy: (id: string, b: PVEDeployReq) => request<PVEProvision>("POST", `/api/v1/proxmox/${id}/deploy`, b),
+  tenants: () => request<Tenant[]>("GET", "/api/v1/tenants"),
+  saveTenant: (id: number | null, t: TenantBody) =>
+    id ? request<Tenant>("PUT", `/api/v1/tenants/${id}`, t) : request<Tenant>("POST", "/api/v1/tenants", t),
+  deleteTenant: (id: number) => request<void>("DELETE", `/api/v1/tenants/${id}`),
+  tenantOptions: (cluster: string) => request<TenantOptions>("GET", `/api/v1/tenant-options/${cluster}`),
+  setupTenantCluster: (id: number, cluster: string, b: TenantClusterBody) =>
+    request<{ cluster: TenantCluster; steps: string[] }>("PUT", `/api/v1/tenants/${id}/clusters/${cluster}`, b),
+  removeTenantCluster: (id: number, cluster: string) => request<void>("DELETE", `/api/v1/tenants/${id}/clusters/${cluster}`),
   tofu: () => request<TofuOverview>("GET", "/api/v1/tofu"),
   tofuSetup: () => request<void>("POST", "/api/v1/tofu/setup"),
   saveTofuWorkspace: (
@@ -632,6 +1000,7 @@ export const api = {
   tofuRuns: () => request<TofuRun[]>("GET", "/api/v1/tofu/runs"),
   tofuRun: (id: string, offset: number) =>
     request<{ run: TofuRun; output: string; total: number }>("GET", `/api/v1/tofu/runs/${id}?offset=${offset}`),
+  tofuStacks: (cluster: string) => request<TofuStack[]>("GET", `/api/v1/proxmox/${cluster}/tofu-stacks`),
   cancelTofuRun: (id: string) => request<void>("POST", `/api/v1/tofu/runs/${id}/cancel`),
   ansible: () => request<AnsibleOverview>("GET", "/api/v1/ansible"),
   ansibleSetup: () => request<void>("POST", "/api/v1/ansible/setup"),
@@ -675,7 +1044,9 @@ export const api = {
   setBaseline: (playbookId: string) => request<{ playbook_id: string }>("PUT", "/api/v1/settings/baseline", { playbook_id: playbookId }),
 };
 
-function pveGuestURL(id: string, g: PVEGuest) {
+export type PVEGuestRef = Pick<PVEGuest, "node" | "type" | "vmid">;
+
+function pveGuestURL(id: string, g: PVEGuestRef) {
   return `/api/v1/proxmox/${id}/guests/${encodeURIComponent(g.node)}/${g.type}/${g.vmid}`;
 }
 

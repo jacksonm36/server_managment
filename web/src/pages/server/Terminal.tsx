@@ -9,7 +9,7 @@ import { Offline } from "@/components/OpStatus";
 
 type State = "connecting" | "open" | "closed";
 
-export function Terminal({ serverId, online }: { serverId: string; online: boolean }) {
+export function Terminal({ serverId, online, windows = false }: { serverId: string; online: boolean; windows?: boolean }) {
   const host = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<State>("connecting");
   const [note, setNote] = useState("");
@@ -23,7 +23,7 @@ export function Terminal({ serverId, online }: { serverId: string; online: boole
       fontFamily: 'ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace',
       fontSize: 13,
       scrollback: 5000,
-      theme: { background: "#0c0e12", foreground: "#e6e6e6", cursor: "#67d4f0", selectionBackground: "#2b4a5a" },
+      theme: { background: "#0d1017", foreground: "#e6e6e6", cursor: "#ff9d4d", selectionBackground: "#5a3a22" },
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -80,7 +80,7 @@ export function Terminal({ serverId, online }: { serverId: string; online: boole
       <div className="flex items-center justify-between gap-2 px-1">
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className={`size-2 rounded-full ${state === "open" ? "bg-success" : state === "connecting" ? "animate-pulse bg-warning" : "bg-muted-foreground/50"}`} />
-          {state === "open" ? "root shell · audit-logged" : state === "connecting" ? "connecting…" : note}
+          {state === "open" ? (windows ? "PowerShell as SYSTEM · audit-logged" : "root shell · audit-logged") : state === "connecting" ? "connecting…" : note}
         </span>
         <div className="flex gap-1">
           {state === "closed" && (
@@ -93,7 +93,7 @@ export function Terminal({ serverId, online }: { serverId: string; online: boole
           </Button>
         </div>
       </div>
-      <div ref={host} className={`${full ? "h-full" : "h-[32rem]"} min-h-0 rounded-md bg-[#0c0e12] p-2`} />
+      <div ref={host} className={`${full ? "h-full" : "h-[32rem]"} min-h-0 rounded-md bg-[#0d1017] p-2`} />
     </Card>
   );
 }

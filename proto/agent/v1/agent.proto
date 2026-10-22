@@ -180,6 +180,24 @@ enum Op {
   OP_CROWDSEC_REMOVE = 67;
   OP_ANSIBLE_PREPARE = 68;      // params: pubkey, from
   OP_ANSIBLE_REVOKE = 69;
+  // Windows servers
+  OP_WIN_APPS_LIST = 70;        // installed programs
+  OP_WIN_APPS_INSTALL = 71;     // params: apps (JSON: resolved catalog entries from the panel)
+  OP_WIN_APP_UNINSTALL = 72;    // params: id (the program's uninstall registry key)
+  // ZFS (Linux)
+  OP_ZFS_STATUS = 73;           // pools (vdev tree, scan), datasets, importable pools, ARC
+  OP_ZFS_POOL = 74;             // params: action (scrub|scrub_pause|scrub_stop|trim|clear|upgrade|export|import), pool
+  OP_ZFS_DEVICE = 75;           // params: action (add|attach|detach|replace|offline|online|remove), pool, device, new_device, vdev, devices
+  OP_ZFS_DATASET = 76;          // params: action (create|destroy|set|inherit|rename), name, type, size, props, new_name, recursive
+  OP_ZFS_SNAPSHOTS = 77;        // params: dataset (optional)
+  OP_ZFS_SNAPSHOT = 78;         // params: action (create|destroy|rollback|clone), name, recursive, target
+  OP_ZFS_POOL_CREATE = 79;      // params: name, vdev, devices, ashift, compression
+  OP_ZFS_POOL_DESTROY = 80;     // params: name, confirm
+  OP_ZFS_SNAP_POLICY = 81;      // params: dataset, schedule (hourly|daily|weekly|monthly), keep, recursive, delete
+  OP_ZFS_REPL_KEY = 82;         // the source's replication public key (created on first use)
+  OP_ZFS_REPL_AUTHORIZE = 83;   // on the target: params public_key, parent, from, revoke
+  OP_ZFS_REPL_POLICY = 84;      // on the source: params dataset, target_host, target_port, target_parent, host_keys, schedule, keep, delete
+  OP_ZFS_REPL_RUN = 85;         // params dataset, target_host
 }
 
 message Job {
