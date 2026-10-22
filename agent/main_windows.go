@@ -91,3 +91,10 @@ func startBackground(_ context.Context, _ *slog.Logger, panelURL string, pool *x
 
 // runJob carries out the jobs a Windows server supports.
 var runJob = winops.Run
+
+// zfsRecv is the replication target's forced command, which only Linux
+// servers with ZFS take.
+func zfsRecv([]string) int {
+	_, _ = os.Stderr.WriteString("zfs-recv: ZFS replication targets are Linux servers\n")
+	return 1
+}

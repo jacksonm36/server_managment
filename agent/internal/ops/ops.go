@@ -179,6 +179,16 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = zfsPoolCreate(ctx, p, logf)
 	case agentv1.Op_OP_ZFS_POOL_DESTROY:
 		result, err = zfsPoolDestroy(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_SNAP_POLICY:
+		result, err = zfsSnapPolicyOp(ctx, p)
+	case agentv1.Op_OP_ZFS_REPL_KEY:
+		result, err = zfsReplKey()
+	case agentv1.Op_OP_ZFS_REPL_AUTHORIZE:
+		result, err = zfsReplAuthorize(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_REPL_POLICY:
+		result, err = zfsReplPolicyOp(ctx, p)
+	case agentv1.Op_OP_ZFS_REPL_RUN:
+		result, err = zfsReplRun(ctx, p, logf)
 	case agentv1.Op_OP_CROWDSEC_STATUS:
 		result, err = crowdsecStatus(ctx)
 	case agentv1.Op_OP_CROWDSEC_INSTALL:

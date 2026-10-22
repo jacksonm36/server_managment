@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"crypto/x509"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -31,12 +32,25 @@ func runContext(*slog.Logger) (context.Context, context.CancelFunc) {
 	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
 
-// startBackground starts certificate renewal and scheduled backups.
+// startBackground starts certificate renewal, scheduled backups and the
+// ZFS snapshot and replication schedules.
 func startBackground(ctx context.Context, log *slog.Logger, panelURL string, pool *x509.CertPool) {
 	ops.PanelURL = panelURL
 	ops.PanelCA = pool
 	ops.StartRenewer(ctx, log)
 	ops.StartBackups(ctx, log)
+	ops.StartZFS(ctx, log)
+}
+
+// zfsRecv is the forced command a replication source's key runs on this
+// server (servermgr-agent zfs-recv <parent>), with the request in
+// SSH_ORIGINAL_COMMAND.
+func zfsRecv(args []string) int {
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "usage: servermgr-agent zfs-recv <parent dataset>")
+		return 2
+	}
+	return ops.ZFSRecv(args[0], os.Getenv("SSH_ORIGINAL_COMMAND"), os.Stdin, os.Stdout, os.Stderr)
 }
 
 // ensureUnitDropIn makes systemd keep the agent running when a child it

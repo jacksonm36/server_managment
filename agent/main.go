@@ -51,6 +51,8 @@ func main() {
 		err = cmdRun(os.Args[2:], log)
 	case "version":
 		fmt.Println(version)
+	case "zfs-recv":
+		os.Exit(zfsRecv(os.Args[2:]))
 	default:
 		usage()
 	}

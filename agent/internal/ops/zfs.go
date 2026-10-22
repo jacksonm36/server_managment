@@ -190,6 +190,7 @@ func zfsStatus(ctx context.Context) (any, error) {
 		imp = parseZpoolImport(string(out))
 	}
 	res := map[string]any{"installed": true, "pools": pools, "datasets": datasets, "importable": imp, "arc": nil}
+	res["policies"], res["replications"] = zfsPolicyState()
 	if b, err := os.ReadFile(zfsArcFile); err == nil {
 		res["arc"] = parseArcStats(string(b))
 	}
