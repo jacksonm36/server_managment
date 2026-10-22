@@ -722,6 +722,12 @@ func zfsProtected(ctx context.Context, name string) string {
 	if !strings.Contains(name, "/") {
 		return "it is the pool's root dataset (destroy the pool instead)"
 	}
+	return zfsHoldsSystem(ctx, name)
+}
+
+// zfsHoldsSystem reports why a dataset carries the running system (/ or
+// /boot, itself or below it), or "".
+func zfsHoldsSystem(ctx context.Context, name string) string {
 	if root := zfsRootDataset(); root != "" && (root == name || strings.HasPrefix(root, name+"/")) {
 		return "it holds the running system"
 	}
@@ -738,6 +744,65 @@ func zfsProtected(ctx context.Context, name string) string {
 	return ""
 }
 
+// zfsSystemDirs may not be a dataset's mountpoint, nor anything below the
+// ones that are the system's own (a dataset there would hide it).
+var zfsSystemDirs = []string{"/", "/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32", "/proc", "/root",
+	"/run", "/sbin", "/sys", "/usr", "/var", "/var/lib", "/var/log", "/var/lib/dpkg", "/var/lib/apt"}
+
+func validMountpoint(mp string) error {
+	if mp == "none" || mp == "legacy" {
+		return nil
+	}
+	if !strings.HasPrefix(mp, "/") || strings.Contains(mp, "..") || strings.Contains(mp, "//") {
+		return fmt.Errorf("mountpoint must be none, legacy or an absolute path")
+	}
+	mp = strings.TrimSuffix(mp, "/")
+	if mp == "" {
+		mp = "/"
+	}
+	for _, d := range zfsSystemDirs {
+		if mp == d {
+			return fmt.Errorf("%s is a system directory; a dataset mounted there would hide it", mp)
+		}
+	}
+	for _, d := range []string{"/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32", "/proc", "/run", "/sbin", "/sys", "/usr"} {
+		if strings.HasPrefix(mp, d+"/") {
+			return fmt.Errorf("%s is inside the system directory %s", mp, d)
+		}
+	}
+	return nil
+}
+
+// zfsCheckProps refuses property changes that would break the running
+// system: a mountpoint over a system directory, and making the datasets
+// that hold / or /boot read-only, unmountable or mounted elsewhere.
+func zfsCheckProps(ctx context.Context, name string, keys, pairs []string) error {
+	for _, kv := range pairs {
+		if k, v, _ := strings.Cut(kv, "="); k == "mountpoint" {
+			if err := validMountpoint(v); err != nil {
+				return err
+			}
+		}
+	}
+	for _, k := range keys {
+		if k == "mountpoint" || k == "readonly" || k == "canmount" {
+			if why := zfsHoldsSystem(ctx, name); why != "" {
+				return fmt.Errorf("%s cannot be changed on %s: %s", k, name, why)
+			}
+		}
+	}
+	return nil
+}
+
+func propKeys(pairs []string) []string {
+	keys := make([]string, 0, len(pairs))
+	for _, kv := range pairs {
+		k, _, _ := strings.Cut(kv, "=")
+		keys = append(keys, k)
+	}
+	return keys
+}
+
 func zfsDatasetAction(ctx context.Context, p map[string]string, logf func(string, ...any)) (any, error) {
 	name := p["name"]
 	if err := validDataset(name); err != nil {
@@ -752,6 +817,9 @@ func zfsDatasetAction(ctx context.Context, p map[string]string, logf func(string
 		}
 		if !strings.Contains(name, "/") {
 			return nil, errors.New("a dataset goes inside a pool: pool/name")
+		}
+		if err := zfsCheckProps(ctx, name, nil, pairs); err != nil {
+			return nil, err
 		}
 		args = []string{"create"}
 		switch p["type"] {
@@ -785,6 +853,9 @@ func zfsDatasetAction(ctx context.Context, p map[string]string, logf func(string
 		if len(pairs) == 0 {
 			return nil, errors.New("no properties to set")
 		}
+		if err := zfsCheckProps(ctx, name, propKeys(pairs), pairs); err != nil {
+			return nil, err
+		}
 		args = append([]string{"set"}, append(pairs, name)...)
 	case "inherit":
 		keys := strings.FieldsFunc(p["props"], func(r rune) bool { return r == '\n' || r == ',' || r == ' ' })
@@ -795,6 +866,9 @@ func zfsDatasetAction(ctx context.Context, p map[string]string, logf func(string
 			if !slices.Contains(zfsProps, k) {
 				return nil, fmt.Errorf("property %q cannot be changed here", k)
 			}
+		}
+		if err := zfsCheckProps(ctx, name, keys, nil); err != nil {
+			return nil, err
 		}
 		// zfs inherit takes one property per run.
 		zfsMu.Lock()

@@ -282,3 +282,16 @@ func TestZfsActions(t *testing.T) {
 		t.Errorf("ran:\n%s", strings.Join(*ran, "\n"))
 	}
 }
+
+func TestZfsMountpointGuard(t *testing.T) {
+	for _, mp := range []string{"none", "legacy", "/tank", "/srv/data", "/var/lib/vz2", "/mnt/x/"} {
+		if err := validMountpoint(mp); err != nil {
+			t.Errorf("%s: %v", mp, err)
+		}
+	}
+	for _, mp := range []string{"/", "/etc", "/usr/", "/usr/local", "/boot/efi", "/var", "/proc/x", "relative", "/a/../etc", "//etc"} {
+		if validMountpoint(mp) == nil {
+			t.Errorf("%s: accepted", mp)
+		}
+	}
+}
