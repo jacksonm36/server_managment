@@ -163,6 +163,22 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		result, err = ansiblePrepare(ctx, p, logf)
 	case agentv1.Op_OP_ANSIBLE_REVOKE:
 		result, err = ansibleRevoke(ctx, logf)
+	case agentv1.Op_OP_ZFS_STATUS:
+		result, err = zfsStatus(ctx)
+	case agentv1.Op_OP_ZFS_POOL:
+		result, err = zfsPoolAction(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_DEVICE:
+		result, err = zfsDeviceAction(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_DATASET:
+		result, err = zfsDatasetAction(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_SNAPSHOTS:
+		result, err = zfsSnapshots(ctx, p)
+	case agentv1.Op_OP_ZFS_SNAPSHOT:
+		result, err = zfsSnapshotAction(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_POOL_CREATE:
+		result, err = zfsPoolCreate(ctx, p, logf)
+	case agentv1.Op_OP_ZFS_POOL_DESTROY:
+		result, err = zfsPoolDestroy(ctx, p, logf)
 	case agentv1.Op_OP_CROWDSEC_STATUS:
 		result, err = crowdsecStatus(ctx)
 	case agentv1.Op_OP_CROWDSEC_INSTALL:
