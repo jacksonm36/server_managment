@@ -389,6 +389,9 @@ type winApp struct {
 	// Exe is a zip's program: its Start menu shortcut, its folder on PATH,
 	// and the file whose signature Signer checks.
 	Exe string `json:"-"`
+	// Console marks a command-line tool: its shortcut opens a command
+	// prompt in the tool's folder instead of starting the program.
+	Console bool `json:"-"`
 	// Where it comes from: a fixed URL (often the vendor's "latest"
 	// redirect), a GitHub repo's latest release asset, the newest file in a
 	// directory listing, or the first link on a vendor page matching Match.
@@ -477,7 +480,7 @@ var winApps = []winApp{
 
 	// Penetration testing
 	{ID: "nmap", Name: "Nmap", Vendor: "Nmap Project", Group: appPentest, Kind: "zip", Signer: `CN="?Insecure\.Com`,
-		Exe: "nmap.exe", Dir: "https://nmap.org/dist/", Match: `^nmap-\d+\.\d+-win32\.zip$`,
+		Exe: "nmap.exe", Console: true, Dir: "https://nmap.org/dist/", Match: `^nmap-\d+\.\d+-win32\.zip$`,
 		Note: "Nmap's newest portable build, command line, on PATH. Raw scans need Npcap (install it once from npcap.com); -sT works without it."},
 	{ID: "burp", Name: "Burp Suite Community", Vendor: "PortSwigger", Group: appPentest, Kind: "exe", Signer: `CN="?PortSwigger`,
 		Args: []string{"-q"}, URL: "https://portswigger.net/burp/releases/startdownload?product=community&type=WindowsX64"},
@@ -502,11 +505,32 @@ var winApps = []winApp{
 	{ID: "cyberchef", Name: "CyberChef", Vendor: "GCHQ", Group: appMalware, Kind: "zip",
 		Exe: "CyberChef_v*.html", Repo: "gchq/CyberChef", Match: `^CyberChef_v[\d.]+\.zip$`, Note: "Runs offline in the browser."},
 	{ID: "yara", Name: "YARA", Vendor: "VirusTotal", Group: appMalware, Kind: "zip",
-		Exe: "yara64.exe", Repo: "VirusTotal/yara", Match: `(?i)^yara-[\w.-]*win64\.zip$`},
+		Exe: "yara64.exe", Console: true, Repo: "VirusTotal/yara", Match: `(?i)^yara-[\w.-]*win64\.zip$`},
 	{ID: "capa", Name: "capa", Vendor: "Mandiant", Group: appMalware, Kind: "zip",
-		Exe: "capa.exe", Repo: "mandiant/capa", Match: `^capa-v[\d.]+-windows\.zip$`},
+		Exe: "capa.exe", Console: true, Repo: "mandiant/capa", Match: `^capa-v[\d.]+-windows\.zip$`},
 	{ID: "floss", Name: "FLOSS", Vendor: "Mandiant", Group: appMalware, Kind: "zip",
-		Exe: "floss.exe", Repo: "mandiant/flare-floss", Match: `^floss-v[\d.]+-windows\.zip$`},
+		Exe: "floss.exe", Console: true, Repo: "mandiant/flare-floss", Match: `^floss-v[\d.]+-windows\.zip$`},
+	{ID: "systeminformer", Name: "System Informer", Vendor: "Winsider Seminars", Group: appMalware, Kind: "zip",
+		Exe: `amd64\SystemInformer.exe`, Repo: "winsiderss/systeminformer", Match: `^systeminformer-[\d.]+-bin\.zip$`,
+		Note: "Process Hacker's successor: processes, handles, memory, network."},
+	{ID: "cutter", Name: "Cutter", Vendor: "Rizin", Group: appMalware, Kind: "zip",
+		Exe: "cutter.exe", Repo: "rizinorg/cutter", Match: `^Cutter-v[\d.]+-Windows-x86_64\.zip$`},
+	{ID: "radare2", Name: "radare2", Vendor: "radare", Group: appMalware, Kind: "zip",
+		Exe: "radare2.exe", Console: true, Repo: "radareorg/radare2", Match: `^radare2-[\d.]+-w64\.zip$`},
+	{ID: "ilspy", Name: "ILSpy", Vendor: "ICSharpCode", Group: appMalware, Kind: "zip",
+		Exe: "ILSpy.exe", Repo: "icsharpcode/ILSpy", Match: `^ILSpy_windows_selfcontained_[\d.]+-x64\.zip$`},
+	{ID: "jadx", Name: "jadx (Android decompiler)", Vendor: "skylot", Group: appMalware, Kind: "zip",
+		Exe: "jadx-gui-*.exe", Repo: "skylot/jadx", Match: `^jadx-gui-[\d.]+-with-jre-win\.zip$`},
+	{ID: "pesieve", Name: "PE-sieve", Vendor: "hasherezade", Group: appMalware, Kind: "zip",
+		Exe: "pe-sieve.exe", Console: true, Repo: "hasherezade/pe-sieve", Match: `^pe-sieve64\.zip$`},
+	{ID: "hollowshunter", Name: "HollowsHunter", Vendor: "hasherezade", Group: appMalware, Kind: "zip",
+		Exe: "hollows_hunter.exe", Console: true, Repo: "hasherezade/hollows_hunter", Match: `^hollows_hunter64\.zip$`},
+	{ID: "upx", Name: "UPX", Vendor: "UPX", Group: appMalware, Kind: "zip",
+		Exe: "upx.exe", Console: true, Repo: "upx/upx", Match: `^upx-[\d.]+-win64\.zip$`},
+	{ID: "hayabusa", Name: "Hayabusa (event log hunting)", Vendor: "Yamato Security", Group: appMalware, Kind: "zip",
+		Exe: "hayabusa-*-win-x64.exe", Console: true, Repo: "Yamato-Security/hayabusa", Match: `^hayabusa-[\d.]+-win-x64\.zip$`},
+	{ID: "chainsaw", Name: "Chainsaw (event log hunting)", Vendor: "WithSecure", Group: appMalware, Kind: "zip",
+		Exe: "chainsaw.exe", Console: true, Repo: "WithSecureOpenSource/chainsaw", Match: `^chainsaw_x86_64-pc-windows-msvc\.zip$`},
 }
 
 func winAppByID(id string) *winApp {
@@ -527,6 +551,8 @@ type winAppJob struct {
 	Signer string   `json:"signer,omitempty"`
 	SHA256 string   `json:"sha256,omitempty"`
 	Exe    string   `json:"exe,omitempty"`
+	// Console: see winApp.Console.
+	Console bool `json:"console,omitempty"`
 }
 
 var appHTTP = &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -573,7 +599,7 @@ type ghRelease struct {
 
 // resolve finds the app's current download.
 func (x *winApp) resolve(ctx context.Context) (*winAppJob, error) {
-	j := &winAppJob{ID: x.ID, Name: x.Name, Kind: x.Kind, Args: x.Args, Signer: x.Signer, Exe: x.Exe}
+	j := &winAppJob{ID: x.ID, Name: x.Name, Kind: x.Kind, Args: x.Args, Signer: x.Signer, Exe: x.Exe, Console: x.Console}
 	if j.Args == nil {
 		j.Args = []string{}
 	}

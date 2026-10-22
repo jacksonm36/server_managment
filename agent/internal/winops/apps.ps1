@@ -50,7 +50,12 @@ function InstallZip([string]$zip, $a) {
     $top = @(Get-ChildItem -Path $tmp -Force)
     $src = if ($top.Count -eq 1 -and $top[0].PSIsContainer) { $top[0].FullName } else { $tmp }
     $main = $null
-    if ($a.exe) {
+    if ($a.exe -match '\\') {
+        # A path inside the archive (amd64\SystemInformer.exe).
+        $main = Get-ChildItem -Path (Join-Path $src $a.exe) -File -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $main) { throw "$($a.exe) is not in the archive" }
+        if ($a.signer) { CheckSigner $main.FullName $a }
+    } elseif ($a.exe) {
         $main = Get-ChildItem -Path $src -Recurse -File -Filter $a.exe | Sort-Object { $_.FullName.Length } | Select-Object -First 1
         if (-not $main) { throw "$($a.exe) is not in the archive" }
         if ($a.signer) { CheckSigner $main.FullName $a }
@@ -68,12 +73,43 @@ function InstallZip([string]$zip, $a) {
         if (($path -split ';') -notcontains $dir) {
             [Environment]::SetEnvironmentVariable('Path', $path.TrimEnd(';') + ';' + $dir, 'Machine')
         }
-        $menu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Tools'
-        New-Item -ItemType Directory -Force -Path $menu | Out-Null
-        $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $menu ($a.name + '.lnk')))
-        $lnk.TargetPath = $target
-        $lnk.WorkingDirectory = $dir
-        $lnk.Save()
+        foreach ($folder in $menuTools, $deskTools) {
+            New-Item -ItemType Directory -Force -Path $folder | Out-Null
+            $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $folder ($a.name + '.lnk')))
+            if ($a.console) {
+                # A command-line tool: a prompt in its folder (it is on
+                # PATH as well).
+                $lnk.TargetPath = Join-Path $env:SystemRoot 'System32\cmd.exe'
+                $lnk.Arguments = '/k echo ' + $a.name + ': run ' + $main.Name + ' from here'
+            } else {
+                $lnk.TargetPath = $target
+            }
+            $lnk.WorkingDirectory = $dir
+            $lnk.Save()
+        }
+    }
+}
+
+# Every installed program also gets a shortcut in a Tools folder on the
+# desktop all users share, so what a template carries is easy to find.
+$menuTools = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs\Tools'
+$deskTools = Join-Path ([Environment]::GetFolderPath('CommonDesktopDirectory')) 'Tools'
+$startMenu = Join-Path $env:ProgramData 'Microsoft\Windows\Start Menu\Programs'
+
+function StartMenuLinks {
+    @(Get-ChildItem -Path $startMenu -Recurse -Filter '*.lnk' -File -ErrorAction SilentlyContinue |
+        Where-Object { -not $_.FullName.StartsWith($menuTools + '\') } | ForEach-Object { $_.FullName })
+}
+
+# CopyNewLinks puts the Start menu shortcuts an installer added into the
+# desktop's Tools folder (not uninstallers, help or web links).
+function CopyNewLinks([string[]]$before) {
+    New-Item -ItemType Directory -Force -Path $deskTools | Out-Null
+    foreach ($l in StartMenuLinks) {
+        if ($before -contains $l) { continue }
+        $n = [IO.Path]::GetFileNameWithoutExtension($l)
+        if ($n -match '(?i)uninstall|readme|help|website|documentation|release notes|license') { continue }
+        Copy-Item -Path $l -Destination (Join-Path $deskTools ($n + '.lnk')) -Force -ErrorAction SilentlyContinue
     }
 }
 
@@ -105,6 +141,7 @@ foreach ($a in $apps) {
         if ($a.signer -and $a.kind -ne 'zip') { CheckSigner $file $a }
         Log "$($a.name): installing"
         $extra = @($a.args | Where-Object { $_ })
+        $links = StartMenuLinks
         if ($a.kind -eq 'zip') {
             InstallZip $file $a
             $code = 0
@@ -116,6 +153,7 @@ foreach ($a in $apps) {
             $code = Invoke-Installer $file @()
         }
         if ($code -notin 0, 3010, 1641) { throw "the installer exited with code $code" }
+        if ($a.kind -ne 'zip') { CopyNewLinks $links }
         Log "$($a.name): installed"
     } catch {
         $failed++
