@@ -302,6 +302,9 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/update", needOn("server.web", a.handleUpdateApp))
 	authed.HandleFunc("POST /api/v1/servers/{id}/apps/{domain}/uninstall", needOn("server.web", a.handleUninstallApp))
 	authed.HandleFunc("POST /api/v1/servers/{id}/agent-update", needOn("server.system", a.handleAgentUpdate))
+	authed.HandleFunc("GET /api/v1/servers/{id}/zfs/replication/key", needOn("server.system", a.handleZFSReplKey))
+	authed.HandleFunc("POST /api/v1/servers/{id}/zfs/replication", needOn("server.system", a.handleZFSReplCreate))
+	authed.HandleFunc("DELETE /api/v1/servers/{id}/zfs/replication", needOn("server.system", a.handleZFSReplDelete))
 
 	// Users, roles and groups.
 	authed.HandleFunc("GET /api/v1/permissions", a.handleListPermissions)

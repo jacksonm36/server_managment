@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
-import { Camera, Download, HardDrive, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Camera, Download, HardDrive, Pencil, Play, Plus, RefreshCw, Search, Send, Trash2 } from "lucide-react";
 import { useAgentState } from "@/lib/ops";
 import { useAccess } from "@/lib/access";
+import { useLive } from "@/lib/live";
+import { api, type ZFSReplication } from "@/lib/api";
 import { formatBytes } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +14,8 @@ import { Select, Textarea } from "@/components/ui/select";
 import { OpStatus, Offline } from "@/components/OpStatus";
 
 // ZFS on a Linux server (a Proxmox node with the agent included): pools
-// with their device tree, datasets and their properties, snapshots.
+// with their device tree, datasets and their properties, snapshots,
+// snapshot schedules and replication to another server.
 
 type Num = number | string;
 type Vdev = { name: string; type?: string; state?: string; read?: Num; write?: Num; cksum?: Num; msg?: string; children?: Vdev[] };
@@ -61,7 +64,10 @@ type Status = {
   datasets?: Dataset[];
   importable?: { name: string; id: string; state: string }[];
   arc?: { size: Num; max: Num; hits: Num; misses: Num } | null;
+  policies?: Policy[];
+  replications?: ZFSReplication[];
 };
+type Policy = { dataset: string; schedule: string; keep: Num; recursive?: boolean | string; last_run?: Num; last_error?: string };
 type Snapshot = { name: string; dataset: string; used: Num; refer: Num; creation: Num };
 
 const PROPS = [
@@ -100,12 +106,20 @@ function healthVariant(h?: string): "success" | "warning" | "destructive" | "out
 }
 
 export function ZFS({ serverId, online }: { serverId: string; online: boolean }) {
-  const { data, busy, error, job, run } = useAgentState<Status>(serverId, "zfs.status", online);
+  const { data: result, setData, busy, error, job, run } = useAgentState<Status>(serverId, "zfs.status", online);
   const { can } = useAccess();
   const canAct = can("server.system", serverId);
   const disabled = !online || !!busy || !canAct;
   const [creating, setCreating] = useState(false);
   const [snapsOf, setSnapsOf] = useState<string | null>(null);
+  const [replicating, setReplicating] = useState<string | null>(null);
+  // Schedule and replication ops answer with their own list only: merge it
+  // into the last full status.
+  const [data, setStatus] = useState<Status | null>(null);
+  useEffect(() => {
+    const r: Partial<Status> | null = result;
+    if (r) setStatus((cur) => (r.installed !== undefined || !cur ? (r as Status) : { ...cur, ...r }));
+  }, [result]);
 
   const arc = data?.arc;
   const hitRatio = arc && n(arc.hits) + n(arc.misses) > 0 ? (100 * n(arc.hits)) / (n(arc.hits) + n(arc.misses)) : null;
@@ -180,8 +194,18 @@ export function ZFS({ serverId, online }: { serverId: string; online: boolean })
       {data?.pools?.map((p) => <PoolCard key={p.name} pool={p} run={run} disabled={disabled} canAct={canAct} />)}
 
       {data?.installed && (data.datasets?.length ?? 0) > 0 && (
-        <Datasets datasets={data.datasets!} pools={data.pools ?? []} run={run} disabled={disabled} canAct={canAct} onSnapshots={setSnapsOf} />
+        <Datasets datasets={data.datasets!} pools={data.pools ?? []} run={run} disabled={disabled} canAct={canAct} onSnapshots={setSnapsOf} onReplicate={setReplicating} />
       )}
+
+      {data?.installed && (data.datasets?.length ?? 0) > 0 && (
+        <SnapshotSchedules policies={data.policies ?? []} datasets={data.datasets!.map((d) => d.name)} run={run} disabled={disabled} canAct={canAct} />
+      )}
+
+      {data?.installed && (data.replications?.length ?? 0) > 0 && (
+        <Replications serverId={serverId} list={data.replications!} run={run} disabled={disabled} canAct={canAct} onChange={(r) => setData(r as Status)} />
+      )}
+
+      {replicating && <Replicate serverId={serverId} dataset={replicating} onClose={() => setReplicating(null)} onDone={(r) => setData(r as Status)} />}
 
       {creating && <CreatePool onClose={() => setCreating(false)} run={run} />}
       {snapsOf && <Snapshots serverId={serverId} online={online} dataset={snapsOf} canAct={canAct} onClose={() => setSnapsOf(null)} />}
@@ -590,6 +614,7 @@ function Datasets({
   disabled,
   canAct,
   onSnapshots,
+  onReplicate,
 }: {
   datasets: Dataset[];
   pools: Pool[];
@@ -597,6 +622,7 @@ function Datasets({
   disabled: boolean;
   canAct: boolean;
   onSnapshots: (ds: string) => void;
+  onReplicate: (ds: string) => void;
 }) {
   const [q, setQ] = useState("");
   const [creating, setCreating] = useState(false);
@@ -680,6 +706,9 @@ function Datasets({
                       </Button>
                       {canAct && (
                         <>
+                          <Button size="icon" variant="ghost" title="Replicate to another server" aria-label={`Replicate ${d.name}`} disabled={disabled} onClick={() => onReplicate(d.name)}>
+                            <Send />
+                          </Button>
                           <Button size="icon" variant="ghost" title="Properties" aria-label={`Properties of ${d.name}`} disabled={disabled} onClick={() => setEditing(d)}>
                             <Pencil />
                           </Button>
@@ -970,6 +999,357 @@ function Snapshots({ serverId, online, dataset, canAct, onClose }: { serverId: s
           </div>
         )}
         {data && snaps.length === 0 && <p className="text-sm text-muted-foreground">No snapshots yet.</p>}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// last_run and friends come as Unix seconds; anything else is shown as is.
+function when(v: unknown) {
+  if (v === undefined || v === null || v === "" || v === 0 || v === "0") return "never";
+  const t = Number(v);
+  return Number.isFinite(t) ? new Date(t * 1000).toLocaleString() : String(v);
+}
+
+const KEEP: Record<string, number> = { hourly: 24, daily: 7, weekly: 4, monthly: 12 };
+
+function SnapshotSchedules({ policies, datasets, run, disabled, canAct }: { policies: Policy[]; datasets: string[]; run: Run; disabled: boolean; canAct: boolean }) {
+  const sorted = useMemo(() => [...datasets].sort(), [datasets]);
+  const [dataset, setDataset] = useState(sorted[0] ?? "");
+  const [schedule, setSchedule] = useState("daily");
+  const [keep, setKeep] = useState(String(KEEP.daily));
+  const [recursive, setRecursive] = useState(false);
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Snapshot schedules</CardTitle>
+        <CardDescription>The agent takes the snapshots on schedule and destroys its own oldest ones beyond the number kept. Manual snapshots are left alone.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {policies.length > 0 ? (
+          <div className="overflow-x-auto rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Dataset</th>
+                  <th className="px-3 py-2 font-medium">Schedule</th>
+                  <th className="px-3 py-2 text-right font-medium">Keep</th>
+                  <th className="hidden px-3 py-2 font-medium md:table-cell">Last run</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {policies.map((p) => (
+                  <tr key={`${p.dataset}:${p.schedule}`} className="border-t">
+                    <td className="px-3 py-1.5 font-medium">
+                      {p.dataset}
+                      {(p.recursive === true || p.recursive === "1") && <span className="ml-2 text-xs text-muted-foreground">with children</span>}
+                    </td>
+                    <td className="px-3 py-1.5">{p.schedule}</td>
+                    <td className="tabular px-3 py-1.5 text-right">{String(p.keep)}</td>
+                    <td className="hidden px-3 py-1.5 text-muted-foreground md:table-cell">
+                      {when(p.last_run)}
+                      {p.last_error && <div className="text-destructive">{p.last_error}</div>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      {canAct && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="text-destructive"
+                          aria-label={`Remove the ${p.schedule} schedule of ${p.dataset}`}
+                          disabled={disabled}
+                          onClick={() =>
+                            confirm(`Stop taking ${p.schedule} snapshots of ${p.dataset}? Snapshots already taken stay.`) &&
+                            void run("zfs.snap_policy", { dataset: p.dataset, schedule: p.schedule, delete: "1" })
+                          }
+                        >
+                          <Trash2 />
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No schedules.</p>
+        )}
+        {canAct && (
+          <form
+            className="flex flex-wrap items-end gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!dataset) return;
+              void run("zfs.snap_policy", { dataset, schedule, keep: keep.trim(), ...(recursive ? { recursive: "1" } : {}) });
+            }}
+          >
+            <Label className="grid gap-1.5">
+              Dataset
+              <Select value={dataset} onChange={(e) => setDataset(e.target.value)}>
+                {sorted.map((d) => (
+                  <option key={d}>{d}</option>
+                ))}
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
+              Every
+              <Select
+                value={schedule}
+                onChange={(e) => {
+                  setSchedule(e.target.value);
+                  setKeep(String(KEEP[e.target.value]));
+                }}
+              >
+                <option value="hourly">hour</option>
+                <option value="daily">day</option>
+                <option value="weekly">week</option>
+                <option value="monthly">month</option>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
+              Keep
+              <Input className="w-20" type="number" min={1} value={keep} onChange={(e) => setKeep(e.target.value)} />
+            </Label>
+            <label className="flex items-center gap-1.5 pb-2 text-sm">
+              <input type="checkbox" checked={recursive} onChange={(e) => setRecursive(e.target.checked)} /> with child datasets
+            </label>
+            <Button type="submit" disabled={disabled || !dataset || !(Number(keep) >= 1)}>
+              <Plus /> Add schedule
+            </Button>
+          </form>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Replications({
+  serverId,
+  list,
+  run,
+  disabled,
+  canAct,
+  onChange,
+}: {
+  serverId: string;
+  list: ZFSReplication[];
+  run: Run;
+  disabled: boolean;
+  canAct: boolean;
+  onChange: (r: { replications?: ZFSReplication[] }) => void;
+}) {
+  const servers = useLive((s) => s.servers);
+  const [removing, setRemoving] = useState("");
+  const [err, setErr] = useState("");
+
+  async function remove(r: ZFSReplication) {
+    if (!confirm(`Stop replicating ${r.dataset} to ${r.target_host}? The copies already on the target stay.`)) return;
+    // The panel also takes this server's key off the target once nothing
+    // else replicates there, so it needs to know which server that is.
+    const target = [...servers.values()].find((s) => s.id !== serverId && (s.hostname === r.target_host || s.name === r.target_host));
+    setRemoving(r.dataset + r.target_host);
+    setErr("");
+    try {
+      const out = await api.zfsReplDelete(serverId, { dataset: r.dataset, target_host: r.target_host, target_server: target?.id });
+      onChange(out);
+      if (out.warning) setErr(out.warning);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setRemoving("");
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Replication</CardTitle>
+        <CardDescription>Snapshots sent to another server with zfs send over SSH, incrementally after the first.</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="px-3 py-2 font-medium">Dataset</th>
+                <th className="px-3 py-2 font-medium">To</th>
+                <th className="hidden px-3 py-2 font-medium md:table-cell">Schedule</th>
+                <th className="px-3 py-2 font-medium">Last run</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody>
+              {list.map((r) => {
+                const failed = !!r.last_error;
+                return (
+                  <tr key={`${r.dataset}:${r.target_host}`} className="border-t">
+                    <td className="px-3 py-1.5 font-medium">{r.dataset}</td>
+                    <td className="px-3 py-1.5">
+                      <span className="font-mono text-xs">
+                        {r.target_host}
+                        {r.target_port && String(r.target_port) !== "22" ? `:${r.target_port}` : ""}
+                      </span>
+                      <div className="text-xs text-muted-foreground">{r.target_name || `${r.target_parent}/${r.dataset.split("/").pop()}`}</div>
+                    </td>
+                    <td className="hidden px-3 py-1.5 text-muted-foreground md:table-cell">
+                      {r.schedule}
+                      {r.keep !== undefined && r.keep !== "" && `, keeps ${String(r.keep)}`}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <span className="text-muted-foreground">{when(r.last_run)}</span>{" "}
+                      {failed ? (
+                        <Badge variant="destructive">failed</Badge>
+                      ) : n(r.last_ok) > 0 ? (
+                        <Badge variant="success">ok{n(r.last_bytes) > 0 ? ` · ${formatBytes(n(r.last_bytes))}` : ""}</Badge>
+                      ) : null}
+                      {failed && <div className="text-xs text-destructive">{r.last_error}</div>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right whitespace-nowrap">
+                      {canAct && (
+                        <>
+                          <Button size="sm" variant="ghost" disabled={disabled} onClick={() => void run("zfs.repl_run", { dataset: r.dataset, target_host: r.target_host })}>
+                            <Play /> Run now
+                          </Button>
+                          <Button size="sm" variant="ghost" className="text-destructive" disabled={disabled || removing !== ""} onClick={() => void remove(r)}>
+                            {removing === r.dataset + r.target_host ? "Removing…" : "Remove"}
+                          </Button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Replicate({ serverId, dataset, onClose, onDone }: { serverId: string; dataset: string; onClose: () => void; onDone: (r: { replications?: ZFSReplication[] }) => void }) {
+  const servers = useLive((s) => s.servers);
+  const targets = useMemo(() => [...servers.values()].filter((s) => s.id !== serverId && s.os === "linux").sort((a, b) => a.name.localeCompare(b.name)), [servers, serverId]);
+  const self = servers.get(serverId);
+  const [target, setTarget] = useState("");
+  const [parent, setParent] = useState("");
+  const [host, setHost] = useState("");
+  const [port, setPort] = useState("22");
+  const [from, setFrom] = useState("");
+  const [schedule, setSchedule] = useState("daily");
+  const [keep, setKeep] = useState("3");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    api.zfsReplKey(serverId).then(
+      (k) => setFrom((cur) => cur || k.address_hint || ""),
+      () => {},
+    );
+  }, [serverId]);
+
+  function pick(id: string) {
+    setTarget(id);
+    setHost(servers.get(id)?.hostname ?? "");
+    if (!parent && self) setParent(`backup/${self.name.replace(/[^A-Za-z0-9_.:-]/g, "-")}`);
+  }
+
+  const ready = !!target && !!parent.trim() && !!host.trim() && Number(port) > 0 && Number(keep) >= 1;
+  return (
+    <Dialog open onOpenChange={(o) => !o && !busy && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Replicate {dataset}</DialogTitle>
+          <DialogDescription>
+            This server gets an SSH key that the target only accepts for <code>zfs recv</code> into the dataset below, and only from the source address given.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="grid gap-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            if (!ready) return;
+            setBusy(true);
+            setErr("");
+            try {
+              const out = await api.zfsReplCreate(serverId, {
+                dataset,
+                target_server: target,
+                target_parent: parent.trim(),
+                target_host: host.trim(),
+                target_port: Number(port),
+                from: from.trim(),
+                schedule,
+                keep: Number(keep),
+              });
+              onDone(out);
+              onClose();
+            } catch (e) {
+              setErr((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          <Label className="grid gap-1.5">
+            Target server
+            <Select value={target} onChange={(e) => pick(e.target.value)}>
+              <option value="">Pick a Linux server…</option>
+              {targets.map((s) => (
+                <option key={s.id} value={s.id} disabled={!s.online}>
+                  {s.name}
+                  {s.online ? "" : " (offline)"}
+                </option>
+              ))}
+            </Select>
+          </Label>
+          <Label className="grid gap-1.5">
+            Into the dataset (on the target)
+            <Input className="font-mono text-xs" value={parent} onChange={(e) => setParent(e.target.value)} placeholder="backup/web1" />
+          </Label>
+          <div className="grid grid-cols-[1fr_6rem] gap-3">
+            <Label className="grid gap-1.5">
+              Target address
+              <Input className="font-mono text-xs" value={host} onChange={(e) => setHost(e.target.value)} placeholder="db1.example.lan" />
+            </Label>
+            <Label className="grid gap-1.5">
+              SSH port
+              <Input type="number" min={1} max={65535} value={port} onChange={(e) => setPort(e.target.value)} />
+            </Label>
+          </div>
+          <Label className="grid gap-1.5">
+            Restrict the key to the source address
+            <Input className="font-mono text-xs" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="10.0.0.5 (empty: any address)" />
+          </Label>
+          <div className="grid grid-cols-2 gap-3">
+            <Label className="grid gap-1.5">
+              Schedule
+              <Select value={schedule} onChange={(e) => setSchedule(e.target.value)}>
+                <option value="hourly">Hourly</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="manual">Manual only</option>
+              </Select>
+            </Label>
+            <Label className="grid gap-1.5">
+              Replication snapshots kept
+              <Input type="number" min={1} max={100} value={keep} onChange={(e) => setKeep(e.target.value)} />
+            </Label>
+          </div>
+          {err && <p className="text-sm text-destructive">{err}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || !ready}>
+              <Send /> {busy ? "Setting up…" : "Replicate"}
+            </Button>
+          </div>
+        </form>
       </DialogContent>
     </Dialog>
   );

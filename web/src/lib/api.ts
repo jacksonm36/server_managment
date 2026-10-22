@@ -626,6 +626,32 @@ export class ApiError extends Error {
   }
 }
 
+// ZFS replication of a dataset to another server, as the source reports it.
+export type ZFSReplication = {
+  dataset: string;
+  target_host: string;
+  target_port?: number | string;
+  target_parent: string;
+  target_name?: string;
+  schedule: string;
+  keep?: number | string;
+  last_run?: number | string;
+  last_ok?: number | string;
+  last_error?: string;
+  last_bytes?: number | string;
+};
+
+export type ZFSReplRequest = {
+  dataset: string;
+  target_server: string;
+  target_parent: string;
+  target_host: string;
+  target_port?: number;
+  from?: string;
+  schedule?: string;
+  keep?: number;
+};
+
 export async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method,
@@ -822,6 +848,10 @@ export const api = {
   firingAlerts: () => request<AlertEvent[]>("GET", "/api/v1/alerts?state=firing"),
   agentBuild: () => request<{ version: string; sha256: Record<string, string> }>("GET", "/api/v1/agent-build"),
   updateAgent: (id: string) => request<Job>("POST", `/api/v1/servers/${id}/agent-update`),
+  zfsReplKey: (id: string) => request<{ public_key: string; address_hint: string }>("GET", `/api/v1/servers/${id}/zfs/replication/key`),
+  zfsReplCreate: (id: string, body: ZFSReplRequest) => request<{ replications?: ZFSReplication[] }>("POST", `/api/v1/servers/${id}/zfs/replication`, body),
+  zfsReplDelete: (id: string, body: { dataset: string; target_host: string; target_server?: string }) =>
+    request<{ replications?: ZFSReplication[]; warning?: string }>("DELETE", `/api/v1/servers/${id}/zfs/replication`, body),
   catalogStatus: () => request<CatalogStatus>("GET", "/api/v1/apps/catalog"),
   refreshCatalog: () => request<{ status: string }>("POST", "/api/v1/apps/catalog/refresh"),
   apps: () => request<CatalogApp[]>("GET", "/api/v1/apps"),
