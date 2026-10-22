@@ -922,6 +922,8 @@ export const api = {
   pveDisks: (id: string, node: string) => request<PVEDisk[]>("GET", `${pveNodeURL(id, node)}/disks`),
   pveDiskSMART: (id: string, node: string, disk: string) => request<PVESMART>("GET", `${pveNodeURL(id, node)}/disks/smart?disk=${encodeURIComponent(disk)}`),
   pveDiskWipe: (id: string, node: string, disk: string, confirm: string) => request<void>("POST", `${pveNodeURL(id, node)}/disks/wipe`, { disk, confirm }),
+  // Installs the servermgr agent on a Proxmox node through its shell.
+  pveNodeEnroll: (id: string, node: string) => request<{ server_id: string; output: string }>("POST", `${pveNodeURL(id, node)}/enroll`, {}),
   pveZFS: (id: string, node: string) => request<PVEZPool[]>("GET", `${pveNodeURL(id, node)}/zfs`),
   pveZFSDetail: (id: string, node: string, pool: string) => request<PVEZDetail>("GET", `${pveNodeURL(id, node)}/zfs/${encodeURIComponent(pool)}`),
   pveZFSCreate: (id: string, node: string, b: { name: string; devices: string[]; raidlevel: string; ashift: number; compression: string; add_storage: boolean }) =>

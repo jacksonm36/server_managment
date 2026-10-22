@@ -741,12 +741,25 @@ function ZFSCard({ cluster, node, onStorageChanged }: { cluster: string; node: s
           </CardTitle>
           <CardDescription>
             Create a pool from free disks and add it as VM storage in one step. Scrubs, disk replacement, datasets, snapshots, schedules and replication
-            need the servermgr agent on {node} (Servers → Add server).
+            need the servermgr agent on {node}: install it with the button (the panel runs the installer in the node&apos;s shell).
           </CardDescription>
         </div>
-        <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
-          <Plus /> Create pool
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant="brand"
+            disabled={!!busy}
+            onClick={() =>
+              confirm(`Install the servermgr agent on ${node}? The panel runs its installer in the node's root shell and links the node as a server.`) &&
+              void run(`Installing the agent on ${node} (up to 5 minutes)`, () => api.pveNodeEnroll(cluster, node), `The agent is on ${node}: full ZFS management is here now.`)
+            }
+          >
+            <Download /> Install the agent
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
+            <Plus /> Create pool
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="grid gap-3">
         {err && <p className="text-sm text-destructive">{err}</p>}

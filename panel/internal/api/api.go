@@ -248,6 +248,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/nodes/{node}/storage/{storage}/status", need("proxmox.manage", a.handlePVEStorageStatus))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/storage/{storage}/upload", need("proxmox.manage", a.handlePVEStorageUpload))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/shell", need("proxmox.manage", a.handlePVENodeShell))
+	authed.HandleFunc("POST /api/v1/proxmox/{id}/nodes/{node}/enroll", need("proxmox.manage", need("servers.add", a.handlePVENodeEnroll)))
 	// datacenter (platform only)
 	authed.HandleFunc("GET /api/v1/proxmox/{id}/dc/{coll}", need("proxmox.manage", a.handlePVEDCList))
 	authed.HandleFunc("POST /api/v1/proxmox/{id}/dc/{coll}", need("proxmox.manage", a.handlePVEDCCreate))
