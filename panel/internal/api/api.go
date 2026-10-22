@@ -496,6 +496,8 @@ type opSpec struct {
 	params []string
 	// maxParam overrides the default 16 KiB limit per parameter value.
 	maxParam int
+	// internal ops are sent by the panel itself (Who.Internal) only.
+	internal bool
 }
 
 var opsByName = map[string]opSpec{
@@ -581,6 +583,13 @@ var opsByName = map[string]opSpec{
 	"zfs.snapshot":     {op: agentv1.Op_OP_ZFS_SNAPSHOT, params: []string{"action", "name", "recursive", "target"}},
 	"zfs.pool_create":  {op: agentv1.Op_OP_ZFS_POOL_CREATE, params: []string{"name", "vdev", "devices", "ashift", "compression"}},
 	"zfs.pool_destroy": {op: agentv1.Op_OP_ZFS_POOL_DESTROY, params: []string{"name", "confirm"}},
+	"zfs.snap_policy":  {op: agentv1.Op_OP_ZFS_SNAP_POLICY, params: []string{"dataset", "schedule", "keep", "recursive", "delete"}},
+	"zfs.repl_run":     {op: agentv1.Op_OP_ZFS_REPL_RUN, params: []string{"dataset", "target_host"}},
+	// Replication set-up: only the panel's own orchestration
+	// (handleZFSReplication) sends these, never a caller directly.
+	"zfs.repl_key":       {op: agentv1.Op_OP_ZFS_REPL_KEY, internal: true},
+	"zfs.repl_authorize": {op: agentv1.Op_OP_ZFS_REPL_AUTHORIZE, params: []string{"public_key", "parent", "from", "revoke"}, internal: true},
+	"zfs.repl_policy":    {op: agentv1.Op_OP_ZFS_REPL_POLICY, params: []string{"dataset", "target_host", "target_port", "target_parent", "host_keys", "schedule", "keep", "delete"}, internal: true},
 }
 
 // secretParams are forwarded to the agent but never stored in job history

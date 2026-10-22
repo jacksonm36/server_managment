@@ -151,14 +151,19 @@ const (
 	Op_OP_WIN_APPS_INSTALL  Op = 71 // params: apps (JSON: resolved catalog entries from the panel)
 	Op_OP_WIN_APP_UNINSTALL Op = 72 // params: id (the program's uninstall registry key)
 	// ZFS (Linux)
-	Op_OP_ZFS_STATUS       Op = 73 // pools (vdev tree, scan), datasets, importable pools, ARC
-	Op_OP_ZFS_POOL         Op = 74 // params: action (scrub|scrub_pause|scrub_stop|trim|clear|upgrade|export|import), pool
-	Op_OP_ZFS_DEVICE       Op = 75 // params: action (add|attach|detach|replace|offline|online|remove), pool, device, new_device, vdev, devices
-	Op_OP_ZFS_DATASET      Op = 76 // params: action (create|destroy|set|inherit|rename), name, type, size, props, new_name, recursive
-	Op_OP_ZFS_SNAPSHOTS    Op = 77 // params: dataset (optional)
-	Op_OP_ZFS_SNAPSHOT     Op = 78 // params: action (create|destroy|rollback|clone), name, recursive, target
-	Op_OP_ZFS_POOL_CREATE  Op = 79 // params: name, vdev, devices, ashift, compression
-	Op_OP_ZFS_POOL_DESTROY Op = 80 // params: name, confirm
+	Op_OP_ZFS_STATUS         Op = 73 // pools (vdev tree, scan), datasets, importable pools, ARC
+	Op_OP_ZFS_POOL           Op = 74 // params: action (scrub|scrub_pause|scrub_stop|trim|clear|upgrade|export|import), pool
+	Op_OP_ZFS_DEVICE         Op = 75 // params: action (add|attach|detach|replace|offline|online|remove), pool, device, new_device, vdev, devices
+	Op_OP_ZFS_DATASET        Op = 76 // params: action (create|destroy|set|inherit|rename), name, type, size, props, new_name, recursive
+	Op_OP_ZFS_SNAPSHOTS      Op = 77 // params: dataset (optional)
+	Op_OP_ZFS_SNAPSHOT       Op = 78 // params: action (create|destroy|rollback|clone), name, recursive, target
+	Op_OP_ZFS_POOL_CREATE    Op = 79 // params: name, vdev, devices, ashift, compression
+	Op_OP_ZFS_POOL_DESTROY   Op = 80 // params: name, confirm
+	Op_OP_ZFS_SNAP_POLICY    Op = 81 // params: dataset, schedule (hourly|daily|weekly|monthly), keep, recursive, delete
+	Op_OP_ZFS_REPL_KEY       Op = 82 // the source's replication public key (created on first use)
+	Op_OP_ZFS_REPL_AUTHORIZE Op = 83 // on the target: params public_key, parent, from, revoke
+	Op_OP_ZFS_REPL_POLICY    Op = 84 // on the source: params dataset, target_host, target_port, target_parent, host_keys, schedule, keep, delete
+	Op_OP_ZFS_REPL_RUN       Op = 85 // params dataset, target_host
 )
 
 // Enum value maps for Op.
@@ -245,6 +250,11 @@ var (
 		78: "OP_ZFS_SNAPSHOT",
 		79: "OP_ZFS_POOL_CREATE",
 		80: "OP_ZFS_POOL_DESTROY",
+		81: "OP_ZFS_SNAP_POLICY",
+		82: "OP_ZFS_REPL_KEY",
+		83: "OP_ZFS_REPL_AUTHORIZE",
+		84: "OP_ZFS_REPL_POLICY",
+		85: "OP_ZFS_REPL_RUN",
 	}
 	Op_value = map[string]int32{
 		"OP_UNSPECIFIED":            0,
@@ -328,6 +338,11 @@ var (
 		"OP_ZFS_SNAPSHOT":           78,
 		"OP_ZFS_POOL_CREATE":        79,
 		"OP_ZFS_POOL_DESTROY":       80,
+		"OP_ZFS_SNAP_POLICY":        81,
+		"OP_ZFS_REPL_KEY":           82,
+		"OP_ZFS_REPL_AUTHORIZE":     83,
+		"OP_ZFS_REPL_POLICY":        84,
+		"OP_ZFS_REPL_RUN":           85,
 	}
 )
 
@@ -1388,7 +1403,7 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x16JOB_STATUS_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12JOB_STATUS_RUNNING\x10\x01\x12\x18\n" +
 	"\x14JOB_STATUS_SUCCEEDED\x10\x02\x12\x15\n" +
-	"\x11JOB_STATUS_FAILED\x10\x03*\xe2\r\n" +
+	"\x11JOB_STATUS_FAILED\x10\x03*\xd7\x0e\n" +
 	"\x02Op\x12\x12\n" +
 	"\x0eOP_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eOP_SYSTEM_INFO\x10\x01\x12\x1d\n" +
@@ -1471,7 +1486,12 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\x10OP_ZFS_SNAPSHOTS\x10M\x12\x13\n" +
 	"\x0fOP_ZFS_SNAPSHOT\x10N\x12\x16\n" +
 	"\x12OP_ZFS_POOL_CREATE\x10O\x12\x17\n" +
-	"\x13OP_ZFS_POOL_DESTROY\x10P2M\n" +
+	"\x13OP_ZFS_POOL_DESTROY\x10P\x12\x16\n" +
+	"\x12OP_ZFS_SNAP_POLICY\x10Q\x12\x13\n" +
+	"\x0fOP_ZFS_REPL_KEY\x10R\x12\x19\n" +
+	"\x15OP_ZFS_REPL_AUTHORIZE\x10S\x12\x16\n" +
+	"\x12OP_ZFS_REPL_POLICY\x10T\x12\x13\n" +
+	"\x0fOP_ZFS_REPL_RUN\x10U2M\n" +
 	"\fAgentService\x12=\n" +
 	"\aConnect\x12\x16.agent.v1.AgentMessage\x1a\x16.agent.v1.PanelMessage(\x010\x01B6Z4github.com/jacksonm36/servermgr/gen/agent/v1;agentv1b\x06proto3"
 

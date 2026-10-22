@@ -30,6 +30,9 @@ type Who struct {
 	Access *Access
 	// Tenant is the acting user's tenant, recorded in the audit log.
 	Tenant *int64
+	// Internal marks the panel's own multi-step work, which may send
+	// internal ops (permissions are still checked against Access).
+	Internal bool
 }
 
 // Dispatch validates op/params, records the job and sends it to the agent.
@@ -38,6 +41,9 @@ func (a *API) Dispatch(ctx context.Context, who Who, serverID, op string, params
 	spec, ok := opsByName[op]
 	if !ok {
 		return nil, &DispatchError{http.StatusBadRequest, "unknown op " + op}
+	}
+	if spec.internal && !who.Internal {
+		return nil, &DispatchError{http.StatusBadRequest, op + " is sent by the panel itself"}
 	}
 	if err := spec.checkParams(params); err != nil {
 		return nil, &DispatchError{http.StatusBadRequest, err.Error()}
