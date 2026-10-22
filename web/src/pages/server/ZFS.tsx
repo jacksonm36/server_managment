@@ -105,7 +105,20 @@ function healthVariant(h?: string): "success" | "warning" | "destructive" | "out
   return "destructive";
 }
 
-export function ZFS({ serverId, online }: { serverId: string; online: boolean }) {
+// On a Proxmox node the page creates and destroys pools through Proxmox
+// so its storage list follows: hideCreate drops the agent's Create pool and
+// onDestroyPool takes over Destroy.
+export function ZFS({
+  serverId,
+  online,
+  hideCreate,
+  onDestroyPool,
+}: {
+  serverId: string;
+  online: boolean;
+  hideCreate?: boolean;
+  onDestroyPool?: (pool: string) => void;
+}) {
   const { data: result, setData, busy, error, job, run } = useAgentState<Status>(serverId, "zfs.status", online);
   const { can } = useAccess();
   const canAct = can("server.system", serverId);
@@ -146,7 +159,7 @@ export function ZFS({ serverId, online }: { serverId: string; online: boolean })
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            {data?.installed && canAct && (
+            {data?.installed && canAct && !hideCreate && (
               <Button size="sm" variant="secondary" disabled={disabled} onClick={() => setCreating(true)}>
                 <Plus /> Create pool
               </Button>
@@ -191,7 +204,7 @@ export function ZFS({ serverId, online }: { serverId: string; online: boolean })
         </CardContent>
       </Card>
 
-      {data?.pools?.map((p) => <PoolCard key={p.name} pool={p} run={run} disabled={disabled} canAct={canAct} />)}
+      {data?.pools?.map((p) => <PoolCard key={p.name} pool={p} run={run} disabled={disabled} canAct={canAct} onDestroy={onDestroyPool} />)}
 
       {data?.installed && (data.datasets?.length ?? 0) > 0 && (
         <Datasets datasets={data.datasets!} pools={data.pools ?? []} run={run} disabled={disabled} canAct={canAct} onSnapshots={setSnapsOf} onReplicate={setReplicating} />
@@ -215,7 +228,7 @@ export function ZFS({ serverId, online }: { serverId: string; online: boolean })
 
 type Run = (op: string, p?: Record<string, string>) => Promise<unknown>;
 
-function PoolCard({ pool: p, run, disabled, canAct }: { pool: Pool; run: Run; disabled: boolean; canAct: boolean }) {
+function PoolCard({ pool: p, run, disabled, canAct, onDestroy }: { pool: Pool; run: Run; disabled: boolean; canAct: boolean; onDestroy?: (pool: string) => void }) {
   const [adding, setAdding] = useState(false);
   const [replacing, setReplacing] = useState<string | null>(null);
   const cap = p.cap !== undefined && p.cap !== "" ? n(p.cap) : n(p.size) ? (100 * n(p.alloc)) / n(p.size) : 0;
@@ -285,6 +298,7 @@ function PoolCard({ pool: p, run, disabled, canAct }: { pool: Pool; run: Run; di
                   className="text-destructive"
                   disabled={disabled}
                   onClick={() => {
+                    if (onDestroy) return onDestroy(p.name);
                     const x = prompt(`Destroy pool ${p.name}? Every dataset, volume and snapshot on it is lost. Type ${p.name} to confirm.`);
                     if (x) void run("zfs.pool_destroy", { name: p.name, confirm: x });
                   }}

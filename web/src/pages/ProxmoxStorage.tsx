@@ -17,7 +17,6 @@ import {
 } from "@/lib/api";
 import { formatBytes, pct } from "@/lib/utils";
 import { useLive } from "@/lib/live";
-import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +26,7 @@ import { Select } from "@/components/ui/select";
 import { useAction } from "@/pages/ProxmoxGuestTabs";
 import { UploadDialog } from "@/pages/ProxmoxAdmin";
 import { ISOLibrary } from "@/components/ISOLibrary";
+import { ZFS } from "@/pages/server/ZFS";
 
 // Cluster storage (platform admins): storage definitions and their usage,
 // what is on each storage, the node's physical disks with SMART health,
@@ -786,6 +786,8 @@ function ZFSCard({ cluster, node, onStorageChanged }: { cluster: string; node: s
   const [err, setErr] = useState("");
   const [open, setOpen] = useState<{ name: string; detail: PVEZDetail | null } | null>(null);
   const [creating, setCreating] = useState(false);
+  // Bumped after a pool is created through Proxmox so the agent view reloads.
+  const [gen, setGen] = useState(0);
   const { busy, run, note } = useAction();
   const load = useCallback(() => {
     api
@@ -820,10 +822,52 @@ function ZFSCard({ cluster, node, onStorageChanged }: { cluster: string; node: s
       if (ok) {
         setOpen(null);
         load();
+        setGen((g) => g + 1);
         onStorageChanged();
       }
     });
   };
+
+  const createDialog = creating && (
+    <ZFSCreateDialog
+      cluster={cluster}
+      node={node}
+      onClose={() => setCreating(false)}
+      onCreated={() => {
+        setCreating(false);
+        load();
+        setGen((g) => g + 1);
+        onStorageChanged();
+      }}
+    />
+  );
+
+  // With the agent on the node, the full ZFS view lives here; creating a
+  // pool still goes through Proxmox so it is added as VM storage too.
+  if (agent) {
+    return (
+      <div className="grid gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 font-semibold">
+              <Layers className="size-4" /> ZFS on {node}
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Pools, disks, datasets, snapshots, schedules and replication, through the servermgr agent. A pool created here is also added as VM storage.
+            </p>
+          </div>
+          <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
+            <Plus /> Create pool
+          </Button>
+        </div>
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        {note}
+        {busy && <p className="text-sm text-muted-foreground">{busy}…</p>}
+        <ZFS key={gen} serverId={agent.id} online={agent.online} hideCreate onDestroyPool={destroy} />
+        {createDialog}
+      </div>
+    );
+  }
 
   return (
     <Card>
@@ -833,14 +877,8 @@ function ZFSCard({ cluster, node, onStorageChanged }: { cluster: string; node: s
             <Layers className="size-4" /> ZFS pools on {node}
           </CardTitle>
           <CardDescription>
-            Create a pool from free disks and add it as VM storage in one step.{" "}
-            {agent ? (
-              <Link href={`/servers/${agent.id}#zfs`} className="text-brand hover:underline">
-                Scrubs, disks, datasets and snapshots →
-              </Link>
-            ) : (
-              <>Scrubs, disk replacement, datasets and snapshots need the servermgr agent on {node}.</>
-            )}
+            Create a pool from free disks and add it as VM storage in one step. Scrubs, disk replacement, datasets, snapshots, schedules and replication
+            need the servermgr agent on {node} (Servers → Add server).
           </CardDescription>
         </div>
         <Button size="sm" variant="secondary" onClick={() => setCreating(true)}>
@@ -891,18 +929,7 @@ function ZFSCard({ cluster, node, onStorageChanged }: { cluster: string; node: s
           </div>
         ))}
       </CardContent>
-      {creating && (
-        <ZFSCreateDialog
-          cluster={cluster}
-          node={node}
-          onClose={() => setCreating(false)}
-          onCreated={() => {
-            setCreating(false);
-            load();
-            onStorageChanged();
-          }}
-        />
-      )}
+      {createDialog}
     </Card>
   );
 }
