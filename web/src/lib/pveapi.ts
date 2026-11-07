@@ -24,6 +24,9 @@ export type PVEChoices = {
   nodes: string[];
   nextid?: number;
 };
+export type PVENetBridge = { iface: string; comment?: string; vlan_aware: boolean };
+export type PVENetVLAN = { tag: number; bridges: string[]; guests: string[] };
+export type PVENetChoices = { bridges: PVENetBridge[]; vlans: PVENetVLAN[] };
 export type PVEAppliance = {
   template: string;
   package: string;
@@ -93,6 +96,7 @@ export const pve = {
   create: (id: string, node: string, type: "qemu" | "lxc", params: Record<string, string>, enroll = false) =>
     request<{ upid: string; vmid: number; node: string; type: string }>("POST", `${np(id, node)}/guests`, { type, params, enroll }),
   choices: (id: string, node: string) => request<PVEChoices>("GET", `${np(id, node)}/choices`),
+  netChoices: (id: string, node: string) => request<PVENetChoices>("GET", `${np(id, node)}/netchoices`),
   appliances: (id: string, node: string) => request<PVEAppliance[]>("GET", `${np(id, node)}/appliances`),
   applianceDownload: (id: string, node: string, storage: string, template: string) =>
     request<PVERun>("POST", `${np(id, node)}/appliances`, { storage, template }),

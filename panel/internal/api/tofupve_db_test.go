@@ -25,7 +25,7 @@ func TestTofuProxmox(t *testing.T) {
 	})
 	expect("add cluster", code, 200)
 	cid := body["cluster"].(map[string]any)["id"].(string)
-	pve.addGuest(9000, &fakeGuest{typ: "qemu", node: "pve1", name: "debian-13", template: 1, cores: 2, memMB: 2048, diskGB: 10})
+	pve.addGuest(9000, &fakeGuest{typ: "qemu", node: "pve1", name: "debian-13", template: 1, cores: 2, memMB: 2048, diskGB: 10, config: map[string]string{"ide2": "local-lvm:vm-9000-cloudinit,media=cdrom"}})
 
 	_, _, stacks := call(root, "GET", "/api/v1/proxmox/"+cid+"/tofu-stacks", nil)
 	if len(stacks) != 4 {

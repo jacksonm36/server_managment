@@ -42,7 +42,7 @@ func TestTenantIsolation(t *testing.T) {
 	pve.addGuest(100, &fakeGuest{typ: "qemu", node: "pve1", name: "acme-web", pool: "tenant-acme", cores: 2, memMB: 2048, diskGB: 20, status: "running"})
 	pve.addGuest(101, &fakeGuest{typ: "qemu", node: "pve1", name: "globex-db", pool: "tenant-globex", cores: 2, memMB: 4096, diskGB: 50})
 	pve.addGuest(102, &fakeGuest{typ: "lxc", node: "pve2", name: "infra-dns", cores: 1, memMB: 512, diskGB: 8})
-	pve.addGuest(9000, &fakeGuest{typ: "qemu", node: "pve1", name: "debian-13", template: 1, cores: 2, memMB: 2048, diskGB: 10})
+	pve.addGuest(9000, &fakeGuest{typ: "qemu", node: "pve1", name: "debian-13", template: 1, cores: 2, memMB: 2048, diskGB: 10, config: map[string]string{"ide2": "local-lvm:vm-9000-cloudinit,media=cdrom"}})
 	pve.addGuest(9001, &fakeGuest{typ: "qemu", node: "pve1", name: "windows", template: 1, cores: 4, memMB: 8192, diskGB: 60})
 
 	setup := func(tenant map[string]any, body map[string]any) (int, map[string]any) {
@@ -403,6 +403,7 @@ func TestTenantIsolation(t *testing.T) {
 	expect("other node", first2(prov(al, map[string]any{"target": "pve2"})), 400)
 	expect("over the vCPU quota", first2(prov(al, map[string]any{"cores": 5})), 400)
 	code, pv := prov(al, nil)
+	t.Logf("PROV %v %v", code, pv)
 	expect("provision in quota", code, 202)
 	waitProvision(t, p, al, pv["id"].(string))
 	pve.mu.Lock()

@@ -35,7 +35,11 @@ import (
 // enrollScript is the Linux installer run that reads the join token from
 // its first line of input: the token reaches the agent in its environment.
 func (a *API) enrollScript() string {
-	return "IFS= read -r SM_JOIN_TOKEN && export SM_JOIN_TOKEN && " + a.installCommand("sh", "") + " 2>&1"
+	// curl failing inside the pipe would leave sh with no input and exit
+	// 0, so check for it first and keep its errors in the output.
+	return "IFS= read -r SM_JOIN_TOKEN && export SM_JOIN_TOKEN && " +
+		"{ command -v curl >/dev/null 2>&1 || { echo 'curl is not installed in the guest (apt-get install curl)'; exit 127; }; " +
+		a.installCommand("sh", "") + "; } 2>&1"
 }
 
 // enrollViaAgent runs the agent installer with a fresh join token inside

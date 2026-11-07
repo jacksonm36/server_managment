@@ -758,6 +758,10 @@ func (a *API) handlePVEProvision(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !hasCloudInitDrive(tcfg) {
+		bad(fmt.Sprintf("template %d has no cloud-init drive, so the new VM would get neither its name nor the SSH key; deploy from a cloud-init template (or add a cloud-init drive to it and install cloud-init inside)", req.TemplateVMID))
+		return
+	}
 	who := whoFrom(r)
 	p := &store.ProxmoxProvision{ID: store.NewUUID(), ClusterID: s.C.ID, Name: req.Name, Status: "running", CreatedBy: who.Actor, TenantID: who.Tenant}
 	if err := a.Store.CreateProvision(r.Context(), p); err != nil {
@@ -863,6 +867,18 @@ func (a *API) handleListProvisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// hasCloudInitDrive reports whether a guest config has a cloud-init
+// drive, without which Proxmox has no way to hand cloud-init settings to
+// the guest.
+func hasCloudInitDrive(cfg map[string]any) bool {
+	for k, v := range cfg {
+		if sv, ok := v.(string); ok && pveDiskKey.MatchString(k) && strings.Contains(sv, "cloudinit") {
+			return true
+		}
+	}
+	return false
 }
 
 // encodeURIComponent is what Proxmox expects for the sshkeys option.

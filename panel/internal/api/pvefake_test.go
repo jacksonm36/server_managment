@@ -543,7 +543,13 @@ func (f *fakePVE) guestOp(w http.ResponseWriter, r *http.Request, user string, v
 		f.reply(w, 200, upid, "")
 	case sub == "config" && r.Method == "GET" && f.canGuest(user, vmid, false) && g.template == 1:
 		// VM.Audit, which PVETemplateUser holds on a template.
-		f.reply(w, 200, map[string]string{"name": g.name, "ostype": g.config["ostype"]}, "")
+		out := map[string]string{"name": g.name}
+		for k, v := range g.config {
+			if !strings.HasPrefix(k, "_") {
+				out[k] = v
+			}
+		}
+		f.reply(w, 200, out, "")
 	case !f.canGuest(user, vmid, true):
 		deny()
 	case strings.HasPrefix(sub, "status/") && r.Method == "POST":

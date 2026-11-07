@@ -25,7 +25,8 @@ import { Select } from "@/components/ui/select";
 import { FlavorPicker, useFlavors } from "@/components/Flavors";
 import { CloudInitFields, ciOpts, emptyCI, type CIForm } from "@/components/CloudInitFields";
 import { PVEOverview } from "@/components/PVEOverview";
-import { VLANInput, vlanNum } from "@/components/VLANField";
+import { BridgeSelect, VLANInput, VLANSelect, vlanNum } from "@/components/VLANField";
+import { pve, type PVENetChoices } from "@/lib/pveapi";
 import { ComputeTree } from "@/components/ComputeTree";
 import { PVENodeView } from "@/components/PVENodeView";
 import { CreateGuestDialog } from "@/components/PVEForms";
@@ -746,6 +747,21 @@ export function ProvisionDialog({
     vlan: "",
   });
   const storageChoices = tenant ? tenant.storages : storages;
+  // The node's bridges and the VLAN tags in use there, for the pickers.
+  const netNode = f.target || template.node;
+  const [net, setNet] = useState<PVENetChoices | null>(null);
+  useEffect(() => {
+    if (tenant) return;
+    let live = true;
+    setNet(null);
+    pve
+      .netChoices(cluster.id, netNode)
+      .then((x) => live && setNet(x))
+      .catch(() => live && setNet({ bridges: [], vlans: [] }));
+    return () => {
+      live = false;
+    };
+  }, [cluster.id, netNode, tenant]);
   const flavors = useFlavors();
   const [flavor, setFlavor] = useState<number | null>(null);
   const [ci, setCI] = useState<CIForm>(emptyCI);
@@ -854,12 +870,17 @@ export function ProvisionDialog({
                   ))}
                 </Select>
               ) : (
-                <Input id="pp-bridge" value={f.bridge} onChange={(e) => setF({ ...f, bridge: e.target.value })} placeholder="Same as the template (e.g. vmbr0)" />
+                <BridgeSelect id="pp-bridge" value={f.bridge} onChange={(v) => setF({ ...f, bridge: v, vlan: v ? f.vlan : "" })} bridges={net?.bridges ?? null} emptyLabel="Same as the template" />
               )}
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="pp-vlan">VLAN</Label>
-              <VLANInput id="pp-vlan" value={f.vlan} onChange={(v) => setF({ ...f, vlan: v })} allowed={tenant ? (tenant.vlans ?? []) : undefined} />
+              {tenant ? (
+                <VLANInput id="pp-vlan" value={f.vlan} onChange={(v) => setF({ ...f, vlan: v })} allowed={tenant.vlans ?? []} />
+              ) : (
+                <VLANSelect id="pp-vlan" value={f.vlan} onChange={(v) => setF({ ...f, vlan: v })} vlans={net?.vlans ?? null} bridge={f.bridge} disabled={!f.bridge} />
+              )}
+              {!tenant && !f.bridge && <p className="text-xs text-muted-foreground">Pick a bridge to set a VLAN; otherwise the template's network is kept.</p>}
             </div>
           </div>
           <FlavorPicker
