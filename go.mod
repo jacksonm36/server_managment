@@ -2,9 +2,10 @@ module github.com/jacksonm36/servermgr
 
 go 1.26.0
 
-toolchain go1.26.9
+toolchain go1.26.10
 
 require (
+	github.com/ProtonMail/go-crypto v1.5.2
 	github.com/coder/websocket v1.8.14
 	github.com/creack/pty v1.1.24
 	github.com/jackc/pgx/v5 v5.11.0
@@ -16,6 +17,7 @@ require (
 )
 
 require (
+	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
