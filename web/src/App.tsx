@@ -11,6 +11,8 @@ import { Servers } from "@/pages/Servers";
 import { ServerDetail } from "@/pages/ServerDetail";
 import { Activity } from "@/pages/Activity";
 import { Account, PasswordCard } from "@/pages/Account";
+import { DNS } from "@/pages/DNS";
+import { Settings } from "@/pages/Settings";
 import { Automation } from "@/pages/Automation";
 import { Users } from "@/pages/Users";
 import { Dashboard } from "@/pages/Dashboard";
@@ -91,6 +93,12 @@ export function App() {
           </Route>
           <Route path="/automation">
             <Automation />
+          </Route>
+          <Route path="/dns">
+            <DNS />
+          </Route>
+          <Route path="/settings">
+            <Settings />
           </Route>
           <Route path="/account">
             <Account />

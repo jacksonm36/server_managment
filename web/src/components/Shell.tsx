@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Boxes,
   Database,
+  Globe,
   Rocket,
   ChevronLeft,
   ChevronsRight,
@@ -44,6 +45,7 @@ function navSections(perms: Set<string>): { title?: string; items: NavItem[] }[]
         { href: "/proxmox", label: "Proxmox", icon: <Boxes />, show: has("proxmox.view") },
         { href: "/storage", label: "Storage", icon: <Database />, show: has("proxmox.manage") },
         { href: "/deploy", label: "Deploy", icon: <Rocket />, show: has("proxmox.guests") },
+        { href: "/dns", label: "DNS", icon: <Globe />, show: has("dns.view") },
       ],
     },
     {
@@ -65,7 +67,7 @@ function navSections(perms: Set<string>): { title?: string; items: NavItem[] }[]
       title: "Admin",
       items: [
         { href: "/users", label: "Users", icon: <UsersIcon />, show: has("users.manage") },
-        { href: "/account", label: "Settings", icon: <Settings />, show: true },
+        { href: "/settings", label: "Settings", icon: <Settings />, show: has("settings.manage") },
       ],
     },
   ];

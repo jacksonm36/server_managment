@@ -130,13 +130,14 @@ func (a *API) handleSaveDNSProvider(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusNotFound, "provider not found")
 			return
 		}
-		// A blank secret on update keeps the stored one.
+		// Settings are never sent back to the browser, so a blank field on
+		// update keeps the stored value.
 		if cur.Type == req.Type {
 			if plain, err := a.openSecret(cur.Config); err == nil {
 				old := map[string]string{}
 				_ = json.Unmarshal(plain, &old)
 				for _, f := range t.Fields {
-					if f.Secret && (cfg[f.Key] == "" || cfg[f.Key] == secretMask) {
+					if cfg[f.Key] == "" || cfg[f.Key] == secretMask {
 						cfg[f.Key] = old[f.Key]
 					}
 				}

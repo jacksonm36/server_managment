@@ -198,7 +198,7 @@ export function ServerDetail({ id }: { id: string }) {
       {tab === "software" && <Software serverId={id} online={server.online} windows={windows} />}
       {tab === "zfs" && <ZFS serverId={id} online={server.online} />}
       {tab === "apps" && <Apps serverId={id} online={server.online} initialApp={pendingApp} onInitialAppUsed={() => setPendingApp("")} />}
-      {tab === "sites" && <Sites serverId={id} online={server.online} />}
+      {tab === "sites" && <Sites serverId={id} online={server.online} address={server.address} />}
       {tab === "docker" && <Docker serverId={id} online={server.online} />}
       {tab === "databases" && (
         <Databases
