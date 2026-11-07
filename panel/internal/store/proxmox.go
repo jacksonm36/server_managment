@@ -97,12 +97,54 @@ func (s *Store) ProxmoxLinks(ctx context.Context, clusterID string) (map[int]str
 
 func (s *Store) LinkProxmoxGuest(ctx context.Context, clusterID string, vmid int, serverID string) error {
 	_, err := s.db.Exec(ctx, `INSERT INTO proxmox_links (cluster_id, vmid, server_id) VALUES ($1, $2, $3)
-		ON CONFLICT (cluster_id, vmid) DO UPDATE SET server_id = $3`, clusterID, vmid, serverID)
+		ON CONFLICT (cluster_id, vmid) DO UPDATE SET server_id = $3, vm_uuid = ''`, clusterID, vmid, serverID)
 	return err
 }
 
 func (s *Store) UnlinkProxmoxGuest(ctx context.Context, clusterID string, vmid int) error {
 	_, err := s.db.Exec(ctx, `DELETE FROM proxmox_links WHERE cluster_id::text = $1 AND vmid = $2`, clusterID, vmid)
+	return err
+}
+
+// ProxmoxLink is a guest enrolled as a server.
+type ProxmoxLink struct {
+	VMID     int
+	ServerID string
+	VMUUID   string // SMBIOS UUID; "" = not known yet
+}
+
+func (s *Store) ListProxmoxLinks(ctx context.Context, clusterID string) ([]ProxmoxLink, error) {
+	rows, err := s.db.Query(ctx, `SELECT vmid, server_id::text, vm_uuid FROM proxmox_links WHERE cluster_id::text = $1 ORDER BY vmid`, clusterID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProxmoxLink
+	for rows.Next() {
+		var l ProxmoxLink
+		if err := rows.Scan(&l.VMID, &l.ServerID, &l.VMUUID); err != nil {
+			return nil, err
+		}
+		out = append(out, l)
+	}
+	return out, rows.Err()
+}
+
+// ProxmoxLinkServer returns the server enrolled from a guest ("" if none).
+func (s *Store) ProxmoxLinkServer(ctx context.Context, clusterID string, vmid int) (string, error) {
+	var id string
+	err := s.db.QueryRow(ctx, `SELECT server_id::text FROM proxmox_links WHERE cluster_id::text = $1 AND vmid = $2`, clusterID, vmid).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return id, err
+}
+
+// SetProxmoxLinkUUID records a linked VM's SMBIOS UUID, if the link still
+// points at serverID.
+func (s *Store) SetProxmoxLinkUUID(ctx context.Context, clusterID string, vmid int, serverID, uuid string) error {
+	_, err := s.db.Exec(ctx, `UPDATE proxmox_links SET vm_uuid = $4 WHERE cluster_id::text = $1 AND vmid = $2 AND server_id::text = $3`,
+		clusterID, vmid, serverID, uuid)
 	return err
 }
 

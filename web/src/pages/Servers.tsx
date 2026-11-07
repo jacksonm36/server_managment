@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "wouter";
-import { Cpu, HardDrive, MemoryStick, Play, ServerOff, X } from "lucide-react";
-import { useLive } from "@/lib/live";
+import { Cpu, HardDrive, MemoryStick, Play, ServerOff, Trash2, X } from "lucide-react";
+import { refreshServers, useLive } from "@/lib/live";
 import type { Server } from "@/lib/api";
 import { formatBytes, formatUptime, pct, timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -142,7 +142,15 @@ export function Servers() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 min-[1800px]:grid-cols-4 min-[2300px]:grid-cols-5">
           {servers.map((s) => (
-            <ServerCard key={s.id} s={s} groups={groups} selectable={can("playbooks.run")} selected={selected.has(s.id)} onToggle={() => toggle(s.id)} />
+            <ServerCard
+              key={s.id}
+              s={s}
+              groups={groups}
+              selectable={can("playbooks.run")}
+              removable={can("server.delete", s.id)}
+              selected={selected.has(s.id)}
+              onToggle={() => toggle(s.id)}
+            />
           ))}
         </div>
       )}
@@ -154,12 +162,14 @@ function ServerCard({
   s,
   groups,
   selectable,
+  removable,
   selected,
   onToggle,
 }: {
   s: Server;
   groups: ServerGroup[];
   selectable: boolean;
+  removable: boolean;
   selected: boolean;
   onToggle: () => void;
 }) {
@@ -195,7 +205,30 @@ function ServerCard({
               </div>
             )}
           </div>
-          <StatusBadge online={s.online} />
+          <div className="flex shrink-0 items-center gap-1.5">
+            <StatusBadge online={s.online} />
+            {removable && (
+              <button
+                type="button"
+                title={`Remove ${s.name}`}
+                aria-label={`Remove ${s.name}`}
+                className={`rounded-md p-1 text-muted-foreground transition-opacity hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 ${s.online ? "opacity-0 group-hover:opacity-100" : ""}`}
+                onClick={async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!confirm(`Remove ${s.name}? Its agent will be refused on the next connect.`)) return;
+                  try {
+                    await api.deleteServer(s.id);
+                    await refreshServers();
+                  } catch (err) {
+                    alert((err as Error).message);
+                  }
+                }}
+              >
+                <Trash2 className="size-4" />
+              </button>
+            )}
+          </div>
         </div>
         {m ? (
           <div className="grid gap-3 text-sm">

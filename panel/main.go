@@ -185,6 +185,7 @@ func run(log *slog.Logger) error {
 	go a.RunScheduler(ctx)
 	go a.RunAlerts(ctx)
 	go a.RunCatalogRefresh(ctx)
+	go a.RunGuestLinkSweep(ctx)
 
 	handler := a.Handler() // one instance, so both listeners share rate limits
 	hs := &http.Server{

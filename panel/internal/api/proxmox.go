@@ -528,8 +528,13 @@ func (a *API) handlePVEDeleteGuest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "type the guest's name to confirm")
 		return
 	}
+	serverID, _ := a.Store.ProxmoxLinkServer(r.Context(), s.C.ID, vmid)
 	if a.pveGuestCall(w, r, http.MethodDelete, "", url.Values{"purge": {"1"}}, "proxmox.guest_delete") {
 		_ = a.Store.UnlinkProxmoxGuest(r.Context(), r.PathValue("id"), vmid)
+		if serverID != "" {
+			// The guest's agent goes with it: remove its server too.
+			a.removeGuestServer(r.Context(), whoFrom(r), s.C, vmid, serverID, "its guest was deleted")
+		}
 	}
 }
 
