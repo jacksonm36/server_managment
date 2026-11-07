@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { Download, ExternalLink, Globe, Lock, LockOpen, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { api, type DNSLookup } from "@/lib/api";
+import { useAccess } from "@/lib/access";
+import { Download, ExternalLink, Globe, Waypoints, Lock, LockOpen, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useAgentState } from "@/lib/ops";
 import { timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -37,7 +39,9 @@ type Web = {
 const PHP_CHOICES = ["8.4", "8.3", "8.2", "8.1", "7.4"];
 const TYPE_LABEL = { static: "Static", php: "PHP", proxy: "Reverse proxy" } as const;
 
-export function Sites({ serverId, online }: { serverId: string; online: boolean }) {
+export function Sites({ serverId, online, address }: { serverId: string; online: boolean; address?: string }) {
+  const { can } = useAccess();
+  const [dnsFor, setDnsFor] = useState<Site | null>(null);
   const { data, busy, error, job, run } = useAgentState<Web>(serverId, "web.status", online);
   const [editing, setEditing] = useState<Site | "new" | null>(null);
   const [tlsFor, setTlsFor] = useState<Site | null>(null);
@@ -163,6 +167,11 @@ export function Sites({ serverId, online }: { serverId: string; online: boolean 
                   <Button variant="ghost" size="icon" title="Open site" aria-label="Open site" onClick={() => window.open(`${scheme}://${s.domain}`, "_blank", "noopener")}>
                     <ExternalLink />
                   </Button>
+                  {can("dns.edit") && (
+                    <Button variant="ghost" size="icon" title="Point DNS here" aria-label="Point DNS here" onClick={() => setDnsFor(s)}>
+                      <Waypoints />
+                    </Button>
+                  )}
                   <Button variant="ghost" size="icon" title="SSL/TLS" aria-label="SSL/TLS" disabled={disabled} onClick={() => setTlsFor(s)}>
                     <Lock />
                   </Button>
@@ -192,6 +201,7 @@ export function Sites({ serverId, online }: { serverId: string; online: boolean 
           busy={!!busy}
         />
       )}
+      {dnsFor && <PointDNSDialog site={dnsFor} address={address ?? ""} onClose={() => setDnsFor(null)} />}
       {tlsFor && (
         <TLSDialog
           site={tlsFor}
@@ -370,6 +380,115 @@ function TLSDialog({ site, onClose, onSubmit }: { site: Site; onClose: () => voi
             </Button>
           </div>
         </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Points a site's names at this server through a DNS provider in the panel. */
+function PointDNSDialog({ site, address, onClose }: { site: Site; address: string; onClose: () => void }) {
+  const names = [site.domain, ...site.aliases];
+  const [found, setFound] = useState<Record<string, DNSLookup>>({});
+  const [chosen, setChosen] = useState<Set<string>>(new Set(names));
+  const [addrs, setAddrs] = useState(address);
+  const [proxied, setProxied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [log, setLog] = useState<{ name: string; ok: boolean; msg: string }[]>([]);
+
+  useEffect(() => {
+    for (const n of names)
+      api
+        .dnsLookup(n)
+        .then((r) => setFound((f) => ({ ...f, [n]: r })))
+        .catch((e) => setFound((f) => ({ ...f, [n]: { found: false, error: (e as Error).message } })));
+  }, [site.domain]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cloudflare = Object.values(found).some((f) => f.provider?.type === "cloudflare");
+  const list = addrs.split(/[\s,]+/).filter(Boolean);
+
+  async function go() {
+    setBusy(true);
+    setLog([]);
+    for (const n of names) {
+      if (!chosen.has(n) || !found[n]?.found) continue;
+      try {
+        const r = await api.dnsPoint({ name: n, addresses: list, proxied: found[n].provider?.type === "cloudflare" ? proxied : undefined });
+        setLog((l) => [...l, { name: n, ok: true, msg: `updated at ${r.provider}` }]);
+      } catch (e) {
+        setLog((l) => [...l, { name: n, ok: false, msg: (e as Error).message }]);
+      }
+    }
+    setBusy(false);
+    for (const n of names) api.dnsLookup(n).then((r) => setFound((f) => ({ ...f, [n]: r })));
+  }
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Point DNS at this server</DialogTitle>
+          <DialogDescription>
+            Sets A/AAAA records for the site's names and removes old ones (and a CNAME, which can't sit beside them). Names must be in a zone on the DNS page.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-3">
+          <div className="grid gap-2">
+            {names.map((n) => {
+              const f = found[n];
+              return (
+                <label key={n} className="flex items-start gap-2 rounded-md border px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    disabled={!f?.found}
+                    checked={chosen.has(n) && !!f?.found}
+                    onChange={(e) => {
+                      const c = new Set(chosen);
+                      if (e.target.checked) c.add(n);
+                      else c.delete(n);
+                      setChosen(c);
+                    }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="font-medium">{n}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {!f
+                        ? "Looking up…"
+                        : !f.found
+                          ? f.error
+                          : `${f.provider?.name} · ${f.zone?.name} · now: ${f.records?.length ? f.records.map((r) => `${r.type} ${r.content}`).join(", ") : "no records"}`}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="dns-addrs">Server address(es)</Label>
+            <Input id="dns-addrs" value={addrs} placeholder="203.0.113.10, 2001:db8::10" onChange={(e) => setAddrs(e.target.value)} />
+            <p className="text-xs text-muted-foreground">
+              Pre-filled with the address the agent connects from{address ? "" : " (unknown while offline)"}. Behind NAT or a private network, use the public IP instead.
+            </p>
+          </div>
+          {cloudflare && (
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={proxied} onChange={(e) => setProxied(e.target.checked)} /> Proxy through Cloudflare
+            </label>
+          )}
+          {log.map((l) => (
+            <p key={l.name} className={`text-sm ${l.ok ? "text-success" : "text-destructive"}`}>
+              {l.name}: {l.msg}
+            </p>
+          ))}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              Close
+            </Button>
+            <Button variant="brand" disabled={busy || list.length === 0 || !names.some((n) => chosen.has(n) && found[n]?.found)} onClick={() => void go()}>
+              <Waypoints /> {busy ? "Updating…" : "Point DNS here"}
+            </Button>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

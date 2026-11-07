@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: sm
+          POSTGRES_PASSWORD: sm
+          POSTGRES_DB: smtest
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U sm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SM_TEST_DATABASE_URL: postgres://sm:sm@localhost:5432/smtest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          out=$(gofmt -l agent panel)
+          if [ -n "$out" ]; then echo "Not gofmt'ed:"; echo "$out"; exit 1; fi
+      - name: vet
+        run: go vet ./...
+      - name: test
+        # One package at a time: the database tests share one schema.
+        run: go test -p 1 ./...
+      - name: build agent (linux, windows)
+        run: |
+          CGO_ENABLED=0 GOOS=linux go build -o /dev/null ./agent
+          CGO_ENABLED=0 GOOS=windows go build -o /dev/null ./agent
+
+  web:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: typecheck
+        run: npx tsc -b
+      - name: build
+        run: npm run build

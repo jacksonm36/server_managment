@@ -19,6 +19,7 @@ import (
 
 	"google.golang.org/grpc/credentials"
 
+	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 	"github.com/jacksonm36/servermgr/panel/internal/api"
 	"github.com/jacksonm36/servermgr/panel/internal/grpcsrv"
 	"github.com/jacksonm36/servermgr/panel/internal/hub"
@@ -119,11 +120,22 @@ func run(log *slog.Logger) error {
 	// The API that handles new connections is built later; agents that
 	// connect before then get their baseline on a later connect.
 	var onConnect atomic.Pointer[func(string)]
-	gs := (&grpcsrv.Server{Store: st, Hub: h, Log: log, OnConnect: func(id string) {
-		if f := onConnect.Load(); f != nil {
-			(*f)(id)
-		}
-	}}).GRPCServer(credentials.NewTLS(tlsCfg))
+	var onEvent atomic.Pointer[func(string, *agentv1.AgentEvent)]
+	gs := (&grpcsrv.Server{Store: st, Hub: h, Log: log,
+		OnConnect: func(id string) {
+			if f := onConnect.Load(); f != nil {
+				(*f)(id)
+			}
+		},
+		OnEvent: func(id string, e *agentv1.AgentEvent) {
+			if f := onEvent.Load(); f != nil {
+				(*f)(id, e)
+			}
+		},
+		SignCSR: func(csr []byte, id string) ([]byte, error) {
+			return ca.SignAgentCSR(csr, id, grpcsrv.AgentCertValidity)
+		},
+	}).GRPCServer(credentials.NewTLS(tlsCfg))
 	gl, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
 		return err
@@ -181,11 +193,14 @@ func run(log *slog.Logger) error {
 	}
 	applyBaseline := a.ApplyBaseline
 	onConnect.Store(&applyBaseline)
+	handleEvent := a.HandleAgentEvent
+	onEvent.Store(&handleEvent)
 	go a.ResumeWindowsBuilds(ctx)
 	go a.RunScheduler(ctx)
 	go a.RunAlerts(ctx)
 	go a.RunCatalogRefresh(ctx)
 	go a.RunGuestLinkSweep(ctx)
+	go a.RunPanelCertRenewal(ctx)
 
 	handler := a.Handler() // one instance, so both listeners share rate limits
 	hs := &http.Server{
@@ -209,7 +224,7 @@ func run(log *slog.Logger) error {
 			Addr:              httpsAddr,
 			Handler:           handler,
 			ReadHeaderTimeout: 10 * time.Second,
-			TLSConfig:         &tls.Config{Certificates: []tls.Certificate{srvCert}, MinVersion: tls.VersionTLS12},
+			TLSConfig:         &tls.Config{GetCertificate: a.TLSCertificate(srvCert), MinVersion: tls.VersionTLS12},
 		}
 		go func() {
 			log.Info("HTTPS listening", "addr", httpsAddr)
@@ -236,6 +251,11 @@ func run(log *slog.Logger) error {
 			case <-t.C:
 				if err := st.PurgeExpired(ctx); err != nil {
 					log.Warn("purge expired", "err", err)
+				}
+				if n, err := st.PurgeHistory(ctx); err != nil {
+					log.Warn("purge history", "err", err)
+				} else if len(n) > 0 {
+					log.Debug("purged history", "rows", n)
 				}
 			}
 		}

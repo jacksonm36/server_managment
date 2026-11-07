@@ -172,9 +172,8 @@ func cmdRun(args []string, log *slog.Logger) error {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		return err
 	}
-	cert, err := tls.LoadX509KeyPair(filepath.Join(*dir, "agent.crt"), filepath.Join(*dir, "agent.key"))
-	if err != nil {
-		return err
+	if err := loadKeyPair(*dir); err != nil {
+		log.Warn("restoring previous agent certificate", "err", err)
 	}
 	caPEM, err := os.ReadFile(filepath.Join(*dir, "ca.crt"))
 	if err != nil {
@@ -188,18 +187,22 @@ func cmdRun(args []string, log *slog.Logger) error {
 	if i := strings.LastIndex(host, ":"); i > 0 {
 		host = strings.Trim(host[:i], "[]")
 	}
+	certs, err := loadCertStore(*dir, pool)
+	if err != nil {
+		return err
+	}
 	tlsCfg := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      pool,
-		ServerName:   host,
-		MinVersion:   tls.VersionTLS13,
+		GetClientCertificate: certs.clientCert,
+		RootCAs:              pool,
+		ServerName:           host,
+		MinVersion:           tls.VersionTLS13,
 	}
 
 	ctx, stop := runContext(log)
 	defer stop()
 
 	startBackground(ctx, log, st.PanelURL, pool)
-	c := &client{addr: st.GRPCAddr, tls: tlsCfg, log: log.With("server", st.ServerID), sys: sysinfo.New()}
+	c := &client{addr: st.GRPCAddr, tls: tlsCfg, certs: certs, log: log.With("server", st.ServerID), sys: sysinfo.New()}
 	c.loop(ctx)
 	return nil
 }

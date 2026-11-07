@@ -20,6 +20,7 @@ import (
 	"time"
 	"unicode/utf16"
 
+	"github.com/jacksonm36/servermgr/agent/internal/jobctl"
 	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 )
@@ -40,7 +41,8 @@ func Run(ctx context.Context, job *agentv1.Job, send func(*agentv1.JobUpdate)) {
 		send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_RUNNING, LogLines: []string{fmt.Sprintf(format, a...)}})
 	}
 	// Windows Update and installers can take long.
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Minute)
+	limit := max(90*time.Minute, jobctl.Timeout(job.Op))
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 	p := map[string]string{}
 	for k, v := range job.Params {
@@ -98,7 +100,7 @@ func Run(ctx context.Context, job *agentv1.Job, send func(*agentv1.JobUpdate)) {
 		err = fmt.Errorf("%s is not available on Windows servers", strings.TrimPrefix(job.Op.String(), "OP_"))
 	}
 	if err != nil {
-		send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_FAILED, Error: err.Error()})
+		send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_FAILED, Error: jobctl.Error(ctx, err, limit).Error()})
 		return
 	}
 	b, _ := json.Marshal(result)

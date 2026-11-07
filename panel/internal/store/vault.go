@@ -11,9 +11,10 @@ import (
 const vaultSetting = "vault"
 
 // sealedColumns lists every column holding a sealed secret that the vault
-// protects: table, key column, value column.
+// protects: table, key column, value column. Notification channels are not
+// in it: alerts must go out after a restart, before the vault is unlocked.
 var sealedColumns = [][3]string{
-	{"notify_channels", "id", "config"},
+	{"dns_providers", "id", "config"},
 	{"proxmox_clusters", "id", "token_secret"},
 	{"tofu_workspaces", "id", "vars"},
 	{"tofu_states", "workspace_id", "state"},

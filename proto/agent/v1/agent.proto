@@ -19,7 +19,24 @@ message AgentMessage {
     JobUpdate job_update = 3;
     TerminalOutput terminal_output = 4;
     TerminalExit terminal_exit = 5;
+    CertRenewRequest cert_renew = 6;
+    AgentEvent event = 7;
   }
+}
+
+// CertRenewRequest asks the panel to sign a new client certificate for the
+// server named by the current one (agents renew before theirs expires).
+message CertRenewRequest {
+  string csr_pem = 1;
+}
+
+// AgentEvent reports something that happened outside a job, such as a
+// failed certificate renewal, so the panel can log and notify it.
+message AgentEvent {
+  string kind = 1;     // e.g. "tls.renew_failed", "backup.failed"
+  string subject = 2;  // e.g. the domain
+  string message = 3;
+  bool ok = 4;
 }
 
 // ---- web terminal ----
@@ -106,7 +123,19 @@ message PanelMessage {
     TerminalInput terminal_input = 3;
     TerminalResize terminal_resize = 4;
     TerminalClose terminal_close = 5;
+    CertRenewResponse cert_renew = 6;
+    JobCancel job_cancel = 7;
   }
+}
+
+message CertRenewResponse {
+  string cert_pem = 1;
+  string error = 2;
+}
+
+// JobCancel stops a running job (its context is cancelled).
+message JobCancel {
+  string job_id = 1;
 }
 
 enum Op {

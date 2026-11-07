@@ -113,6 +113,7 @@ func (a *API) handleVaultUnlock(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.audit(r, "", "vault.unlock", "", nil, true)
+	a.resealChannels(r.Context())
 	writeJSON(w, http.StatusOK, a.vaultStatus())
 }
 

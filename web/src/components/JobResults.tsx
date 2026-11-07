@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { Check, ChevronDown, ChevronRight, CircleX, Copy, LoaderCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, CircleX, Copy, LoaderCircle, Square } from "lucide-react";
 import { api, type Job } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 
@@ -159,12 +159,40 @@ function ResultRow({
         </Link>
         {!open && error && <span className="max-w-[45%] truncate text-xs text-destructive">{error}</span>}
         {job && <Elapsed job={job} />}
+        {running && job && <StopButton id={job.id} />}
         <Badge variant={status === "succeeded" ? "success" : status === "failed" ? "destructive" : "warning"}>
           {status === "succeeded" ? okLabel : status}
         </Badge>
       </div>
       {open && <Console job={job} error={error} running={running} />}
     </li>
+  );
+}
+
+/** Asks the agent to cancel a running job; the row updates on its own. */
+function StopButton({ id }: { id: string }) {
+  const [state, setState] = useState<"" | "busy" | "sent">("");
+  const [err, setErr] = useState("");
+  return (
+    <button
+      type="button"
+      title={err || (state === "sent" ? "Stopping…" : "Stop this job")}
+      aria-label="Stop this job"
+      disabled={state !== ""}
+      onClick={async () => {
+        setState("busy");
+        try {
+          await api.cancelJob(id);
+          setState("sent");
+        } catch (e) {
+          setErr((e as Error).message);
+          setState("");
+        }
+      }}
+      className="cursor-pointer rounded p-0.5 text-muted-foreground hover:text-destructive disabled:cursor-default disabled:opacity-50"
+    >
+      <Square className="size-3.5" />
+    </button>
   );
 }
 

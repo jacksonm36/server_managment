@@ -8,7 +8,7 @@ import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/ca
 import { Input, Label } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
-const WHAT = "SSH keys, Proxmox API tokens, OpenTofu variables and state, and notification settings";
+const WHAT = "SSH keys, Proxmox API tokens, DNS provider tokens, and OpenTofu variables and state";
 
 /** Shown on every page while the vault is locked, to those who can unlock it. */
 export function VaultBanner() {

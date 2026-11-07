@@ -114,6 +114,7 @@ export function ServerDetail({ id }: { id: string }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {server.os_pretty || "unknown OS"} · {server.kernel} · {server.arch} · {server.cpu_count} vCPU · agent{" "}
             {server.agent_version || "?"}
+            {server.cert_expires_at && <CertExpiry at={server.cert_expires_at} />}
           </p>
           <ServerGroupsLine serverId={id} />
         </div>
@@ -197,7 +198,7 @@ export function ServerDetail({ id }: { id: string }) {
       {tab === "software" && <Software serverId={id} online={server.online} windows={windows} />}
       {tab === "zfs" && <ZFS serverId={id} online={server.online} />}
       {tab === "apps" && <Apps serverId={id} online={server.online} initialApp={pendingApp} onInitialAppUsed={() => setPendingApp("")} />}
-      {tab === "sites" && <Sites serverId={id} online={server.online} />}
+      {tab === "sites" && <Sites serverId={id} online={server.online} address={server.address} />}
       {tab === "docker" && <Docker serverId={id} online={server.online} />}
       {tab === "databases" && (
         <Databases
@@ -339,6 +340,19 @@ function BackLink() {
     <Link href="/servers" className="flex w-fit items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
       <ArrowLeft className="size-4" /> All servers
     </Link>
+  );
+}
+
+/** Agent certificate expiry; agents renew it themselves with 120 days left. */
+function CertExpiry({ at }: { at: string }) {
+  const days = Math.floor((new Date(at).getTime() - Date.now()) / 86_400_000);
+  const when = new Date(at).toLocaleDateString();
+  if (days > 60) return <span title={`Agent certificate valid until ${when}`}> · certificate until {when}</span>;
+  return (
+    <span className={days < 14 ? "text-destructive" : "text-warning"} title="Agents renew their certificate automatically; update this agent if it doesn't.">
+      {" "}
+      · agent certificate {days < 0 ? "expired" : `expires in ${days} days`}
+    </span>
   );
 }
 

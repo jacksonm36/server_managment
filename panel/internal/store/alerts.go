@@ -20,13 +20,15 @@ type Channel struct {
 	LastSentAt *time.Time `json:"last_sent_at"`
 	LastError  string     `json:"last_error"`
 	CreatedAt  time.Time  `json:"created_at"`
+	// NotifyEvents also sends agent events (failed renewals and backups).
+	NotifyEvents bool `json:"notify_events"`
 }
 
-const channelCols = `id::text, name, type, config, enabled, last_sent_at, last_error, created_at`
+const channelCols = `id::text, name, type, config, enabled, last_sent_at, last_error, created_at, notify_events`
 
 func scanChannel(row pgx.Row) (*Channel, error) {
 	c := &Channel{}
-	err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.Enabled, &c.LastSentAt, &c.LastError, &c.CreatedAt)
+	err := row.Scan(&c.ID, &c.Name, &c.Type, &c.Config, &c.Enabled, &c.LastSentAt, &c.LastError, &c.CreatedAt, &c.NotifyEvents)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -57,14 +59,20 @@ func (s *Store) GetChannel(ctx context.Context, id string) (*Channel, error) {
 func (s *Store) SaveChannel(ctx context.Context, c *Channel) error {
 	if c.ID == "" {
 		c.ID = NewUUID()
-		return s.db.QueryRow(ctx, `INSERT INTO notify_channels (id, name, type, config, enabled) VALUES ($1, $2, $3, $4, $5) RETURNING created_at`,
-			c.ID, c.Name, c.Type, c.Config, c.Enabled).Scan(&c.CreatedAt)
+		return s.db.QueryRow(ctx, `INSERT INTO notify_channels (id, name, type, config, enabled, notify_events) VALUES ($1, $2, $3, $4, $5, $6) RETURNING created_at`,
+			c.ID, c.Name, c.Type, c.Config, c.Enabled, c.NotifyEvents).Scan(&c.CreatedAt)
 	}
-	tag, err := s.db.Exec(ctx, `UPDATE notify_channels SET name = $2, type = $3, config = $4, enabled = $5 WHERE id::text = $1`,
-		c.ID, c.Name, c.Type, c.Config, c.Enabled)
+	tag, err := s.db.Exec(ctx, `UPDATE notify_channels SET name = $2, type = $3, config = $4, enabled = $5, notify_events = $6 WHERE id::text = $1`,
+		c.ID, c.Name, c.Type, c.Config, c.Enabled, c.NotifyEvents)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
+	return err
+}
+
+// SetChannelConfig replaces a channel's sealed config (re-sealing).
+func (s *Store) SetChannelConfig(ctx context.Context, id, sealed string) error {
+	_, err := s.db.Exec(ctx, `UPDATE notify_channels SET config = $2 WHERE id::text = $1`, id, sealed)
 	return err
 }
 

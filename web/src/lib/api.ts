@@ -24,6 +24,8 @@ export type Server = {
   agent_version: string;
   created_at: string;
   last_seen_at: string | null;
+  cert_expires_at?: string | null;
+  address?: string;
   online: boolean;
   latest: Metric | null;
   groups?: number[];
@@ -132,6 +134,7 @@ export type Channel = {
   type: "email" | "telegram" | "discord" | "webhook";
   config: Record<string, string>;
   enabled: boolean;
+  notify_events?: boolean;
   last_sent_at: string | null;
   last_error: string;
 };
@@ -162,7 +165,22 @@ export type AlertEvent = {
   resolved_at: string | null;
 };
 
-type ChannelBody = Pick<Channel, "name" | "type" | "config" | "enabled">;
+type ChannelBody = Pick<Channel, "name" | "type" | "config" | "enabled" | "notify_events">;
+
+export type SessionInfo = { id: string; created_at: string; last_used_at: string; expires_at: string; ip: string; user_agent: string; current: boolean };
+export type Retention = { jobs_days: number; audit_days: number; alerts_days: number; runs_days: number };
+
+export type DNSField = { key: string; label: string; secret?: boolean; optional?: boolean; placeholder?: string; help?: string };
+export type DNSType = { id: string; name: string; fields: DNSField[]; proxy?: boolean; min_ttl?: number; docs_url?: string };
+export type DNSProvider = { id: string; name: string; type: string; zones: string[]; last_error: string; created_at: string; updated_at: string };
+export type DNSZone = { id: string; name: string };
+export type DNSRecord = { id?: string; type: string; name: string; content: string; ttl: number; priority?: number; proxied?: boolean };
+export type DNSLookup = { found: boolean; error?: string; provider?: DNSProvider; zone?: DNSZone; records?: DNSRecord[] };
+export type PanelCert = {
+  settings: { mode: "internal" | "acme" | "custom"; domain: string; email: string; staging: boolean; expires: string; issuer: string; last_error: string; issuing: boolean; updated_at: string };
+  public_host: string;
+  https: boolean;
+};
 const ruleBody = (r: AlertRule) => {
   const { name, metric, threshold, duration_sec, server_ids, all_servers, channel_ids, enabled } = r;
   return { name, metric, threshold, duration_sec, server_ids, all_servers, channel_ids, enabled };
@@ -812,6 +830,27 @@ export const api = {
   metrics: (id: string) => request<Metric[]>("GET", `/api/v1/servers/${id}/metrics`),
   jobs: (id: string) => request<Job[]>("GET", `/api/v1/servers/${id}/jobs`),
   job: (id: string) => request<Job>("GET", `/api/v1/jobs/${id}`),
+  cancelJob: (id: string) => request<void>("POST", `/api/v1/jobs/${id}/cancel`),
+  sessions: () => request<{ sessions: SessionInfo[]; idle_minutes: number }>("GET", "/api/v1/account/sessions"),
+  endSession: (id: string) => request<void>("DELETE", `/api/v1/account/sessions/${id}`),
+  retention: () => request<Retention>("GET", "/api/v1/settings/retention"),
+  setRetention: (r: Retention) => request<Retention>("PUT", "/api/v1/settings/retention", r),
+  panelCert: () => request<PanelCert>("GET", "/api/v1/settings/panel-cert"),
+  setPanelCert: (b: { mode: string; domain?: string; email?: string; staging?: boolean; cert_pem?: string; key_pem?: string }) =>
+    request<unknown>("PUT", "/api/v1/settings/panel-cert", b),
+  dnsTypes: () => request<{ providers: DNSType[]; record_types: string[] }>("GET", "/api/v1/dns/types"),
+  dnsProviders: () => request<DNSProvider[]>("GET", "/api/v1/dns/providers"),
+  saveDNSProvider: (id: string | null, b: { name: string; type: string; config: Record<string, string> }) =>
+    request<DNSProvider>(id ? "PUT" : "POST", id ? `/api/v1/dns/providers/${id}` : "/api/v1/dns/providers", b),
+  deleteDNSProvider: (id: string) => request<void>("DELETE", `/api/v1/dns/providers/${id}`),
+  dnsZones: (id: string, fresh = false) => request<DNSZone[]>("GET", `/api/v1/dns/providers/${id}/zones${fresh ? "?fresh=1" : ""}`),
+  dnsRecords: (id: string, zone: string) =>
+    request<{ zone: DNSZone; records: DNSRecord[] }>("GET", `/api/v1/dns/providers/${id}/zones/${encodeURIComponent(zone)}/records`),
+  dnsRecordChange: (id: string, zone: string, method: "POST" | "PUT" | "DELETE", record: DNSRecord, old?: DNSRecord) =>
+    request<void>(method, `/api/v1/dns/providers/${id}/zones/${encodeURIComponent(zone)}/records`, { record, old }),
+  dnsLookup: (name: string) => request<DNSLookup>("GET", `/api/v1/dns/lookup?name=${encodeURIComponent(name)}`),
+  dnsPoint: (b: { name: string; addresses: string[]; proxied?: boolean; ttl?: number }) =>
+    request<{ provider: string; zone: string }>("POST", "/api/v1/dns/point", b),
   runJob: (id: string, op: string, params: Record<string, string> = {}) =>
     request<Job>("POST", `/api/v1/servers/${id}/jobs`, { op, params }),
   audit: (q: { action?: string; before?: number; limit?: number } = {}) => {

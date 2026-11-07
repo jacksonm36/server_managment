@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/acme"
+
+	"github.com/jacksonm36/servermgr/agent/internal/events"
 )
 
 const (
@@ -292,6 +294,9 @@ func renewDue(ctx context.Context, log *slog.Logger) {
 		siteMu.Unlock()
 		if err != nil {
 			log.Error("certificate renewal failed", "domain", s.Domain, "err", err)
+			events.Emit("tls.renew", s.Domain, fmt.Sprintf("certificate renewal failed (expires %s): %v", s.TLSExpires.UTC().Format(time.DateOnly), err), false)
+		} else {
+			events.Emit("tls.renew", s.Domain, "certificate renewed until "+s.TLSExpires.UTC().Format(time.DateOnly), true)
 		}
 	}
 }

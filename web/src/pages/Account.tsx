@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import qrcode from "qrcode-generator";
-import { Check, Copy, KeyRound, ShieldCheck, ShieldOff } from "lucide-react";
-import { api, type Account as AccountInfo } from "@/lib/api";
+import { Check, Copy, KeyRound, LogOut, MonitorSmartphone, ShieldCheck, ShieldOff } from "lucide-react";
+import { api, type Account as AccountInfo, type SessionInfo } from "@/lib/api";
+import { timeAgo } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,7 +26,70 @@ export function Account() {
         <TwoFactor info={info} onChange={reload} />
         <PasswordCard />
       </div>
+      <Sessions />
     </div>
+  );
+}
+
+/** The user's own signed-in browsers, with a button to end each one. */
+function Sessions() {
+  const [list, setList] = useState<SessionInfo[] | null>(null);
+  const [idle, setIdle] = useState(0);
+  const [err, setErr] = useState("");
+  const load = () =>
+    api
+      .sessions()
+      .then((r) => {
+        setList(r.sessions);
+        setIdle(r.idle_minutes);
+      })
+      .catch((e) => setErr((e as Error).message));
+  useEffect(() => {
+    void load();
+  }, []);
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <MonitorSmartphone className="size-5" /> Signed-in sessions
+        </CardTitle>
+        <CardDescription>
+          Sessions end after {idle >= 60 && idle % 60 === 0 ? `${idle / 60} hours` : idle ? `${idle} minutes` : "a while"} without use, and after 12 hours at most.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-2">
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        {list?.map((s) => (
+          <div key={s.id} className="flex flex-wrap items-center gap-3 rounded-lg border px-3 py-2 text-sm">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium">{s.ip || "unknown address"}</span>
+                {s.current && <Badge variant="success">this browser</Badge>}
+              </div>
+              <div className="truncate text-xs text-muted-foreground" title={s.user_agent}>
+                {s.user_agent || "unknown browser"} · signed in {timeAgo(s.created_at)} · last used {timeAgo(s.last_used_at)}
+              </div>
+            </div>
+            {!s.current && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await api.endSession(s.id);
+                    await load();
+                  } catch (e) {
+                    setErr((e as Error).message);
+                  }
+                }}
+              >
+                <LogOut /> Sign out
+              </Button>
+            )}
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   );
 }
 
