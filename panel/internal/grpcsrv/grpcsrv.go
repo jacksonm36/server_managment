@@ -4,6 +4,8 @@ package grpcsrv
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"log/slog"
 	"net"
@@ -30,7 +32,15 @@ type Server struct {
 	// OnConnect runs (in its own goroutine) after an agent's Hello; the
 	// panel uses it to apply enrollment baselines.
 	OnConnect func(serverID string)
+	// SignCSR issues a renewed client certificate for serverID.
+	SignCSR func(csrPEM []byte, serverID string) ([]byte, error)
+	// OnEvent handles an agent event (logs and notifies it).
+	OnEvent func(serverID string, e *agentv1.AgentEvent)
 }
+
+// AgentCertValidity is how long agent client certificates are valid. Agents
+// ask for a new one when a third of that is left.
+const AgentCertValidity = 365 * 24 * time.Hour
 
 func (s *Server) GRPCServer(creds credentials.TransportCredentials) *grpc.Server {
 	g := grpc.NewServer(
@@ -44,15 +54,23 @@ func (s *Server) GRPCServer(creds credentials.TransportCredentials) *grpc.Server
 }
 
 func serverIDFromContext(ctx context.Context) (string, error) {
+	leaf, err := peerLeaf(ctx)
+	if err != nil {
+		return "", err
+	}
+	return leaf.Subject.CommonName, nil
+}
+
+func peerLeaf(ctx context.Context) (*x509.Certificate, error) {
 	p, ok := peer.FromContext(ctx)
 	if !ok {
-		return "", errors.New("no peer")
+		return nil, errors.New("no peer")
 	}
 	ti, ok := p.AuthInfo.(credentials.TLSInfo)
 	if !ok || len(ti.State.VerifiedChains) == 0 || len(ti.State.VerifiedChains[0]) == 0 {
-		return "", errors.New("no verified client certificate")
+		return nil, errors.New("no verified client certificate")
 	}
-	return ti.State.VerifiedChains[0][0].Subject.CommonName, nil
+	return ti.State.VerifiedChains[0][0], nil
 }
 
 func (s *Server) Connect(stream agentv1.AgentService_ConnectServer) error {
@@ -92,6 +110,9 @@ func (s *Server) Connect(stream agentv1.AgentService_ConnectServer) error {
 		if host, _, err := net.SplitHostPort(p.Addr.String()); err == nil {
 			s.Hub.SetAddr(serverID, host)
 		}
+	}
+	if leaf, err := peerLeaf(ctx); err == nil {
+		_ = s.Store.SetServerCert(ctx, serverID, leaf.NotAfter)
 	}
 	if s.OnConnect != nil {
 		go s.OnConnect(serverID)
@@ -142,7 +163,36 @@ func (s *Server) Connect(stream agentv1.AgentService_ConnectServer) error {
 		case *agentv1.AgentMessage_TerminalExit:
 			e := m.TerminalExit
 			s.Hub.TerminalEvent(serverID, e.SessionId, hub.TermEvent{Exit: true, Code: e.Code, Error: e.Error})
+		case *agentv1.AgentMessage_CertRenew:
+			go s.renewCert(ctx, serverID, m.CertRenew.CsrPem, log)
+		case *agentv1.AgentMessage_Event:
+			if s.OnEvent != nil {
+				go s.OnEvent(serverID, m.Event)
+			}
 		}
+	}
+}
+
+// renewCert signs a renewed client certificate for the agent on this
+// stream. The server ID comes from the current, verified certificate, so an
+// agent can only renew its own identity.
+func (s *Server) renewCert(ctx context.Context, serverID, csrPEM string, log *slog.Logger) {
+	resp := &agentv1.CertRenewResponse{}
+	if s.SignCSR == nil {
+		resp.Error = "this panel cannot renew certificates"
+	} else if cert, err := s.SignCSR([]byte(csrPEM), serverID); err != nil {
+		resp.Error = err.Error()
+	} else {
+		resp.CertPem = string(cert)
+		if b, _ := pem.Decode(cert); b != nil {
+			if c, err := x509.ParseCertificate(b.Bytes); err == nil {
+				_ = s.Store.SetServerCert(ctx, serverID, c.NotAfter)
+			}
+		}
+		log.Info("renewed agent certificate")
+	}
+	if err := s.Hub.Send(serverID, &agentv1.PanelMessage{Msg: &agentv1.PanelMessage_CertRenew{CertRenew: resp}}); err != nil {
+		log.Warn("send renewed certificate", "err", err)
 	}
 }
 

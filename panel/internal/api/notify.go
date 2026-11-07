@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/mail"
+	"net/netip"
 	"net/smtp"
 	"net/url"
 	"regexp"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"github.com/jacksonm36/servermgr/panel/internal/store"
+	"github.com/jacksonm36/servermgr/panel/internal/vault"
 )
 
 // Message is one notification, rendered per channel type.
@@ -114,6 +116,9 @@ func validateChannel(typ string, cfg map[string]string) error {
 		u, err := url.Parse(cfg["url"])
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return errors.New("url must be http(s)://…")
+		}
+		if u.Scheme == "http" && !privateHost(u.Hostname()) {
+			return errors.New("use https:// for webhooks on the internet (plain http is only allowed for private addresses)")
 		}
 	default:
 		return errors.New("type must be email, telegram, discord or webhook")
@@ -250,6 +255,56 @@ func sendMail(cfg map[string]string, m Message) error {
 	return c.Quit()
 }
 
+// privateHost reports whether h is localhost or a private/link-local IP.
+func privateHost(h string) bool {
+	if h == "localhost" {
+		return true
+	}
+	ip, err := netip.ParseAddr(h)
+	return err == nil && (ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast())
+}
+
+// resealChannels moves channel settings sealed by the vault (older panels)
+// to the panel key, so notifications keep working while the vault is locked.
+func (a *API) resealChannels(ctx context.Context) {
+	list, err := a.Store.ListChannels(ctx)
+	if err != nil {
+		return
+	}
+	for _, c := range list {
+		if !vault.IsSealed(c.Config) {
+			continue
+		}
+		plain, err := a.openSecret(c.Config)
+		if err != nil {
+			continue
+		}
+		sealed, err := a.seal(plain)
+		if err != nil {
+			continue
+		}
+		if err := a.Store.SetChannelConfig(ctx, c.ID, sealed); err != nil {
+			a.Log.Warn("reseal channel", "channel", c.Name, "err", err)
+		}
+	}
+}
+
+// notifyEvent sends an agent event to every enabled channel that takes
+// events.
+func (a *API) notifyEvent(ctx context.Context, m Message) {
+	list, err := a.Store.ListChannels(ctx)
+	if err != nil {
+		return
+	}
+	var ids []string
+	for _, c := range list {
+		if c.Enabled && c.NotifyEvents {
+			ids = append(ids, c.ID)
+		}
+	}
+	a.notify(ids, m)
+}
+
 // notify delivers m to the given channels in the background.
 func (a *API) notify(channelIDs []string, m Message) {
 	for _, id := range channelIDs {
@@ -313,6 +368,7 @@ func (a *API) handleSaveChannel(w http.ResponseWriter, r *http.Request) {
 		Type    string            `json:"type"`
 		Config  map[string]string `json:"config"`
 		Enabled bool              `json:"enabled"`
+		Events  bool              `json:"notify_events"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -335,7 +391,7 @@ func (a *API) handleSaveChannel(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg[k] = strings.TrimSpace(v)
 	}
-	c := &store.Channel{ID: r.PathValue("id"), Name: req.Name, Type: req.Type, Enabled: req.Enabled}
+	c := &store.Channel{ID: r.PathValue("id"), Name: req.Name, Type: req.Type, Enabled: req.Enabled, NotifyEvents: req.Events}
 	// A masked (or empty) secret on update means "keep the stored one".
 	if c.ID != "" {
 		cur, err := a.Store.GetChannel(r.Context(), c.ID)
@@ -362,9 +418,11 @@ func (a *API) handleSaveChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	plain, _ := json.Marshal(cfg)
-	sealed, err := a.sealSecret(plain)
+	// Sealed with the panel key, not the vault: alerts must still go out
+	// after a reboot, before anyone has unlocked the vault.
+	sealed, err := a.seal(plain)
 	if err != nil {
-		a.secretErr(w, err)
+		a.internal(w, err)
 		return
 	}
 	c.Config = sealed

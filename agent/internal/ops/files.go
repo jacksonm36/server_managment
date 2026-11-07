@@ -1,9 +1,12 @@
 package ops
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/user"
@@ -81,18 +84,43 @@ func protected(p string) bool {
 	return false
 }
 
-// ownSite chowns p to the owner of its site home (site user : www-data).
-func ownSite(p string) error {
+// openSite opens the site home that holds the resolved path p as an
+// os.Root, and returns p relative to it. Everything the file manager does
+// to a file goes through that root, so a symlink swapped in after
+// resolvePath checked the path cannot lead outside the site (os.Root
+// refuses to leave it, whatever the links say).
+func openSite(p string) (*os.Root, string, error) {
 	home, ok := siteHomeOf(p)
 	if !ok {
-		return nil
+		return nil, "", errors.New("path is not inside a site")
 	}
-	st, err := os.Stat(home)
+	fi, err := os.Lstat(home)
 	if err != nil {
-		return err
+		return nil, "", err
+	}
+	if !fi.IsDir() {
+		return nil, "", errors.New("site home is not a directory")
+	}
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		return nil, "", err
+	}
+	rel, err := filepath.Rel(home, p)
+	if err != nil {
+		root.Close()
+		return nil, "", err
+	}
+	return root, rel, nil
+}
+
+// siteOwner is the uid/gid that owns a site's home (site user : www-data).
+func siteOwner(root *os.Root) (int, int, error) {
+	st, err := root.Stat(".")
+	if err != nil {
+		return 0, 0, err
 	}
 	sys := st.Sys().(*syscall.Stat_t)
-	return os.Lchown(p, int(sys.Uid), int(sys.Gid))
+	return int(sys.Uid), int(sys.Gid), nil
 }
 
 type fileEntry struct {
@@ -124,12 +152,18 @@ func ownerName(uid uint32) string {
 	return n
 }
 
-func entryOf(path string, fi fs.FileInfo) fileEntry {
+// entryOf describes a directory entry; path is relative to root when root
+// is set.
+func entryOf(root *os.Root, path string, fi fs.FileInfo) fileEntry {
 	e := fileEntry{Name: fi.Name(), Size: fi.Size(), Mode: fmt.Sprintf("%04o", fi.Mode().Perm()), ModTime: fi.ModTime().Unix(), Type: "other"}
 	switch {
 	case fi.Mode()&fs.ModeSymlink != 0:
 		e.Type = "link"
-		e.Target, _ = os.Readlink(path)
+		if root != nil {
+			e.Target, _ = root.Readlink(path)
+		} else {
+			e.Target, _ = os.Readlink(path)
+		}
 	case fi.IsDir():
 		e.Type = "dir"
 	case fi.Mode().IsRegular():
@@ -153,17 +187,39 @@ func filesList(p map[string]string) (any, error) {
 	if err := os.MkdirAll(filesRoot, 0o755); err != nil {
 		return nil, err
 	}
-	ents, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]fileEntry, 0, len(ents))
-	for _, d := range ents {
-		fi, err := d.Info()
+	var out []fileEntry
+	if dir == filesRoot {
+		ents, err := os.ReadDir(dir)
 		if err != nil {
-			continue
+			return nil, err
 		}
-		out = append(out, entryOf(filepath.Join(dir, d.Name()), fi))
+		out = make([]fileEntry, 0, len(ents))
+		for _, d := range ents {
+			if fi, err := d.Info(); err == nil {
+				out = append(out, entryOf(nil, filepath.Join(dir, d.Name()), fi))
+			}
+		}
+	} else {
+		root, rel, err := openSite(dir)
+		if err != nil {
+			return nil, err
+		}
+		defer root.Close()
+		f, err := root.Open(rel)
+		if err != nil {
+			return nil, err
+		}
+		ents, err := f.ReadDir(-1)
+		f.Close()
+		if err != nil {
+			return nil, err
+		}
+		out = make([]fileEntry, 0, len(ents))
+		for _, d := range ents {
+			if fi, err := d.Info(); err == nil {
+				out = append(out, entryOf(root, filepath.Join(rel, d.Name()), fi))
+			}
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if (out[i].Type == "dir") != (out[j].Type == "dir") {
@@ -179,7 +235,17 @@ func filesRead(p map[string]string) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	fi, err := os.Stat(path)
+	root, rel, err := openSite(path)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(rel)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +255,7 @@ func filesRead(p map[string]string) (any, error) {
 	if fi.Size() > maxFileRead {
 		return nil, fmt.Errorf("file is larger than %d MiB", maxFileRead>>20)
 	}
-	b, err := os.ReadFile(path)
+	b, err := io.ReadAll(io.LimitReader(f, maxFileRead+1))
 	if err != nil {
 		return nil, err
 	}
@@ -221,8 +287,13 @@ func filesWrite(p map[string]string, logf func(string, ...any)) (any, error) {
 	if len(data) > maxFileWrite {
 		return nil, fmt.Errorf("file is larger than %d MiB", maxFileWrite>>20)
 	}
+	root, rel, err := openSite(path)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
 	mode := os.FileMode(0o640)
-	fi, statErr := os.Lstat(path)
+	fi, statErr := root.Lstat(rel)
 	switch {
 	case statErr == nil && !fi.Mode().IsRegular():
 		return nil, errors.New("target exists and is not a regular file")
@@ -231,24 +302,36 @@ func filesWrite(p map[string]string, logf func(string, ...any)) (any, error) {
 	case statErr == nil:
 		mode = fi.Mode().Perm()
 	}
-	if _, err := os.Stat(filepath.Dir(path)); err != nil {
+	if _, err := root.Stat(filepath.Dir(rel)); err != nil {
 		return nil, errors.New("parent directory does not exist")
 	}
-	tmp := filepath.Join(filepath.Dir(path), "."+filepath.Base(path)+".smtmp")
-	if err := os.WriteFile(tmp, data, mode); err != nil {
+	uid, gid, err := siteOwner(root)
+	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(tmp, mode); err != nil {
-		os.Remove(tmp)
+	// A random temp name with O_EXCL, so nothing planted in advance (a
+	// symlink, a FIFO) is ever opened.
+	tmp := filepath.Join(filepath.Dir(rel), "."+filepath.Base(rel)+"."+randHex(8)+".smtmp")
+	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
 		return nil, err
 	}
-	if err := ownSite(tmp); err != nil {
-		os.Remove(tmp)
-		return nil, err
+	_, werr := f.Write(data)
+	if werr == nil {
+		werr = f.Chmod(mode)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return nil, err
+	if werr == nil {
+		werr = f.Chown(uid, gid)
+	}
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr == nil {
+		werr = root.Rename(tmp, rel)
+	}
+	if werr != nil {
+		_ = root.Remove(tmp)
+		return nil, werr
 	}
 	logf("wrote %s (%d bytes)", path, len(data))
 	return map[string]any{"path": path, "size": len(data)}, nil
@@ -262,13 +345,22 @@ func filesMkdir(p map[string]string, logf func(string, ...any)) (any, error) {
 	if _, ok := siteHomeOf(path); !ok || protected(path) {
 		return nil, errors.New("folders can only be created inside a site")
 	}
-	if err := os.Mkdir(path, 0o750); err != nil {
+	root, rel, err := openSite(path)
+	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, os.ModeSetgid|0o750); err != nil {
+	defer root.Close()
+	if err := root.Mkdir(rel, 0o750); err != nil {
 		return nil, err
 	}
-	if err := ownSite(path); err != nil {
+	if err := root.Chmod(rel, os.ModeSetgid|0o750); err != nil {
+		return nil, err
+	}
+	uid, gid, err := siteOwner(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := root.Lchown(rel, uid, gid); err != nil {
 		return nil, err
 	}
 	logf("created %s", path)
@@ -286,10 +378,15 @@ func filesDelete(p map[string]string, logf func(string, ...any)) (any, error) {
 	if protected(path) {
 		return nil, errors.New("this path cannot be deleted")
 	}
-	if _, err := os.Lstat(path); err != nil {
+	root, rel, err := openSite(path)
+	if err != nil {
 		return nil, err
 	}
-	if err := os.RemoveAll(path); err != nil {
+	defer root.Close()
+	if _, err := root.Lstat(rel); err != nil {
+		return nil, err
+	}
+	if err := root.RemoveAll(rel); err != nil {
 		return nil, err
 	}
 	logf("deleted %s", path)
@@ -315,10 +412,19 @@ func filesRename(p map[string]string, logf func(string, ...any)) (any, error) {
 	if fh != th {
 		return nil, errors.New("files cannot be moved between sites")
 	}
-	if _, err := os.Lstat(to); err == nil {
+	root, relFrom, err := openSite(from)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	relTo, err := filepath.Rel(fh, to)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := root.Lstat(relTo); err == nil {
 		return nil, errors.New("destination already exists")
 	}
-	if err := os.Rename(from, to); err != nil {
+	if err := root.Rename(relFrom, relTo); err != nil {
 		return nil, err
 	}
 	logf("renamed %s -> %s", from, to)
@@ -340,7 +446,12 @@ func filesChmod(p map[string]string, logf func(string, ...any)) (any, error) {
 	if m&0o002 != 0 {
 		return nil, errors.New("world-writable permissions are not allowed")
 	}
-	fi, err := os.Stat(path)
+	root, rel, err := openSite(path)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	fi, err := root.Stat(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -348,9 +459,15 @@ func filesChmod(p map[string]string, logf func(string, ...any)) (any, error) {
 	if fi.IsDir() {
 		mode |= fi.Mode() & os.ModeSetgid
 	}
-	if err := os.Chmod(path, mode); err != nil {
+	if err := root.Chmod(rel, mode); err != nil {
 		return nil, err
 	}
 	logf("chmod %04o %s", m, path)
 	return map[string]any{"path": path}, nil
+}
+
+func randHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

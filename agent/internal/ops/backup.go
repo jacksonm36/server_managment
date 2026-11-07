@@ -18,6 +18,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/jacksonm36/servermgr/agent/internal/events"
 )
 
 // Backups live in backupRoot/<domain>/<domain>-<UTC timestamp>.tar.gz and
@@ -544,6 +546,7 @@ func runDueBackups(ctx context.Context, log *slog.Logger, now time.Time) {
 		siteMu.Unlock()
 		if err != nil {
 			log.Error("scheduled backup failed", "domain", s.Domain, "err", err)
+			events.Emit("backup.scheduled", s.Domain, "scheduled backup failed: "+err.Error(), false)
 		}
 	}
 }

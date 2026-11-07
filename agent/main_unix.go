@@ -40,6 +40,7 @@ func startBackground(ctx context.Context, log *slog.Logger, panelURL string, poo
 	ops.StartRenewer(ctx, log)
 	ops.StartBackups(ctx, log)
 	ops.StartZFS(ctx, log)
+	ops.StartLogRotation(ctx, log)
 }
 
 // zfsRecv is the forced command a replication source's key runs on this

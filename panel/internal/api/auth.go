@@ -143,6 +143,9 @@ type loginLimiter struct {
 const (
 	loginWindow   = 15 * time.Minute
 	loginMaxFails = 10
+	// userMaxFails limits guesses on one account from many addresses. It is
+	// higher than the per-IP limit, so one noisy client can't lock a user out.
+	userMaxFails = 25
 )
 
 func clientIP(r *http.Request) string {
@@ -153,24 +156,49 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
-func (l *loginLimiter) allowed(ip string) bool {
+func (l *loginLimiter) allowed(key string) bool {
+	return l.count(key) < loginMaxFails
+}
+
+// count returns the failures for key inside the window.
+func (l *loginLimiter) count(key string) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	cut := time.Now().Add(-loginWindow)
-	kept := l.fail[ip][:0]
-	for _, t := range l.fail[ip] {
+	kept := l.fail[key][:0]
+	for _, t := range l.fail[key] {
 		if t.After(cut) {
 			kept = append(kept, t)
 		}
 	}
-	l.fail[ip] = kept
-	return len(kept) < loginMaxFails
+	if len(kept) == 0 {
+		delete(l.fail, key) // keeps the map from growing with every address seen
+		return 0
+	}
+	l.fail[key] = kept
+	return len(kept)
 }
 
-func (l *loginLimiter) failed(ip string) {
+// failed records a failure and returns the new count for key.
+func (l *loginLimiter) failed(key string) int {
 	l.mu.Lock()
-	l.fail[ip] = append(l.fail[ip], time.Now())
-	l.mu.Unlock()
+	defer l.mu.Unlock()
+	l.fail[key] = append(l.fail[key], time.Now())
+	return len(l.fail[key])
+}
+
+// loginFailed counts a failed login against the address and the account,
+// and warns event channels once when an account crosses its limit.
+func (a *API) loginFailed(r *http.Request, ip, username string) {
+	a.limiter.failed(ip)
+	if username == "" {
+		return
+	}
+	if n := a.limiter.failed("user:" + strings.ToLower(username)); n == userMaxFails {
+		a.notifyEvent(a.baseCtx(), Message{
+			Title: fmt.Sprintf("[SECURITY] %d failed sign-ins for %q in %s; the account is blocked for a while (last from %s)", n, username, loginWindow, ip),
+		})
+	}
 }
 
 func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -188,10 +216,15 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
+	if a.limiter.count("user:"+strings.ToLower(req.Username)) >= userMaxFails {
+		a.audit(r, truncate(req.Username, 64), "auth.login", "", map[string]string{"error": "account rate limited"}, false)
+		writeErr(w, http.StatusTooManyRequests, "too many failed logins for this account, try again later")
+		return
+	}
 	admin, err := a.Store.AdminByUsername(r.Context(), req.Username)
 	if errors.Is(err, store.ErrNotFound) {
 		VerifyPassword(req.Password, dummyHash)
-		a.limiter.failed(ip)
+		a.loginFailed(r, ip, req.Username)
 		a.audit(r, truncate(req.Username, 64), "auth.login", "", map[string]string{"error": "unknown user"}, false)
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
@@ -201,7 +234,7 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !VerifyPassword(req.Password, admin.PasswordHash) {
-		a.limiter.failed(ip)
+		a.loginFailed(r, ip, admin.Username)
 		a.audit(r, admin.Username, "auth.login", "", map[string]string{"error": "wrong password"}, false)
 		writeErr(w, http.StatusUnauthorized, "invalid username or password")
 		return
@@ -224,14 +257,14 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !ok {
-			a.limiter.failed(ip)
+			a.loginFailed(r, ip, admin.Username)
 			a.audit(r, admin.Username, "auth.login", "", map[string]string{"error": "wrong two-factor code"}, false)
 			writeJSON(w, http.StatusUnauthorized, map[string]any{"error": "invalid or already used two-factor code", "totp_required": true})
 			return
 		}
 	}
 	raw, hash := randomToken()
-	if err := a.Store.CreateSession(r.Context(), hash, admin.ID, time.Now().Add(sessionTTL)); err != nil {
+	if err := a.Store.CreateSession(r.Context(), hash, admin.ID, time.Now().Add(sessionTTL), ip, r.UserAgent()); err != nil {
 		a.internal(w, err)
 		return
 	}

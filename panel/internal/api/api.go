@@ -20,6 +20,7 @@ import (
 	"time"
 
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
+	"github.com/jacksonm36/servermgr/panel/internal/grpcsrv"
 	"github.com/jacksonm36/servermgr/panel/internal/hub"
 	"github.com/jacksonm36/servermgr/panel/internal/pki"
 	"github.com/jacksonm36/servermgr/panel/internal/store"
@@ -97,6 +98,8 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("POST /api/v1/account/totp/enable", a.handleTOTPEnable)
 	authed.HandleFunc("POST /api/v1/account/totp/disable", a.handleTOTPDisable)
 	authed.HandleFunc("POST /api/v1/account/recovery-codes", a.handleRecoveryRegenerate)
+	authed.HandleFunc("GET /api/v1/account/sessions", a.handleListSessions)
+	authed.HandleFunc("DELETE /api/v1/account/sessions/{sid}", a.handleEndSession)
 	authed.HandleFunc("GET /api/v1/servers", a.handleListServers)
 	authed.HandleFunc("GET /api/v1/servers/{id}", needOn("server.view", a.handleGetServer))
 	authed.HandleFunc("DELETE /api/v1/servers/{id}", needOn("server.delete", a.handleDeleteServer))
@@ -106,6 +109,7 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("GET /api/v1/servers/{id}/jobs", needOn("server.view", a.handleListJobs))
 	authed.HandleFunc("POST /api/v1/servers/{id}/jobs", a.handleCreateJob) // per-op check in Dispatch
 	authed.HandleFunc("GET /api/v1/jobs/{id}", a.handleGetJob)
+	authed.HandleFunc("POST /api/v1/jobs/{id}/cancel", a.handleCancelJob)
 	authed.HandleFunc("GET /api/v1/jobs", a.handleRecentJobs)
 	authed.HandleFunc("POST /api/v1/bulk", need("playbooks.run", a.handleBulk))
 	authed.HandleFunc("GET /api/v1/playbooks", need("automation.view", a.handleListPlaybooks))
@@ -784,7 +788,7 @@ func (a *API) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		a.internal(w, err)
 		return
 	}
-	certPEM, err := a.CA.SignAgentCSR([]byte(req.CSR), serverID, 365*24*time.Hour)
+	certPEM, err := a.CA.SignAgentCSR([]byte(req.CSR), serverID, grpcsrv.AgentCertValidity)
 	if err != nil {
 		_ = a.Store.DeleteServer(r.Context(), serverID)
 		writeErr(w, http.StatusBadRequest, err.Error())

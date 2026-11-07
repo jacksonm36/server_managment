@@ -130,15 +130,67 @@ func (s *Store) AdminByUsername(ctx context.Context, username string) (*Admin, e
 	return scanAdmin(s.db.QueryRow(ctx, `SELECT `+adminCols+` FROM admins a WHERE a.username = $1`, username))
 }
 
-func (s *Store) CreateSession(ctx context.Context, tokenHash []byte, adminID int64, expires time.Time) error {
-	_, err := s.db.Exec(ctx, `INSERT INTO sessions (token_hash, admin_id, expires_at) VALUES ($1, $2, $3)`, tokenHash, adminID, expires)
+func (s *Store) CreateSession(ctx context.Context, tokenHash []byte, adminID int64, expires time.Time, ip, userAgent string) error {
+	if len(userAgent) > 256 {
+		userAgent = userAgent[:256]
+	}
+	_, err := s.db.Exec(ctx, `INSERT INTO sessions (token_hash, admin_id, expires_at, ip, user_agent) VALUES ($1, $2, $3, $4, $5)`, tokenHash, adminID, expires, ip, userAgent)
 	return err
 }
 
+// SessionIdle ends sessions nobody has used for this long.
+var SessionIdle = 2 * time.Hour
+
 func (s *Store) SessionAdmin(ctx context.Context, tokenHash []byte) (*Admin, error) {
-	return scanAdmin(s.db.QueryRow(ctx, `
+	a, err := scanAdmin(s.db.QueryRow(ctx, `
 		SELECT `+adminCols+` FROM sessions s JOIN admins a ON a.id = s.admin_id
-		WHERE s.token_hash = $1 AND s.expires_at > now() AND NOT a.disabled`, tokenHash))
+		WHERE s.token_hash = $1 AND s.expires_at > now() AND s.last_used_at > now() - make_interval(secs => $2)
+		AND NOT a.disabled`, tokenHash, SessionIdle.Seconds()))
+	if err == nil {
+		// At most once a minute, so busy pages don't write on every request.
+		_, _ = s.db.Exec(ctx, `UPDATE sessions SET last_used_at = now() WHERE token_hash = $1 AND last_used_at < now() - interval '1 minute'`, tokenHash)
+	}
+	return a, err
+}
+
+// SessionInfo is one of a user's signed-in sessions.
+type SessionInfo struct {
+	ID         string    `json:"id"` // first 8 bytes of the token hash, hex
+	CreatedAt  time.Time `json:"created_at"`
+	LastUsedAt time.Time `json:"last_used_at"`
+	ExpiresAt  time.Time `json:"expires_at"`
+	IP         string    `json:"ip"`
+	UserAgent  string    `json:"user_agent"`
+	Current    bool      `json:"current"`
+}
+
+func (s *Store) ListSessions(ctx context.Context, adminID int64, current []byte) ([]*SessionInfo, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT encode(substring(token_hash from 1 for 8), 'hex'), created_at, last_used_at, expires_at, ip, user_agent, token_hash = $2
+		FROM sessions WHERE admin_id = $1 AND expires_at > now() AND last_used_at > now() - make_interval(secs => $3)
+		ORDER BY last_used_at DESC`, adminID, current, SessionIdle.Seconds())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []*SessionInfo{}
+	for rows.Next() {
+		v := &SessionInfo{}
+		if err := rows.Scan(&v.ID, &v.CreatedAt, &v.LastUsedAt, &v.ExpiresAt, &v.IP, &v.UserAgent, &v.Current); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// DeleteSessionByID ends one of the user's own sessions by its short ID.
+func (s *Store) DeleteSessionByID(ctx context.Context, adminID int64, id string) error {
+	tag, err := s.db.Exec(ctx, `DELETE FROM sessions WHERE admin_id = $1 AND encode(substring(token_hash from 1 for 8), 'hex') = $2`, adminID, id)
+	if err == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return err
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash []byte) error {
@@ -147,7 +199,7 @@ func (s *Store) DeleteSession(ctx context.Context, tokenHash []byte) error {
 }
 
 func (s *Store) PurgeExpired(ctx context.Context) error {
-	_, err := s.db.Exec(ctx, `DELETE FROM sessions WHERE expires_at < now()`)
+	_, err := s.db.Exec(ctx, `DELETE FROM sessions WHERE expires_at < now() OR last_used_at < now() - make_interval(secs => $1)`, SessionIdle.Seconds())
 	if err != nil {
 		return err
 	}
@@ -209,13 +261,15 @@ type Server struct {
 	AgentVersion string     `json:"agent_version"`
 	CreatedAt    time.Time  `json:"created_at"`
 	LastSeenAt   *time.Time `json:"last_seen_at"`
+	// CertExpiresAt is when the agent's client certificate expires.
+	CertExpiresAt *time.Time `json:"cert_expires_at"`
 }
 
-const serverCols = `id::text, name, hostname, os, os_version, os_pretty, kernel, arch, cpu_count, agent_version, created_at, last_seen_at`
+const serverCols = `id::text, name, hostname, os, os_version, os_pretty, kernel, arch, cpu_count, agent_version, created_at, last_seen_at, cert_expires_at`
 
 func scanServer(row pgx.Row) (*Server, error) {
 	v := &Server{}
-	err := row.Scan(&v.ID, &v.Name, &v.Hostname, &v.OS, &v.OSVersion, &v.OSPretty, &v.Kernel, &v.Arch, &v.CPUCount, &v.AgentVersion, &v.CreatedAt, &v.LastSeenAt)
+	err := row.Scan(&v.ID, &v.Name, &v.Hostname, &v.OS, &v.OSVersion, &v.OSPretty, &v.Kernel, &v.Arch, &v.CPUCount, &v.AgentVersion, &v.CreatedAt, &v.LastSeenAt, &v.CertExpiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -253,6 +307,12 @@ func (s *Store) UpdateServerHello(ctx context.Context, v *Server) error {
 		UPDATE servers SET hostname=$2, os=$3, os_version=$4, os_pretty=$5, kernel=$6, arch=$7,
 		cpu_count=$8, agent_version=$9, last_seen_at=now() WHERE id::text=$1`,
 		v.ID, v.Hostname, v.OS, v.OSVersion, v.OSPretty, v.Kernel, v.Arch, v.CPUCount, v.AgentVersion)
+	return err
+}
+
+// SetServerCert records when the agent's client certificate expires.
+func (s *Store) SetServerCert(ctx context.Context, id string, expires time.Time) error {
+	_, err := s.db.Exec(ctx, `UPDATE servers SET cert_expires_at = $2 WHERE id::text = $1`, id, expires)
 	return err
 }
 

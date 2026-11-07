@@ -13,8 +13,8 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"time"
 
+	"github.com/jacksonm36/servermgr/agent/internal/jobctl"
 	"github.com/jacksonm36/servermgr/agent/internal/sysinfo"
 	agentv1 "github.com/jacksonm36/servermgr/gen/agent/v1"
 )
@@ -29,7 +29,8 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_RUNNING, LogLines: []string{fmt.Sprintf(format, a...)}})
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+	limit := jobctl.Timeout(job.Op)
+	ctx, cancel := context.WithTimeout(ctx, limit)
 	defer cancel()
 
 	p := map[string]string{}
@@ -217,7 +218,7 @@ func Run(ctx context.Context, job *agentv1.Job, send report) {
 		err = fmt.Errorf("unsupported op %v", job.Op)
 	}
 	if err != nil {
-		send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_FAILED, Error: err.Error()})
+		send(&agentv1.JobUpdate{JobId: job.Id, Status: agentv1.JobStatus_JOB_STATUS_FAILED, Error: jobctl.Error(ctx, err, limit).Error()})
 		return
 	}
 	b, _ := json.Marshal(result)

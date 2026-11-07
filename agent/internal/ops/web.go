@@ -543,12 +543,13 @@ pm.max_children = 10
 pm.process_idle_timeout = 30s
 pm.max_requests = 500
 chdir = /
-php_admin_value[open_basedir] = {{.Home}}/:/tmp/:/usr/share/php/
+php_admin_value[open_basedir] = {{.Home}}/:/usr/share/php/
+php_admin_value[sys_temp_dir] = {{.Home}}/tmp
 php_admin_value[upload_tmp_dir] = {{.Home}}/tmp
 php_admin_value[session.save_path] = {{.Home}}/tmp
 php_admin_value[error_log] = {{.Home}}/logs/php-error.log
 php_admin_flag[log_errors] = on
-php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen
+php_admin_value[disable_functions] = exec,passthru,shell_exec,system,proc_open,popen,pcntl_exec,pcntl_fork
 `))
 
 func (s *Site) hasCert() bool {

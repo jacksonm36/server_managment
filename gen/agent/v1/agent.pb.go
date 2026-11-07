@@ -382,6 +382,8 @@ type AgentMessage struct {
 	//	*AgentMessage_JobUpdate
 	//	*AgentMessage_TerminalOutput
 	//	*AgentMessage_TerminalExit
+	//	*AgentMessage_CertRenew
+	//	*AgentMessage_Event
 	Msg           isAgentMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -469,6 +471,24 @@ func (x *AgentMessage) GetTerminalExit() *TerminalExit {
 	return nil
 }
 
+func (x *AgentMessage) GetCertRenew() *CertRenewRequest {
+	if x != nil {
+		if x, ok := x.Msg.(*AgentMessage_CertRenew); ok {
+			return x.CertRenew
+		}
+	}
+	return nil
+}
+
+func (x *AgentMessage) GetEvent() *AgentEvent {
+	if x != nil {
+		if x, ok := x.Msg.(*AgentMessage_Event); ok {
+			return x.Event
+		}
+	}
+	return nil
+}
+
 type isAgentMessage_Msg interface {
 	isAgentMessage_Msg()
 }
@@ -493,6 +513,14 @@ type AgentMessage_TerminalExit struct {
 	TerminalExit *TerminalExit `protobuf:"bytes,5,opt,name=terminal_exit,json=terminalExit,proto3,oneof"`
 }
 
+type AgentMessage_CertRenew struct {
+	CertRenew *CertRenewRequest `protobuf:"bytes,6,opt,name=cert_renew,json=certRenew,proto3,oneof"`
+}
+
+type AgentMessage_Event struct {
+	Event *AgentEvent `protobuf:"bytes,7,opt,name=event,proto3,oneof"`
+}
+
 func (*AgentMessage_Hello) isAgentMessage_Msg() {}
 
 func (*AgentMessage_Metrics) isAgentMessage_Msg() {}
@@ -502,6 +530,126 @@ func (*AgentMessage_JobUpdate) isAgentMessage_Msg() {}
 func (*AgentMessage_TerminalOutput) isAgentMessage_Msg() {}
 
 func (*AgentMessage_TerminalExit) isAgentMessage_Msg() {}
+
+func (*AgentMessage_CertRenew) isAgentMessage_Msg() {}
+
+func (*AgentMessage_Event) isAgentMessage_Msg() {}
+
+// CertRenewRequest asks the panel to sign a new client certificate for the
+// server named by the current one (agents renew before theirs expires).
+type CertRenewRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CsrPem        string                 `protobuf:"bytes,1,opt,name=csr_pem,json=csrPem,proto3" json:"csr_pem,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CertRenewRequest) Reset() {
+	*x = CertRenewRequest{}
+	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CertRenewRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CertRenewRequest) ProtoMessage() {}
+
+func (x *CertRenewRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CertRenewRequest.ProtoReflect.Descriptor instead.
+func (*CertRenewRequest) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CertRenewRequest) GetCsrPem() string {
+	if x != nil {
+		return x.CsrPem
+	}
+	return ""
+}
+
+// AgentEvent reports something that happened outside a job, such as a
+// failed certificate renewal, so the panel can log and notify it.
+type AgentEvent struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Kind          string                 `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`       // e.g. "tls.renew_failed", "backup.failed"
+	Subject       string                 `protobuf:"bytes,2,opt,name=subject,proto3" json:"subject,omitempty"` // e.g. the domain
+	Message       string                 `protobuf:"bytes,3,opt,name=message,proto3" json:"message,omitempty"`
+	Ok            bool                   `protobuf:"varint,4,opt,name=ok,proto3" json:"ok,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AgentEvent) Reset() {
+	*x = AgentEvent{}
+	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AgentEvent) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AgentEvent) ProtoMessage() {}
+
+func (x *AgentEvent) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AgentEvent.ProtoReflect.Descriptor instead.
+func (*AgentEvent) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *AgentEvent) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *AgentEvent) GetSubject() string {
+	if x != nil {
+		return x.Subject
+	}
+	return ""
+}
+
+func (x *AgentEvent) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *AgentEvent) GetOk() bool {
+	if x != nil {
+		return x.Ok
+	}
+	return false
+}
 
 type TerminalOutput struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -513,7 +661,7 @@ type TerminalOutput struct {
 
 func (x *TerminalOutput) Reset() {
 	*x = TerminalOutput{}
-	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	mi := &file_agent_v1_agent_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -525,7 +673,7 @@ func (x *TerminalOutput) String() string {
 func (*TerminalOutput) ProtoMessage() {}
 
 func (x *TerminalOutput) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[1]
+	mi := &file_agent_v1_agent_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -538,7 +686,7 @@ func (x *TerminalOutput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalOutput.ProtoReflect.Descriptor instead.
 func (*TerminalOutput) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{1}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *TerminalOutput) GetSessionId() string {
@@ -566,7 +714,7 @@ type TerminalExit struct {
 
 func (x *TerminalExit) Reset() {
 	*x = TerminalExit{}
-	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_agent_v1_agent_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -578,7 +726,7 @@ func (x *TerminalExit) String() string {
 func (*TerminalExit) ProtoMessage() {}
 
 func (x *TerminalExit) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[2]
+	mi := &file_agent_v1_agent_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -591,7 +739,7 @@ func (x *TerminalExit) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalExit.ProtoReflect.Descriptor instead.
 func (*TerminalExit) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{2}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *TerminalExit) GetSessionId() string {
@@ -626,7 +774,7 @@ type TerminalOpen struct {
 
 func (x *TerminalOpen) Reset() {
 	*x = TerminalOpen{}
-	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_agent_v1_agent_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +786,7 @@ func (x *TerminalOpen) String() string {
 func (*TerminalOpen) ProtoMessage() {}
 
 func (x *TerminalOpen) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[3]
+	mi := &file_agent_v1_agent_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +799,7 @@ func (x *TerminalOpen) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalOpen.ProtoReflect.Descriptor instead.
 func (*TerminalOpen) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{3}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *TerminalOpen) GetSessionId() string {
@@ -685,7 +833,7 @@ type TerminalInput struct {
 
 func (x *TerminalInput) Reset() {
 	*x = TerminalInput{}
-	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_agent_v1_agent_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -697,7 +845,7 @@ func (x *TerminalInput) String() string {
 func (*TerminalInput) ProtoMessage() {}
 
 func (x *TerminalInput) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[4]
+	mi := &file_agent_v1_agent_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -710,7 +858,7 @@ func (x *TerminalInput) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalInput.ProtoReflect.Descriptor instead.
 func (*TerminalInput) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{4}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *TerminalInput) GetSessionId() string {
@@ -738,7 +886,7 @@ type TerminalResize struct {
 
 func (x *TerminalResize) Reset() {
 	*x = TerminalResize{}
-	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_agent_v1_agent_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -750,7 +898,7 @@ func (x *TerminalResize) String() string {
 func (*TerminalResize) ProtoMessage() {}
 
 func (x *TerminalResize) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[5]
+	mi := &file_agent_v1_agent_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -763,7 +911,7 @@ func (x *TerminalResize) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalResize.ProtoReflect.Descriptor instead.
 func (*TerminalResize) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{5}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *TerminalResize) GetSessionId() string {
@@ -796,7 +944,7 @@ type TerminalClose struct {
 
 func (x *TerminalClose) Reset() {
 	*x = TerminalClose{}
-	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_agent_v1_agent_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -808,7 +956,7 @@ func (x *TerminalClose) String() string {
 func (*TerminalClose) ProtoMessage() {}
 
 func (x *TerminalClose) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[6]
+	mi := &file_agent_v1_agent_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -821,7 +969,7 @@ func (x *TerminalClose) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TerminalClose.ProtoReflect.Descriptor instead.
 func (*TerminalClose) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{6}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *TerminalClose) GetSessionId() string {
@@ -848,7 +996,7 @@ type Hello struct {
 
 func (x *Hello) Reset() {
 	*x = Hello{}
-	mi := &file_agent_v1_agent_proto_msgTypes[7]
+	mi := &file_agent_v1_agent_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -860,7 +1008,7 @@ func (x *Hello) String() string {
 func (*Hello) ProtoMessage() {}
 
 func (x *Hello) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[7]
+	mi := &file_agent_v1_agent_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -873,7 +1021,7 @@ func (x *Hello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Hello.ProtoReflect.Descriptor instead.
 func (*Hello) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{7}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *Hello) GetHostname() string {
@@ -950,7 +1098,7 @@ type Metrics struct {
 
 func (x *Metrics) Reset() {
 	*x = Metrics{}
-	mi := &file_agent_v1_agent_proto_msgTypes[8]
+	mi := &file_agent_v1_agent_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -962,7 +1110,7 @@ func (x *Metrics) String() string {
 func (*Metrics) ProtoMessage() {}
 
 func (x *Metrics) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[8]
+	mi := &file_agent_v1_agent_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -975,7 +1123,7 @@ func (x *Metrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Metrics.ProtoReflect.Descriptor instead.
 func (*Metrics) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{8}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Metrics) GetTsUnixMs() int64 {
@@ -1062,7 +1210,7 @@ type JobUpdate struct {
 
 func (x *JobUpdate) Reset() {
 	*x = JobUpdate{}
-	mi := &file_agent_v1_agent_proto_msgTypes[9]
+	mi := &file_agent_v1_agent_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1074,7 +1222,7 @@ func (x *JobUpdate) String() string {
 func (*JobUpdate) ProtoMessage() {}
 
 func (x *JobUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[9]
+	mi := &file_agent_v1_agent_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1087,7 +1235,7 @@ func (x *JobUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use JobUpdate.ProtoReflect.Descriptor instead.
 func (*JobUpdate) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{9}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *JobUpdate) GetJobId() string {
@@ -1134,6 +1282,8 @@ type PanelMessage struct {
 	//	*PanelMessage_TerminalInput
 	//	*PanelMessage_TerminalResize
 	//	*PanelMessage_TerminalClose
+	//	*PanelMessage_CertRenew
+	//	*PanelMessage_JobCancel
 	Msg           isPanelMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -1141,7 +1291,7 @@ type PanelMessage struct {
 
 func (x *PanelMessage) Reset() {
 	*x = PanelMessage{}
-	mi := &file_agent_v1_agent_proto_msgTypes[10]
+	mi := &file_agent_v1_agent_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1153,7 +1303,7 @@ func (x *PanelMessage) String() string {
 func (*PanelMessage) ProtoMessage() {}
 
 func (x *PanelMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[10]
+	mi := &file_agent_v1_agent_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1166,7 +1316,7 @@ func (x *PanelMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PanelMessage.ProtoReflect.Descriptor instead.
 func (*PanelMessage) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{10}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *PanelMessage) GetMsg() isPanelMessage_Msg {
@@ -1221,6 +1371,24 @@ func (x *PanelMessage) GetTerminalClose() *TerminalClose {
 	return nil
 }
 
+func (x *PanelMessage) GetCertRenew() *CertRenewResponse {
+	if x != nil {
+		if x, ok := x.Msg.(*PanelMessage_CertRenew); ok {
+			return x.CertRenew
+		}
+	}
+	return nil
+}
+
+func (x *PanelMessage) GetJobCancel() *JobCancel {
+	if x != nil {
+		if x, ok := x.Msg.(*PanelMessage_JobCancel); ok {
+			return x.JobCancel
+		}
+	}
+	return nil
+}
+
 type isPanelMessage_Msg interface {
 	isPanelMessage_Msg()
 }
@@ -1245,6 +1413,14 @@ type PanelMessage_TerminalClose struct {
 	TerminalClose *TerminalClose `protobuf:"bytes,5,opt,name=terminal_close,json=terminalClose,proto3,oneof"`
 }
 
+type PanelMessage_CertRenew struct {
+	CertRenew *CertRenewResponse `protobuf:"bytes,6,opt,name=cert_renew,json=certRenew,proto3,oneof"`
+}
+
+type PanelMessage_JobCancel struct {
+	JobCancel *JobCancel `protobuf:"bytes,7,opt,name=job_cancel,json=jobCancel,proto3,oneof"`
+}
+
 func (*PanelMessage_Job) isPanelMessage_Msg() {}
 
 func (*PanelMessage_TerminalOpen) isPanelMessage_Msg() {}
@@ -1254,6 +1430,107 @@ func (*PanelMessage_TerminalInput) isPanelMessage_Msg() {}
 func (*PanelMessage_TerminalResize) isPanelMessage_Msg() {}
 
 func (*PanelMessage_TerminalClose) isPanelMessage_Msg() {}
+
+func (*PanelMessage_CertRenew) isPanelMessage_Msg() {}
+
+func (*PanelMessage_JobCancel) isPanelMessage_Msg() {}
+
+type CertRenewResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	CertPem       string                 `protobuf:"bytes,1,opt,name=cert_pem,json=certPem,proto3" json:"cert_pem,omitempty"`
+	Error         string                 `protobuf:"bytes,2,opt,name=error,proto3" json:"error,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CertRenewResponse) Reset() {
+	*x = CertRenewResponse{}
+	mi := &file_agent_v1_agent_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CertRenewResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CertRenewResponse) ProtoMessage() {}
+
+func (x *CertRenewResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CertRenewResponse.ProtoReflect.Descriptor instead.
+func (*CertRenewResponse) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *CertRenewResponse) GetCertPem() string {
+	if x != nil {
+		return x.CertPem
+	}
+	return ""
+}
+
+func (x *CertRenewResponse) GetError() string {
+	if x != nil {
+		return x.Error
+	}
+	return ""
+}
+
+// JobCancel stops a running job (its context is cancelled).
+type JobCancel struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	JobId         string                 `protobuf:"bytes,1,opt,name=job_id,json=jobId,proto3" json:"job_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *JobCancel) Reset() {
+	*x = JobCancel{}
+	mi := &file_agent_v1_agent_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *JobCancel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*JobCancel) ProtoMessage() {}
+
+func (x *JobCancel) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_v1_agent_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use JobCancel.ProtoReflect.Descriptor instead.
+func (*JobCancel) Descriptor() ([]byte, []int) {
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *JobCancel) GetJobId() string {
+	if x != nil {
+		return x.JobId
+	}
+	return ""
+}
 
 type Job struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1266,7 +1543,7 @@ type Job struct {
 
 func (x *Job) Reset() {
 	*x = Job{}
-	mi := &file_agent_v1_agent_proto_msgTypes[11]
+	mi := &file_agent_v1_agent_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1278,7 +1555,7 @@ func (x *Job) String() string {
 func (*Job) ProtoMessage() {}
 
 func (x *Job) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_v1_agent_proto_msgTypes[11]
+	mi := &file_agent_v1_agent_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1291,7 +1568,7 @@ func (x *Job) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Job.ProtoReflect.Descriptor instead.
 func (*Job) Descriptor() ([]byte, []int) {
-	return file_agent_v1_agent_proto_rawDescGZIP(), []int{11}
+	return file_agent_v1_agent_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *Job) GetId() string {
@@ -1319,15 +1596,26 @@ var File_agent_v1_agent_proto protoreflect.FileDescriptor
 
 const file_agent_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x14agent/v1/agent.proto\x12\bagent.v1\"\xa7\x02\n" +
+	"\x14agent/v1/agent.proto\x12\bagent.v1\"\x92\x03\n" +
 	"\fAgentMessage\x12'\n" +
 	"\x05hello\x18\x01 \x01(\v2\x0f.agent.v1.HelloH\x00R\x05hello\x12-\n" +
 	"\ametrics\x18\x02 \x01(\v2\x11.agent.v1.MetricsH\x00R\ametrics\x124\n" +
 	"\n" +
 	"job_update\x18\x03 \x01(\v2\x13.agent.v1.JobUpdateH\x00R\tjobUpdate\x12C\n" +
 	"\x0fterminal_output\x18\x04 \x01(\v2\x18.agent.v1.TerminalOutputH\x00R\x0eterminalOutput\x12=\n" +
-	"\rterminal_exit\x18\x05 \x01(\v2\x16.agent.v1.TerminalExitH\x00R\fterminalExitB\x05\n" +
-	"\x03msg\"C\n" +
+	"\rterminal_exit\x18\x05 \x01(\v2\x16.agent.v1.TerminalExitH\x00R\fterminalExit\x12;\n" +
+	"\n" +
+	"cert_renew\x18\x06 \x01(\v2\x1a.agent.v1.CertRenewRequestH\x00R\tcertRenew\x12,\n" +
+	"\x05event\x18\a \x01(\v2\x14.agent.v1.AgentEventH\x00R\x05eventB\x05\n" +
+	"\x03msg\"+\n" +
+	"\x10CertRenewRequest\x12\x17\n" +
+	"\acsr_pem\x18\x01 \x01(\tR\x06csrPem\"d\n" +
+	"\n" +
+	"AgentEvent\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x18\n" +
+	"\asubject\x18\x02 \x01(\tR\asubject\x12\x18\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\x12\x0e\n" +
+	"\x02ok\x18\x04 \x01(\bR\x02ok\"C\n" +
 	"\x0eTerminalOutput\x12\x1d\n" +
 	"\n" +
 	"session_id\x18\x01 \x01(\tR\tsessionId\x12\x12\n" +
@@ -1384,14 +1672,23 @@ const file_agent_v1_agent_proto_rawDesc = "" +
 	"\tlog_lines\x18\x03 \x03(\tR\blogLines\x12\x1f\n" +
 	"\vresult_json\x18\x04 \x01(\tR\n" +
 	"resultJson\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05error\"\xc0\x02\n" +
+	"\x05error\x18\x05 \x01(\tR\x05error\"\xb4\x03\n" +
 	"\fPanelMessage\x12!\n" +
 	"\x03job\x18\x01 \x01(\v2\r.agent.v1.JobH\x00R\x03job\x12=\n" +
 	"\rterminal_open\x18\x02 \x01(\v2\x16.agent.v1.TerminalOpenH\x00R\fterminalOpen\x12@\n" +
 	"\x0eterminal_input\x18\x03 \x01(\v2\x17.agent.v1.TerminalInputH\x00R\rterminalInput\x12C\n" +
 	"\x0fterminal_resize\x18\x04 \x01(\v2\x18.agent.v1.TerminalResizeH\x00R\x0eterminalResize\x12@\n" +
-	"\x0eterminal_close\x18\x05 \x01(\v2\x17.agent.v1.TerminalCloseH\x00R\rterminalCloseB\x05\n" +
-	"\x03msg\"\xa1\x01\n" +
+	"\x0eterminal_close\x18\x05 \x01(\v2\x17.agent.v1.TerminalCloseH\x00R\rterminalClose\x12<\n" +
+	"\n" +
+	"cert_renew\x18\x06 \x01(\v2\x1b.agent.v1.CertRenewResponseH\x00R\tcertRenew\x124\n" +
+	"\n" +
+	"job_cancel\x18\a \x01(\v2\x13.agent.v1.JobCancelH\x00R\tjobCancelB\x05\n" +
+	"\x03msg\"D\n" +
+	"\x11CertRenewResponse\x12\x19\n" +
+	"\bcert_pem\x18\x01 \x01(\tR\acertPem\x12\x14\n" +
+	"\x05error\x18\x02 \x01(\tR\x05error\"\"\n" +
+	"\tJobCancel\x12\x15\n" +
+	"\x06job_id\x18\x01 \x01(\tR\x05jobId\"\xa1\x01\n" +
 	"\x03Job\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1c\n" +
 	"\x02op\x18\x02 \x01(\x0e2\f.agent.v1.OpR\x02op\x121\n" +
@@ -1508,45 +1805,53 @@ func file_agent_v1_agent_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_v1_agent_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_agent_v1_agent_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_agent_v1_agent_proto_goTypes = []any{
-	(JobStatus)(0),         // 0: agent.v1.JobStatus
-	(Op)(0),                // 1: agent.v1.Op
-	(*AgentMessage)(nil),   // 2: agent.v1.AgentMessage
-	(*TerminalOutput)(nil), // 3: agent.v1.TerminalOutput
-	(*TerminalExit)(nil),   // 4: agent.v1.TerminalExit
-	(*TerminalOpen)(nil),   // 5: agent.v1.TerminalOpen
-	(*TerminalInput)(nil),  // 6: agent.v1.TerminalInput
-	(*TerminalResize)(nil), // 7: agent.v1.TerminalResize
-	(*TerminalClose)(nil),  // 8: agent.v1.TerminalClose
-	(*Hello)(nil),          // 9: agent.v1.Hello
-	(*Metrics)(nil),        // 10: agent.v1.Metrics
-	(*JobUpdate)(nil),      // 11: agent.v1.JobUpdate
-	(*PanelMessage)(nil),   // 12: agent.v1.PanelMessage
-	(*Job)(nil),            // 13: agent.v1.Job
-	nil,                    // 14: agent.v1.Job.ParamsEntry
+	(JobStatus)(0),            // 0: agent.v1.JobStatus
+	(Op)(0),                   // 1: agent.v1.Op
+	(*AgentMessage)(nil),      // 2: agent.v1.AgentMessage
+	(*CertRenewRequest)(nil),  // 3: agent.v1.CertRenewRequest
+	(*AgentEvent)(nil),        // 4: agent.v1.AgentEvent
+	(*TerminalOutput)(nil),    // 5: agent.v1.TerminalOutput
+	(*TerminalExit)(nil),      // 6: agent.v1.TerminalExit
+	(*TerminalOpen)(nil),      // 7: agent.v1.TerminalOpen
+	(*TerminalInput)(nil),     // 8: agent.v1.TerminalInput
+	(*TerminalResize)(nil),    // 9: agent.v1.TerminalResize
+	(*TerminalClose)(nil),     // 10: agent.v1.TerminalClose
+	(*Hello)(nil),             // 11: agent.v1.Hello
+	(*Metrics)(nil),           // 12: agent.v1.Metrics
+	(*JobUpdate)(nil),         // 13: agent.v1.JobUpdate
+	(*PanelMessage)(nil),      // 14: agent.v1.PanelMessage
+	(*CertRenewResponse)(nil), // 15: agent.v1.CertRenewResponse
+	(*JobCancel)(nil),         // 16: agent.v1.JobCancel
+	(*Job)(nil),               // 17: agent.v1.Job
+	nil,                       // 18: agent.v1.Job.ParamsEntry
 }
 var file_agent_v1_agent_proto_depIdxs = []int32{
-	9,  // 0: agent.v1.AgentMessage.hello:type_name -> agent.v1.Hello
-	10, // 1: agent.v1.AgentMessage.metrics:type_name -> agent.v1.Metrics
-	11, // 2: agent.v1.AgentMessage.job_update:type_name -> agent.v1.JobUpdate
-	3,  // 3: agent.v1.AgentMessage.terminal_output:type_name -> agent.v1.TerminalOutput
-	4,  // 4: agent.v1.AgentMessage.terminal_exit:type_name -> agent.v1.TerminalExit
-	0,  // 5: agent.v1.JobUpdate.status:type_name -> agent.v1.JobStatus
-	13, // 6: agent.v1.PanelMessage.job:type_name -> agent.v1.Job
-	5,  // 7: agent.v1.PanelMessage.terminal_open:type_name -> agent.v1.TerminalOpen
-	6,  // 8: agent.v1.PanelMessage.terminal_input:type_name -> agent.v1.TerminalInput
-	7,  // 9: agent.v1.PanelMessage.terminal_resize:type_name -> agent.v1.TerminalResize
-	8,  // 10: agent.v1.PanelMessage.terminal_close:type_name -> agent.v1.TerminalClose
-	1,  // 11: agent.v1.Job.op:type_name -> agent.v1.Op
-	14, // 12: agent.v1.Job.params:type_name -> agent.v1.Job.ParamsEntry
-	2,  // 13: agent.v1.AgentService.Connect:input_type -> agent.v1.AgentMessage
-	12, // 14: agent.v1.AgentService.Connect:output_type -> agent.v1.PanelMessage
-	14, // [14:15] is the sub-list for method output_type
-	13, // [13:14] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	11, // 0: agent.v1.AgentMessage.hello:type_name -> agent.v1.Hello
+	12, // 1: agent.v1.AgentMessage.metrics:type_name -> agent.v1.Metrics
+	13, // 2: agent.v1.AgentMessage.job_update:type_name -> agent.v1.JobUpdate
+	5,  // 3: agent.v1.AgentMessage.terminal_output:type_name -> agent.v1.TerminalOutput
+	6,  // 4: agent.v1.AgentMessage.terminal_exit:type_name -> agent.v1.TerminalExit
+	3,  // 5: agent.v1.AgentMessage.cert_renew:type_name -> agent.v1.CertRenewRequest
+	4,  // 6: agent.v1.AgentMessage.event:type_name -> agent.v1.AgentEvent
+	0,  // 7: agent.v1.JobUpdate.status:type_name -> agent.v1.JobStatus
+	17, // 8: agent.v1.PanelMessage.job:type_name -> agent.v1.Job
+	7,  // 9: agent.v1.PanelMessage.terminal_open:type_name -> agent.v1.TerminalOpen
+	8,  // 10: agent.v1.PanelMessage.terminal_input:type_name -> agent.v1.TerminalInput
+	9,  // 11: agent.v1.PanelMessage.terminal_resize:type_name -> agent.v1.TerminalResize
+	10, // 12: agent.v1.PanelMessage.terminal_close:type_name -> agent.v1.TerminalClose
+	15, // 13: agent.v1.PanelMessage.cert_renew:type_name -> agent.v1.CertRenewResponse
+	16, // 14: agent.v1.PanelMessage.job_cancel:type_name -> agent.v1.JobCancel
+	1,  // 15: agent.v1.Job.op:type_name -> agent.v1.Op
+	18, // 16: agent.v1.Job.params:type_name -> agent.v1.Job.ParamsEntry
+	2,  // 17: agent.v1.AgentService.Connect:input_type -> agent.v1.AgentMessage
+	14, // 18: agent.v1.AgentService.Connect:output_type -> agent.v1.PanelMessage
+	18, // [18:19] is the sub-list for method output_type
+	17, // [17:18] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_agent_v1_agent_proto_init() }
@@ -1560,13 +1865,17 @@ func file_agent_v1_agent_proto_init() {
 		(*AgentMessage_JobUpdate)(nil),
 		(*AgentMessage_TerminalOutput)(nil),
 		(*AgentMessage_TerminalExit)(nil),
+		(*AgentMessage_CertRenew)(nil),
+		(*AgentMessage_Event)(nil),
 	}
-	file_agent_v1_agent_proto_msgTypes[10].OneofWrappers = []any{
+	file_agent_v1_agent_proto_msgTypes[12].OneofWrappers = []any{
 		(*PanelMessage_Job)(nil),
 		(*PanelMessage_TerminalOpen)(nil),
 		(*PanelMessage_TerminalInput)(nil),
 		(*PanelMessage_TerminalResize)(nil),
 		(*PanelMessage_TerminalClose)(nil),
+		(*PanelMessage_CertRenew)(nil),
+		(*PanelMessage_JobCancel)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
@@ -1574,7 +1883,7 @@ func file_agent_v1_agent_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_v1_agent_proto_rawDesc), len(file_agent_v1_agent_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   13,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
