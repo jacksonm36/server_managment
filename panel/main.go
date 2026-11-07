@@ -200,6 +200,7 @@ func run(log *slog.Logger) error {
 	go a.RunAlerts(ctx)
 	go a.RunCatalogRefresh(ctx)
 	go a.RunGuestLinkSweep(ctx)
+	go a.RunPanelCertRenewal(ctx)
 
 	handler := a.Handler() // one instance, so both listeners share rate limits
 	hs := &http.Server{
@@ -223,7 +224,7 @@ func run(log *slog.Logger) error {
 			Addr:              httpsAddr,
 			Handler:           handler,
 			ReadHeaderTimeout: 10 * time.Second,
-			TLSConfig:         &tls.Config{Certificates: []tls.Certificate{srvCert}, MinVersion: tls.VersionTLS12},
+			TLSConfig:         &tls.Config{GetCertificate: a.TLSCertificate(srvCert), MinVersion: tls.VersionTLS12},
 		}
 		go func() {
 			log.Info("HTTPS listening", "addr", httpsAddr)

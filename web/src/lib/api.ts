@@ -24,6 +24,7 @@ export type Server = {
   agent_version: string;
   created_at: string;
   last_seen_at: string | null;
+  cert_expires_at?: string | null;
   online: boolean;
   latest: Metric | null;
   groups?: number[];
@@ -132,6 +133,7 @@ export type Channel = {
   type: "email" | "telegram" | "discord" | "webhook";
   config: Record<string, string>;
   enabled: boolean;
+  notify_events?: boolean;
   last_sent_at: string | null;
   last_error: string;
 };
@@ -162,7 +164,10 @@ export type AlertEvent = {
   resolved_at: string | null;
 };
 
-type ChannelBody = Pick<Channel, "name" | "type" | "config" | "enabled">;
+type ChannelBody = Pick<Channel, "name" | "type" | "config" | "enabled" | "notify_events">;
+
+export type SessionInfo = { id: string; created_at: string; last_used_at: string; expires_at: string; ip: string; user_agent: string; current: boolean };
+export type Retention = { jobs_days: number; audit_days: number; alerts_days: number; runs_days: number };
 const ruleBody = (r: AlertRule) => {
   const { name, metric, threshold, duration_sec, server_ids, all_servers, channel_ids, enabled } = r;
   return { name, metric, threshold, duration_sec, server_ids, all_servers, channel_ids, enabled };
@@ -812,6 +817,9 @@ export const api = {
   metrics: (id: string) => request<Metric[]>("GET", `/api/v1/servers/${id}/metrics`),
   jobs: (id: string) => request<Job[]>("GET", `/api/v1/servers/${id}/jobs`),
   job: (id: string) => request<Job>("GET", `/api/v1/jobs/${id}`),
+  cancelJob: (id: string) => request<void>("POST", `/api/v1/jobs/${id}/cancel`),
+  sessions: () => request<{ sessions: SessionInfo[]; idle_minutes: number }>("GET", "/api/v1/account/sessions"),
+  endSession: (id: string) => request<void>("DELETE", `/api/v1/account/sessions/${id}`),
   runJob: (id: string, op: string, params: Record<string, string> = {}) =>
     request<Job>("POST", `/api/v1/servers/${id}/jobs`, { op, params }),
   audit: (q: { action?: string; before?: number; limit?: number } = {}) => {

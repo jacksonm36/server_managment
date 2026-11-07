@@ -62,3 +62,31 @@ func (a *API) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	a.audit(r, "", "job.cancel", j.Op, map[string]string{"job": j.ID, "server": j.ServerID}, true)
 	w.WriteHeader(http.StatusAccepted)
 }
+
+func (a *API) handleGetRetention(w http.ResponseWriter, r *http.Request) {
+	ret, err := a.Store.GetRetention(r.Context())
+	if err != nil {
+		a.internal(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, ret)
+}
+
+func (a *API) handleSetRetention(w http.ResponseWriter, r *http.Request) {
+	var req store.Retention
+	if !readJSON(w, r, &req) {
+		return
+	}
+	for _, d := range []int{req.JobsDays, req.AuditDays, req.AlertsDays, req.RunsDays} {
+		if d < 0 || d > 3650 {
+			writeErr(w, http.StatusBadRequest, "days must be 0 (keep forever) to 3650")
+			return
+		}
+	}
+	if err := a.Store.SetRetention(r.Context(), req); err != nil {
+		a.internal(w, err)
+		return
+	}
+	a.audit(r, "", "settings.retention", "", req, true)
+	writeJSON(w, http.StatusOK, req)
+}

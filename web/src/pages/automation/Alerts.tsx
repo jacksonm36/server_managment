@@ -334,6 +334,7 @@ export function Notifications() {
               <span className="font-medium">{c.name}</span>
               <Badge variant="outline">{c.type}</Badge>
               {!c.enabled && <Badge variant="warning">disabled</Badge>}
+              {c.notify_events && <Badge variant="outline">+ events</Badge>}
             </div>
             <div className="mt-1 text-xs text-muted-foreground">
               {result[c.id] ?? (c.last_error ? <span className="text-destructive">Last attempt failed: {c.last_error}</span> : c.last_sent_at ? `Last sent ${timeAgo(c.last_sent_at)}` : "Never used")}
@@ -391,6 +392,7 @@ function ChannelDialog({ c, onClose, onSaved }: { c: Channel; onClose: () => voi
   const [name, setName] = useState(c.name);
   const [type, setType] = useState<Channel["type"]>(c.type);
   const [enabled, setEnabled] = useState(c.enabled);
+  const [events, setEvents] = useState(!!c.notify_events);
   const [cfg, setCfg] = useState<Record<string, string>>(c.config.tls ? c.config : { tls: "starttls", port: "587", ...c.config });
   const [error, setError] = useState("");
 
@@ -409,7 +411,7 @@ function ChannelDialog({ c, onClose, onSaved }: { c: Channel; onClose: () => voi
             const config: Record<string, string> = {};
             for (const f of CHANNEL_FIELDS[type]) if (cfg[f.key]) config[f.key] = cfg[f.key];
             try {
-              await (c.id ? api.updateChannel(c.id, { name, type, config, enabled }) : api.createChannel({ name, type, config, enabled }));
+              await (c.id ? api.updateChannel(c.id, { name, type, config, enabled, notify_events: events }) : api.createChannel({ name, type, config, enabled, notify_events: events }));
               onSaved();
             } catch (err) {
               setError((err as Error).message);
@@ -462,6 +464,13 @@ function ChannelDialog({ c, onClose, onSaved }: { c: Channel; onClose: () => voi
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input type="checkbox" className="accent-[var(--color-brand)]" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
             Enabled
+          </label>
+          <label className="flex cursor-pointer items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1 accent-[var(--color-brand)]" checked={events} onChange={(e) => setEvents(e.target.checked)} />
+            <span>
+              Also send server events
+              <span className="block text-xs text-muted-foreground">Failed certificate renewals, failed scheduled backups and repeated failed sign-ins, not only alert rules.</span>
+            </span>
           </label>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex justify-end gap-2">

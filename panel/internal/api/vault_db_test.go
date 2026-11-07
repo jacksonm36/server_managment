@@ -35,12 +35,14 @@ func TestVaultAndKeyLibraryEndToEnd(t *testing.T) {
 	code, setup, _ = p.call(root, "POST", "/api/v1/vault/setup", map[string]string{"passphrase": "vault passphrase 1"})
 	p.expect("setup", code, 200)
 	recovery, _ := setup["recovery_key"].(string)
-	if recovery == "" || setup["secrets_moved"].(float64) != 1 {
+	if recovery == "" || setup["secrets_moved"].(float64) != 0 {
 		t.Fatalf("setup: %v", setup)
 	}
+	// Notification settings stay on the panel key, so alerts still go out
+	// while the vault is locked after a restart.
 	_ = p.conn.QueryRow(ctx, `SELECT config FROM notify_channels`).Scan(&sealed)
-	if !vault.IsSealed(sealed) {
-		t.Fatal("existing secret not moved into the vault")
+	if vault.IsSealed(sealed) {
+		t.Fatal("notification channel moved into the vault")
 	}
 	p.expect("setup twice", first(p.call(root, "POST", "/api/v1/vault/setup", map[string]string{"passphrase": "vault passphrase 2"})), 409)
 

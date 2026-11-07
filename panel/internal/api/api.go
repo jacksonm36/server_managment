@@ -313,6 +313,23 @@ func (a *API) Handler() http.Handler {
 	authed.HandleFunc("DELETE /api/v1/servers/{id}/zfs/replication", needOn("server.system", a.handleZFSReplDelete))
 
 	// Users, roles and groups.
+	authed.HandleFunc("GET /api/v1/dns/types", need("dns.view", a.handleDNSTypes))
+	authed.HandleFunc("GET /api/v1/dns/providers", need("dns.view", a.handleListDNSProviders))
+	authed.HandleFunc("POST /api/v1/dns/providers", need("dns.manage", a.handleSaveDNSProvider))
+	authed.HandleFunc("PUT /api/v1/dns/providers/{id}", need("dns.manage", a.handleSaveDNSProvider))
+	authed.HandleFunc("DELETE /api/v1/dns/providers/{id}", need("dns.manage", a.handleDeleteDNSProvider))
+	authed.HandleFunc("GET /api/v1/dns/providers/{id}/zones", need("dns.view", a.handleDNSZones))
+	authed.HandleFunc("GET /api/v1/dns/providers/{id}/zones/{zone}/records", need("dns.view", a.handleDNSRecords))
+	authed.HandleFunc("POST /api/v1/dns/providers/{id}/zones/{zone}/records", need("dns.edit", a.handleDNSRecordChange))
+	authed.HandleFunc("PUT /api/v1/dns/providers/{id}/zones/{zone}/records", need("dns.edit", a.handleDNSRecordChange))
+	authed.HandleFunc("DELETE /api/v1/dns/providers/{id}/zones/{zone}/records", need("dns.edit", a.handleDNSRecordChange))
+	authed.HandleFunc("GET /api/v1/dns/lookup", need("dns.view", a.handleDNSLookup))
+	authed.HandleFunc("POST /api/v1/dns/point", need("dns.edit", a.handleDNSPoint))
+	authed.HandleFunc("GET /api/v1/settings/panel-cert", need("settings.manage", a.handleGetPanelCert))
+	authed.HandleFunc("PUT /api/v1/settings/panel-cert", need("settings.manage", a.handleSetPanelCert))
+	authed.HandleFunc("GET /api/v1/settings/retention", need("settings.manage", a.handleGetRetention))
+	authed.HandleFunc("PUT /api/v1/settings/retention", need("settings.manage", a.handleSetRetention))
+
 	authed.HandleFunc("GET /api/v1/permissions", a.handleListPermissions)
 	authed.HandleFunc("GET /api/v1/vault", a.handleVaultStatus)
 	authed.HandleFunc("POST /api/v1/vault/setup", need("vault.manage", a.handleVaultSetup))
@@ -363,6 +380,9 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "same-origin")
 		h.Set("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'")
+		if r.TLS != nil && publicCertFor(r.Host) {
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+		}
 		next.ServeHTTP(w, r)
 	})
 }
@@ -426,10 +446,13 @@ type serverView struct {
 	Online bool        `json:"online"`
 	Latest *hub.Metric `json:"latest"`
 	Groups []int64     `json:"groups"`
+	// Address is the IP the agent last connected from (behind NAT, the
+	// public address).
+	Address string `json:"address"`
 }
 
 func (a *API) view(s *store.Server, groups map[string][]int64) serverView {
-	return serverView{Server: s, Online: a.Hub.Online(s.ID), Latest: a.Hub.LatestMetric(s.ID), Groups: orEmpty(groups[s.ID])}
+	return serverView{Server: s, Online: a.Hub.Online(s.ID), Latest: a.Hub.LatestMetric(s.ID), Groups: orEmpty(groups[s.ID]), Address: a.Hub.Addr(s.ID)}
 }
 
 // handleListServers lists the servers the caller may see.

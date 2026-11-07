@@ -59,6 +59,10 @@ var permissions = []Permission{
 	{"proxmox.manage", "Add and change Proxmox clusters; manage their nodes, storage and datacenter settings", "Proxmox", false},
 	{"tenants.manage", "Create tenants and set up their isolation on Proxmox", "Panel", false},
 
+	{"dns.view", "See DNS providers, zones and records", "DNS", false},
+	{"dns.edit", "Create, change and delete DNS records", "DNS", false},
+	{"dns.manage", "Add DNS provider accounts (their API tokens)", "DNS", false},
+
 	{"audit.view", "See the audit log", "Panel", false},
 	{"notifications.manage", "Edit notification channels", "Panel", false},
 	{"settings.manage", "Change panel settings (baselines)", "Panel", false},
@@ -90,7 +94,7 @@ var builtinPerms = func() map[string][]string {
 	for _, p := range all {
 		switch p {
 		case "server.delete", "servers.add", "keys.manage", "notifications.manage", "settings.manage",
-			"users.manage", "vault.manage", "ansible.manage", "tofu.manage", "proxmox.manage", "crowdsec.manage", "tenants.manage":
+			"users.manage", "vault.manage", "ansible.manage", "tofu.manage", "proxmox.manage", "crowdsec.manage", "tenants.manage", "dns.manage":
 		default:
 			operator = append(operator, p)
 		}
@@ -98,7 +102,7 @@ var builtinPerms = func() map[string][]string {
 	return map[string][]string{
 		roleAdmin:    all,
 		roleOperator: operator,
-		roleViewer:   {"server.view", "automation.view", "proxmox.view"},
+		roleViewer:   {"server.view", "automation.view", "proxmox.view", "dns.view"},
 		roleNone:     {},
 	}
 }()
